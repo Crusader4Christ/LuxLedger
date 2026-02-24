@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: luxledger-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: luxledger
+      POSTGRES_PASSWORD: luxledger
+      POSTGRES_DB: luxledger
+      TZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c timezone=UTC
+      -c max_connections=200
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luxledger"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres_test:
+    image: postgres:16-alpine
+    container_name: luxledger-db-test
+    environment:
+      POSTGRES_USER: luxledger
+      POSTGRES_PASSWORD: luxledger
+      POSTGRES_DB: luxledger_test
+      TZ: UTC
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+
+volumes:
+  pgdata:
