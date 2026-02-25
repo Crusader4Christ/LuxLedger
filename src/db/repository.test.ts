@@ -603,4 +603,66 @@ describe('DrizzleLedgerRepository', () => {
       [...firstPage.data, ...secondPage.data].every((entry) => entry.amountMinor !== 999n),
     ).toBeTrue();
   });
+
+  it('getTrialBalance returns balanced totals and account rows', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+      balanceMinor: -100n,
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+      balanceMinor: 100n,
+    });
+
+    const trialBalance = await repository.getTrialBalance(ledgerId);
+
+    expect(trialBalance.ledgerId).toBe(ledgerId);
+    expect(trialBalance.totalDebitsMinor).toBe(100n);
+    expect(trialBalance.totalCreditsMinor).toBe(100n);
+    expect(trialBalance.accounts.length).toBe(2);
+
+    const debitAccount = trialBalance.accounts.find(
+      (account) => account.accountId === debitAccountId,
+    );
+    const creditAccount = trialBalance.accounts.find(
+      (account) => account.accountId === creditAccountId,
+    );
+
+    expect(debitAccount?.normalBalance).toBe('DEBIT');
+    expect(debitAccount?.balanceMinor).toBe(100n);
+    expect(creditAccount?.normalBalance).toBe('CREDIT');
+    expect(creditAccount?.balanceMinor).toBe(100n);
+  });
+
+  it('getTrialBalance throws when totals mismatch', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Unbalanced debit',
+      currency: 'USD',
+      balanceMinor: -100n,
+    });
+    await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Unbalanced credit',
+      currency: 'USD',
+      balanceMinor: 50n,
+    });
+
+    await expect(repository.getTrialBalance(ledgerId)).rejects.toBeInstanceOf(
+      InvariantViolationError,
+    );
+  });
 });
