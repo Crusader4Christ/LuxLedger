@@ -50,7 +50,7 @@ describe('LedgerService', () => {
     const repository = new InMemoryLedgerRepository();
     const service = new LedgerService(repository);
 
-    expect(service.createLedger({ tenantId: '  ', name: 'Cash' })).rejects.toBeInstanceOf(
+    await expect(service.createLedger({ tenantId: '  ', name: 'Cash' })).rejects.toBeInstanceOf(
       InvariantViolationError,
     );
   });
@@ -74,13 +74,15 @@ describe('LedgerService', () => {
     const repository = new InMemoryLedgerRepository();
     const service = new LedgerService(repository);
 
-    expect(service.getLedgerById('missing-ledger')).rejects.toBeInstanceOf(LedgerNotFoundError);
+    await expect(service.getLedgerById('missing-ledger')).rejects.toBeInstanceOf(
+      LedgerNotFoundError,
+    );
   });
 
   it('getLedgersByTenant throws InvariantViolationError for empty tenantId', async () => {
     const repository = new InMemoryLedgerRepository();
     const service = new LedgerService(repository);
 
-    expect(service.getLedgersByTenant('')).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(service.getLedgersByTenant('')).rejects.toBeInstanceOf(InvariantViolationError);
   });
 });
