@@ -11,6 +11,8 @@ import type {
   PostTransactionInput,
   PostTransactionResult,
   TransactionListItem,
+  TrialBalance,
+  TrialBalanceAccount,
 } from '@core/types';
 import { toAccountListItem, toEntryListItem, toLedger, toTransactionListItem } from '@db/mappers';
 import * as schema from '@db/schema';
@@ -334,6 +336,51 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       };
     } catch (error) {
       this.handleDatabaseError(error, 'list entries');
+    }
+  }
+
+  public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
+    try {
+      const accountRows = await this.db
+        .select()
+        .from(schema.accounts)
+        .where(eq(schema.accounts.ledgerId, ledgerId))
+        .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id));
+
+      let totalDebitsMinor = 0n;
+      let totalCreditsMinor = 0n;
+
+      const accounts: TrialBalanceAccount[] = accountRows.map((row) => {
+        const isDebit = row.balanceMinor <= 0n;
+        const absoluteBalance = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor;
+
+        if (isDebit) {
+          totalDebitsMinor += absoluteBalance;
+        } else {
+          totalCreditsMinor += absoluteBalance;
+        }
+
+        return {
+          accountId: row.id,
+          code: row.id,
+          name: row.name,
+          normalBalance: isDebit ? 'DEBIT' : 'CREDIT',
+          balanceMinor: absoluteBalance,
+        };
+      });
+
+      if (totalDebitsMinor !== totalCreditsMinor) {
+        throw new InvariantViolationError('trial balance totals mismatch');
+      }
+
+      return {
+        ledgerId,
+        accounts,
+        totalDebitsMinor,
+        totalCreditsMinor,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'get trial balance');
     }
   }
 

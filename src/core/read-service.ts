@@ -6,6 +6,7 @@ import type {
   PaginatedResult,
   PaginationQuery,
   TransactionListItem,
+  TrialBalance,
 } from '@core/types';
 
 export class LedgerReadService {
@@ -30,6 +31,14 @@ export class LedgerReadService {
   public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryListItem>> {
     this.validateQuery(query);
     return this.repository.listEntries(query);
+  }
+
+  public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
+    if (ledgerId.trim().length === 0) {
+      throw new InvariantViolationError('ledgerId is required');
+    }
+
+    return this.repository.getTrialBalance(ledgerId);
   }
 
   private validateQuery(query: PaginationQuery): void {

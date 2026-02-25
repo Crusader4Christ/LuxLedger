@@ -77,6 +77,21 @@ export interface EntryListItem {
   createdAt: Date;
 }
 
+export interface TrialBalanceAccount {
+  accountId: string;
+  code: string;
+  name: string;
+  normalBalance: 'DEBIT' | 'CREDIT';
+  balanceMinor: bigint;
+}
+
+export interface TrialBalance {
+  ledgerId: string;
+  accounts: TrialBalanceAccount[];
+  totalDebitsMinor: bigint;
+  totalCreditsMinor: bigint;
+}
+
 export interface LedgerRepository {
   createLedger(input: CreateLedgerInput): Promise<Ledger>;
   findLedgerById(id: string): Promise<Ledger | null>;
@@ -88,4 +103,5 @@ export interface LedgerReadRepository {
   listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountListItem>>;
   listTransactions(query: PaginationQuery): Promise<PaginatedResult<TransactionListItem>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryListItem>>;
+  getTrialBalance(ledgerId: string): Promise<TrialBalance>;
 }
