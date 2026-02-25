@@ -1,9 +1,12 @@
 import { registerLedgerRoutes } from '@api/routes/ledgers';
+import { registerListingRoutes } from '@api/routes/listings';
 import type { LedgerService } from '@core/ledger-service';
+import type { LedgerReadService } from '@core/read-service';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
 export interface BuildServerOptions {
   ledgerService: LedgerService;
+  readService: LedgerReadService;
   logger?: FastifyServerOptions['logger'];
 }
 
@@ -30,6 +33,9 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
 
   registerLedgerRoutes(server, {
     ledgerService: options.ledgerService,
+  });
+  registerListingRoutes(server, {
+    readService: options.readService,
   });
 
   server.setErrorHandler((error, request, reply) => {
