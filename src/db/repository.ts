@@ -87,6 +87,26 @@ const encodeCursor = (createdAt: Date, id: string): string =>
     'utf8',
   ).toString('base64url');
 
+const assertBalancedEntries = (entries: PostTransactionInput['entries']): void => {
+  if (entries.length < 2) {
+    throw new InvariantViolationError('transaction must have at least 2 entries');
+  }
+
+  let debitTotal = 0n;
+  let creditTotal = 0n;
+
+  for (const entry of entries) {
+    if (entry.direction === 'DEBIT') {
+      debitTotal += entry.amountMinor;
+    } else {
+      creditTotal += entry.amountMinor;
+    }
+  }
+
+  if (debitTotal !== creditTotal) {
+    throw new InvariantViolationError('total debits must equal total credits');
+  }
+};
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
@@ -165,6 +185,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
   public async postTransaction(input: PostTransactionInput): Promise<PostTransactionResult> {
     try {
+      assertBalancedEntries(input.entries);
+
       return await this.db.transaction(async (tx) => {
         const [insertedTransaction] = await tx
           .insert(schema.transactions)
