@@ -7,6 +7,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 export interface BuildServerOptions {
   ledgerService: LedgerService;
   readService: LedgerReadService;
+  readinessCheck: () => Promise<void>;
   logger?: FastifyServerOptions['logger'];
 }
 
@@ -29,6 +30,19 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
 
   server.get('/health', async () => {
     return { ok: true };
+  });
+
+  server.get('/ready', async (request, reply) => {
+    try {
+      await options.readinessCheck();
+      return reply.status(200).send({ ok: true });
+    } catch (error) {
+      request.log.error({ err: error }, 'Readiness check failed');
+      return reply.status(503).send({
+        error: 'NOT_READY',
+        message: 'Service not ready',
+      });
+    }
   });
 
   registerLedgerRoutes(server, {
