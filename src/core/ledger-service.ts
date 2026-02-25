@@ -1,16 +1,5 @@
 import { InvariantViolationError, LedgerNotFoundError } from '@core/errors';
-import type { Ledger } from '@core/types';
-
-export interface CreateLedgerInput {
-  tenantId: string;
-  name: string;
-}
-
-export interface LedgerRepository {
-  createLedger(input: CreateLedgerInput): Promise<Ledger>;
-  findLedgerById(id: string): Promise<Ledger | null>;
-  findLedgersByTenant(tenantId: string): Promise<Ledger[]>;
-}
+import type { CreateLedgerInput, Ledger, LedgerRepository } from '@core/types';
 
 export class LedgerService {
   private readonly repository: LedgerRepository;
