@@ -4,11 +4,29 @@ import { InvariantViolationError } from '@core/errors';
 import { createDbClient } from '@db/client';
 import { DrizzleLedgerRepository } from '@db/repository';
 import { ledgers, tenants } from '@db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
 const databaseUrl =
   process.env.DATABASE_URL_TEST ?? 'postgresql://luxledger:luxledger@localhost:5433/luxledger_test';
+
+const assertSafeTestDatabaseUrl = (value: string): void => {
+  const parsed = new URL(value);
+  const databaseName = parsed.pathname.replace(/^\/+/, '');
+  const normalized = databaseName.toLowerCase();
+
+  if (databaseName.length === 0) {
+    throw new Error('Unsafe DATABASE_URL_TEST: database name is missing');
+  }
+
+  if (normalized === 'luxledger' || !normalized.includes('test')) {
+    throw new Error(
+      `Unsafe DATABASE_URL_TEST: expected a test database name, got "${databaseName}"`,
+    );
+  }
+};
+
+assertSafeTestDatabaseUrl(databaseUrl);
 
 const client = createDbClient({
   databaseUrl,
@@ -26,6 +44,18 @@ const createTenant = async (name: string): Promise<string> => {
 
 describe('DrizzleLedgerRepository', () => {
   beforeAll(async () => {
+    await client.db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
+    await client.db.execute(sql`
+      DO $$
+      DECLARE table_record RECORD;
+      BEGIN
+        FOR table_record IN
+          SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+        LOOP
+          EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(table_record.tablename) || ' CASCADE';
+        END LOOP;
+      END $$;
+    `);
     await migrate(client.db, { migrationsFolder: 'drizzle' });
   });
 
