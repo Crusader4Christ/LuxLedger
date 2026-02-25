@@ -1,5 +1,7 @@
 import { buildServer } from '@api/server';
+import { LedgerService } from '@core/ledger-service';
 import { createDbClient } from '@db/client';
+import { DrizzleLedgerRepository } from '@db/repository';
 
 const parsePort = (value: string | undefined): number => {
   if (value === undefined) {
@@ -15,8 +17,13 @@ const parsePort = (value: string | undefined): number => {
   return port;
 };
 
-const server = buildServer({ logger: true });
 const dbClient = createDbClient();
+const ledgerRepository = new DrizzleLedgerRepository(dbClient.db);
+const ledgerService = new LedgerService(ledgerRepository);
+const server = buildServer({
+  ledgerService,
+  logger: true,
+});
 const port = parsePort(process.env.PORT);
 
 let isShuttingDown = false;
