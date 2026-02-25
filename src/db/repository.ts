@@ -1,14 +1,20 @@
 import { DomainError, InvariantViolationError, RepositoryError } from '@core/errors';
 import type {
+  AccountListItem,
   CreateLedgerInput,
+  EntryListItem,
   Ledger,
+  LedgerReadRepository,
   LedgerRepository,
+  PaginatedResult,
+  PaginationQuery,
   PostTransactionInput,
   PostTransactionResult,
+  TransactionListItem,
 } from '@core/types';
-import { toLedger } from '@db/mappers';
+import { toAccountListItem, toEntryListItem, toLedger, toTransactionListItem } from '@db/mappers';
 import * as schema from '@db/schema';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
 const CONSTRAINT_VIOLATION_CODES = new Set([
@@ -25,6 +31,54 @@ interface DatabaseErrorLike {
   code?: unknown;
   cause?: unknown;
 }
+
+interface CursorValue {
+  createdAt: Date;
+  id: string;
+}
+
+const parseCursor = (cursor: string | undefined): CursorValue | null => {
+  if (!cursor) {
+    return null;
+  }
+
+  let decoded: unknown;
+
+  try {
+    const text = Buffer.from(cursor, 'base64url').toString('utf8');
+    decoded = JSON.parse(text);
+  } catch {
+    throw new InvariantViolationError('Invalid cursor');
+  }
+
+  if (!isObjectRecord(decoded)) {
+    throw new InvariantViolationError('Invalid cursor');
+  }
+
+  const createdAtRaw = decoded.created_at;
+  const idRaw = decoded.id;
+
+  if (typeof createdAtRaw !== 'string' || typeof idRaw !== 'string') {
+    throw new InvariantViolationError('Invalid cursor');
+  }
+
+  const createdAt = new Date(createdAtRaw);
+
+  if (Number.isNaN(createdAt.getTime())) {
+    throw new InvariantViolationError('Invalid cursor');
+  }
+
+  return { createdAt, id: idRaw };
+};
+
+const encodeCursor = (createdAt: Date, id: string): string =>
+  Buffer.from(
+    JSON.stringify({
+      created_at: createdAt.toISOString(),
+      id,
+    }),
+    'utf8',
+  ).toString('base64url');
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -47,7 +101,7 @@ const extractDatabaseCode = (error: unknown): string | null => {
   return null;
 };
 
-export class DrizzleLedgerRepository implements LedgerRepository {
+export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
 
   public constructor(db: PostgresJsDatabase<typeof schema>) {
@@ -184,6 +238,101 @@ export class DrizzleLedgerRepository implements LedgerRepository {
       });
     } catch (error) {
       this.handleDatabaseError(error, 'post transaction');
+    }
+  }
+
+  public async listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountListItem>> {
+    try {
+      const cursor = parseCursor(query.cursor);
+      const cursorPredicate = cursor
+        ? or(
+            gt(schema.accounts.createdAt, cursor.createdAt),
+            and(eq(schema.accounts.createdAt, cursor.createdAt), gt(schema.accounts.id, cursor.id)),
+          )
+        : sql`true`;
+
+      const rows = await this.db
+        .select()
+        .from(schema.accounts)
+        .where(cursorPredicate)
+        .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id))
+        .limit(query.limit + 1);
+
+      const hasNext = rows.length > query.limit;
+      const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
+      const last = pageRows.at(-1);
+
+      return {
+        data: pageRows.map(toAccountListItem),
+        nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'list accounts');
+    }
+  }
+
+  public async listTransactions(
+    query: PaginationQuery,
+  ): Promise<PaginatedResult<TransactionListItem>> {
+    try {
+      const cursor = parseCursor(query.cursor);
+      const cursorPredicate = cursor
+        ? or(
+            gt(schema.transactions.createdAt, cursor.createdAt),
+            and(
+              eq(schema.transactions.createdAt, cursor.createdAt),
+              gt(schema.transactions.id, cursor.id),
+            ),
+          )
+        : sql`true`;
+
+      const rows = await this.db
+        .select()
+        .from(schema.transactions)
+        .where(cursorPredicate)
+        .orderBy(asc(schema.transactions.createdAt), asc(schema.transactions.id))
+        .limit(query.limit + 1);
+
+      const hasNext = rows.length > query.limit;
+      const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
+      const last = pageRows.at(-1);
+
+      return {
+        data: pageRows.map(toTransactionListItem),
+        nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'list transactions');
+    }
+  }
+
+  public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryListItem>> {
+    try {
+      const cursor = parseCursor(query.cursor);
+      const cursorPredicate = cursor
+        ? or(
+            gt(schema.entries.createdAt, cursor.createdAt),
+            and(eq(schema.entries.createdAt, cursor.createdAt), gt(schema.entries.id, cursor.id)),
+          )
+        : sql`true`;
+
+      const rows = await this.db
+        .select()
+        .from(schema.entries)
+        .where(cursorPredicate)
+        .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id))
+        .limit(query.limit + 1);
+
+      const hasNext = rows.length > query.limit;
+      const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
+      const last = pageRows.at(-1);
+
+      return {
+        data: pageRows.map(toEntryListItem),
+        nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'list entries');
     }
   }
 

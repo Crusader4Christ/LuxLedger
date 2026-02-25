@@ -56,6 +56,7 @@ const createAccount = async (input: {
   name: string;
   currency: string;
   balanceMinor?: bigint;
+  createdAt?: Date;
 }): Promise<string> => {
   const [account] = await client.db
     .insert(accounts)
@@ -65,9 +66,54 @@ const createAccount = async (input: {
       name: input.name,
       currency: input.currency,
       balanceMinor: input.balanceMinor ?? 0n,
+      createdAt: input.createdAt,
     })
     .returning({ id: accounts.id });
   return account.id;
+};
+
+const createTransaction = async (input: {
+  tenantId: string;
+  ledgerId: string;
+  reference: string;
+  currency: string;
+  createdAt?: Date;
+}): Promise<string> => {
+  const [transaction] = await client.db
+    .insert(transactions)
+    .values({
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      reference: input.reference,
+      currency: input.currency,
+      createdAt: input.createdAt,
+    })
+    .returning({ id: transactions.id });
+
+  return transaction.id;
+};
+
+const createEntry = async (input: {
+  transactionId: string;
+  accountId: string;
+  direction: 'DEBIT' | 'CREDIT';
+  amountMinor: bigint;
+  currency: string;
+  createdAt?: Date;
+}): Promise<string> => {
+  const [entry] = await client.db
+    .insert(entries)
+    .values({
+      transactionId: input.transactionId,
+      accountId: input.accountId,
+      direction: input.direction,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      createdAt: input.createdAt,
+    })
+    .returning({ id: entries.id });
+
+  return entry.id;
 };
 
 describe('DrizzleLedgerRepository', () => {
@@ -360,5 +406,149 @@ describe('DrizzleLedgerRepository', () => {
 
     const entryRows = await client.db.select().from(entries);
     expect(entryRows.length).toBe(0);
+  });
+
+  it('listAccounts paginates by created_at and id cursor', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'A1',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'A2',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:00:01.000Z'),
+    });
+    await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'A3',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:00:02.000Z'),
+    });
+
+    const firstPage = await repository.listAccounts({ limit: 2 });
+    expect(firstPage.data.length).toBe(2);
+    expect(firstPage.nextCursor).toBeDefined();
+    const firstCursor = firstPage.nextCursor;
+    if (!firstCursor) {
+      throw new Error('Expected next cursor for first accounts page');
+    }
+
+    const secondPage = await repository.listAccounts({ limit: 2, cursor: firstCursor });
+    expect(secondPage.data.length).toBe(1);
+    expect(secondPage.nextCursor).toBeNull();
+    expect(secondPage.data[0]?.name).toBe('A3');
+  });
+
+  it('listTransactions paginates by created_at and id cursor', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    await createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-1',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:10:00.000Z'),
+    });
+    await createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-2',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:10:01.000Z'),
+    });
+    await createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-3',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:10:02.000Z'),
+    });
+
+    const firstPage = await repository.listTransactions({ limit: 2 });
+    expect(firstPage.data.length).toBe(2);
+    expect(firstPage.nextCursor).toBeDefined();
+    const firstCursor = firstPage.nextCursor;
+    if (!firstCursor) {
+      throw new Error('Expected next cursor for first transactions page');
+    }
+
+    const secondPage = await repository.listTransactions({
+      limit: 2,
+      cursor: firstCursor,
+    });
+    expect(secondPage.data.length).toBe(1);
+    expect(secondPage.nextCursor).toBeNull();
+    expect(secondPage.data[0]?.reference).toBe('tx-3');
+  });
+
+  it('listEntries paginates by created_at and id cursor', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+    const transactionId = await createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-entries',
+      currency: 'USD',
+    });
+
+    await createEntry({
+      transactionId,
+      accountId: debitAccountId,
+      direction: 'DEBIT',
+      amountMinor: 10n,
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:20:00.000Z'),
+    });
+    await createEntry({
+      transactionId,
+      accountId: creditAccountId,
+      direction: 'CREDIT',
+      amountMinor: 10n,
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:20:01.000Z'),
+    });
+    await createEntry({
+      transactionId,
+      accountId: debitAccountId,
+      direction: 'DEBIT',
+      amountMinor: 20n,
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:20:02.000Z'),
+    });
+
+    const firstPage = await repository.listEntries({ limit: 2 });
+    expect(firstPage.data.length).toBe(2);
+    expect(firstPage.nextCursor).toBeDefined();
+    const firstCursor = firstPage.nextCursor;
+    if (!firstCursor) {
+      throw new Error('Expected next cursor for first entries page');
+    }
+
+    const secondPage = await repository.listEntries({ limit: 2, cursor: firstCursor });
+    expect(secondPage.data.length).toBe(1);
+    expect(secondPage.nextCursor).toBeNull();
+    expect(secondPage.data[0]?.amountMinor).toBe(20n);
   });
 });
