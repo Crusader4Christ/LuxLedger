@@ -11,3 +11,14 @@ export interface Ledger {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface CreateLedgerInput {
+  tenantId: string;
+  name: string;
+}
+
+export interface LedgerRepository {
+  createLedger(input: CreateLedgerInput): Promise<Ledger>;
+  findLedgerById(id: string): Promise<Ledger | null>;
+  findLedgersByTenant(tenantId: string): Promise<Ledger[]>;
+}
