@@ -74,6 +74,10 @@ class InMemoryLedgerReadRepository implements LedgerReadRepository {
       createdAt: new Date('2026-01-01T00:00:01.000Z'),
     };
 
+    if (query.tenantId !== VALID_TENANT_ID) {
+      return { data: [], nextCursor: null };
+    }
+
     if (query.cursor === 'next-accounts') {
       return { data: [account2], nextCursor: null };
     }
@@ -101,6 +105,10 @@ class InMemoryLedgerReadRepository implements LedgerReadRepository {
       createdAt: new Date('2026-01-01T00:01:01.000Z'),
     };
 
+    if (query.tenantId !== VALID_TENANT_ID) {
+      return { data: [], nextCursor: null };
+    }
+
     if (query.cursor === 'next-transactions') {
       return { data: [transaction2], nextCursor: null };
     }
@@ -127,6 +135,10 @@ class InMemoryLedgerReadRepository implements LedgerReadRepository {
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:02:01.000Z'),
     };
+
+    if (query.tenantId !== VALID_TENANT_ID) {
+      return { data: [], nextCursor: null };
+    }
 
     if (query.cursor === 'next-entries') {
       return { data: [entry2], nextCursor: null };
@@ -376,7 +388,7 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: '/v1/accounts',
+      url: `/v1/accounts?tenant_id=${VALID_TENANT_ID}`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -397,7 +409,7 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: '/v1/transactions?cursor=next-transactions&limit=1',
+      url: `/v1/transactions?tenant_id=${VALID_TENANT_ID}&cursor=next-transactions&limit=1`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -417,7 +429,7 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: '/v1/entries?cursor=next-entries&limit=1',
+      url: `/v1/entries?tenant_id=${VALID_TENANT_ID}&cursor=next-entries&limit=1`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -438,7 +450,22 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: '/v1/accounts?limit=201',
+      url: `/v1/accounts?tenant_id=${VALID_TENANT_ID}&limit=201`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts requires tenant_id', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/accounts',
     });
 
     expect(response.statusCode).toBe(400);

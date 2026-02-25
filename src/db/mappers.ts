@@ -1,3 +1,4 @@
+import { InvariantViolationError } from '@core/errors';
 import type {
   AccountListItem,
   EntryListItem,
@@ -12,6 +13,14 @@ type LedgerRow = typeof ledgers.$inferSelect;
 type AccountRow = typeof accounts.$inferSelect;
 type TransactionRow = typeof transactions.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;
+
+const toDirection = (value: string): 'DEBIT' | 'CREDIT' => {
+  if (value === 'DEBIT' || value === 'CREDIT') {
+    return value;
+  }
+
+  throw new InvariantViolationError(`Invalid entry direction: ${value}`);
+};
 
 export const toTenant = (row: TenantRow): Tenant => ({
   id: row.id,
@@ -50,7 +59,7 @@ export const toEntryListItem = (row: EntryRow): EntryListItem => ({
   id: row.id,
   transactionId: row.transactionId,
   accountId: row.accountId,
-  direction: row.direction as 'DEBIT' | 'CREDIT',
+  direction: toDirection(row.direction),
   amountMinor: row.amountMinor,
   currency: row.currency,
   createdAt: row.createdAt,
