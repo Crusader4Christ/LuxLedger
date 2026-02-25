@@ -1,9 +1,11 @@
 import { sendDomainError } from '@api/errors';
 import type { LedgerService } from '@core/ledger-service';
+import type { LedgerReadService } from '@core/read-service';
 import type { FastifyInstance } from 'fastify';
 
 interface LedgersRouteDependencies {
   ledgerService: LedgerService;
+  readService: LedgerReadService;
 }
 interface CreateLedgerBody {
   tenant_id: string;
@@ -12,6 +14,10 @@ interface CreateLedgerBody {
 
 interface LedgerByIdParams {
   id: string;
+}
+
+interface TrialBalanceParams {
+  ledger_id: string;
 }
 
 interface LedgersQuery {
@@ -110,6 +116,46 @@ export const registerLedgerRoutes = (
       try {
         const ledgers = await dependencies.ledgerService.getLedgersByTenant(tenantId);
         return reply.status(200).send(ledgers);
+      } catch (error) {
+        return sendDomainError(reply, error);
+      }
+    },
+  );
+
+  server.get<{ Params: TrialBalanceParams }>(
+    '/v1/ledgers/:ledger_id/trial-balance',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['ledger_id'],
+          properties: {
+            ledger_id: {
+              type: 'string',
+              format: 'uuid',
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const trialBalance = await dependencies.readService.getTrialBalance(
+          request.params.ledger_id,
+        );
+        return reply.status(200).send({
+          ledger_id: trialBalance.ledgerId,
+          accounts: trialBalance.accounts.map((account) => ({
+            account_id: account.accountId,
+            code: account.code,
+            name: account.name,
+            normal_balance: account.normalBalance,
+            balance: account.balanceMinor.toString(),
+          })),
+          total_debits: trialBalance.totalDebitsMinor.toString(),
+          total_credits: trialBalance.totalCreditsMinor.toString(),
+        });
       } catch (error) {
         return sendDomainError(reply, error);
       }
