@@ -87,8 +87,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    const payload = parsePayload<{ code: string }>(response.body);
-    expect(payload.code).toBe('FST_ERR_VALIDATION');
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
 
     await server.close();
   });
@@ -119,8 +119,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    const payload = parsePayload<{ code: string }>(response.body);
-    expect(payload.code).toBe('FST_ERR_VALIDATION');
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
 
     await server.close();
   });
@@ -177,8 +177,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    const payload = parsePayload<{ code: string }>(response.body);
-    expect(payload.code).toBe('FST_ERR_VALIDATION');
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
 
     await server.close();
   });
@@ -254,8 +254,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    const payload = parsePayload<{ code: string }>(response.body);
-    expect(payload.code).toBe('FST_ERR_VALIDATION');
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
 
     await server.close();
   });
@@ -269,8 +269,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    const payload = parsePayload<{ code: string }>(response.body);
-    expect(payload.code).toBe('FST_ERR_VALIDATION');
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
 
     await server.close();
   });

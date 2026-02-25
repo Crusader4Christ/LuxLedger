@@ -113,13 +113,11 @@ export const registerLedgerRoutes = (
       schema: {
         querystring: {
           type: 'object',
-          additionalProperties: false,
           required: ['tenant_id'],
           properties: {
             tenant_id: {
               type: 'string',
               format: 'uuid',
-              pattern: NON_EMPTY_TRIMMED_PATTERN,
             },
           },
         },
