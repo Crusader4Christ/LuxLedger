@@ -2,7 +2,7 @@ import { InvariantViolationError, RepositoryError } from '@core/errors';
 import type { CreateLedgerInput, Ledger, LedgerRepository } from '@core/types';
 import { toLedger } from '@db/mappers';
 import * as schema from '@db/schema';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
 const CONSTRAINT_VIOLATION_CODES = new Set([
@@ -18,6 +18,26 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
 interface DatabaseErrorLike {
   code?: unknown;
   cause?: unknown;
+}
+
+export interface PostingEntryInput {
+  accountId: string;
+  direction: 'DEBIT' | 'CREDIT';
+  amountMinor: bigint;
+  currency: string;
+}
+
+export interface PostTransactionInput {
+  tenantId: string;
+  ledgerId: string;
+  reference: string;
+  currency: string;
+  entries: PostingEntryInput[];
+}
+
+export interface PostTransactionResult {
+  transactionId: string;
+  created: boolean;
 }
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
@@ -93,6 +113,87 @@ export class DrizzleLedgerRepository implements LedgerRepository {
       return rows.map((row) => toLedger(row));
     } catch (error) {
       this.handleDatabaseError(error, 'find ledgers by tenant');
+    }
+  }
+
+  public async postTransaction(input: PostTransactionInput): Promise<PostTransactionResult> {
+    try {
+      return await this.db.transaction(async (tx) => {
+        const [insertedTransaction] = await tx
+          .insert(schema.transactions)
+          .values({
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            reference: input.reference,
+            currency: input.currency,
+          })
+          .onConflictDoNothing({
+            target: [schema.transactions.tenantId, schema.transactions.reference],
+          })
+          .returning({ id: schema.transactions.id });
+
+        if (!insertedTransaction) {
+          const [existingTransaction] = await tx
+            .select({ id: schema.transactions.id })
+            .from(schema.transactions)
+            .where(
+              and(
+                eq(schema.transactions.tenantId, input.tenantId),
+                eq(schema.transactions.reference, input.reference),
+              ),
+            )
+            .limit(1);
+
+          if (!existingTransaction) {
+            throw new RepositoryError('Unable to resolve idempotent transaction');
+          }
+
+          return { transactionId: existingTransaction.id, created: false };
+        }
+
+        await tx.insert(schema.entries).values(
+          input.entries.map((entry) => ({
+            transactionId: insertedTransaction.id,
+            accountId: entry.accountId,
+            direction: entry.direction,
+            amountMinor: entry.amountMinor,
+            currency: entry.currency,
+          })),
+        );
+
+        for (const entry of input.entries) {
+          const delta = entry.direction === 'DEBIT' ? -entry.amountMinor : entry.amountMinor;
+
+          const [updatedAccount] = await tx
+            .update(schema.accounts)
+            .set({
+              balanceMinor: sql`${schema.accounts.balanceMinor} + ${delta}`,
+              updatedAt: sql`now()`,
+            })
+            .where(
+              and(
+                eq(schema.accounts.id, entry.accountId),
+                eq(schema.accounts.tenantId, input.tenantId),
+                eq(schema.accounts.ledgerId, input.ledgerId),
+                eq(schema.accounts.currency, input.currency),
+              ),
+            )
+            .returning({ id: schema.accounts.id });
+
+          if (!updatedAccount) {
+            throw new InvariantViolationError(
+              'Unable to post transaction: account ledger/currency mismatch',
+            );
+          }
+        }
+
+        return {
+          transactionId: insertedTransaction.id,
+          created: true,
+        };
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'post transaction');
     }
   }
 
