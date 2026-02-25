@@ -1,6 +1,6 @@
-import { InvariantViolationError, LedgerNotFoundError, RepositoryError } from '@core/errors';
+import { sendDomainError } from '@api/errors';
 import type { LedgerService } from '@core/ledger-service';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 
 interface LedgersRouteDependencies {
   ledgerService: LedgerService;
@@ -19,25 +19,6 @@ interface LedgersQuery {
 }
 
 const NON_EMPTY_TRIMMED_PATTERN = '^(?=.*\\S).+$';
-
-const sendDomainError = (reply: FastifyReply, error: unknown): FastifyReply => {
-  if (error instanceof LedgerNotFoundError) {
-    return reply.status(404).send({ error: error.code, message: error.message });
-  }
-
-  if (error instanceof InvariantViolationError) {
-    return reply.status(400).send({ error: error.code, message: error.message });
-  }
-
-  if (error instanceof RepositoryError) {
-    return reply.status(500).send({
-      error: 'INTERNAL_ERROR',
-      message: 'Internal server error',
-    });
-  }
-
-  throw error;
-};
 
 export const registerLedgerRoutes = (
   server: FastifyInstance,

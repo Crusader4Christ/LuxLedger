@@ -3,12 +3,19 @@ import { describe, expect, it } from 'bun:test';
 import { buildServer } from '@api/server';
 import { RepositoryError } from '@core/errors';
 import { LedgerService } from '@core/ledger-service';
+import { LedgerReadService } from '@core/read-service';
 import type {
+  AccountListItem,
   CreateLedgerInput,
+  EntryListItem,
   Ledger,
+  LedgerReadRepository,
   LedgerRepository,
+  PaginatedResult,
+  PaginationQuery,
   PostTransactionInput,
   PostTransactionResult,
+  TransactionListItem,
 } from '@core/types';
 
 class InMemoryLedgerRepository implements LedgerRepository {
@@ -46,12 +53,98 @@ class InMemoryLedgerRepository implements LedgerRepository {
   }
 }
 
+class InMemoryLedgerReadRepository implements LedgerReadRepository {
+  public async listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountListItem>> {
+    const account1: AccountListItem = {
+      id: '00000000-0000-4000-8000-000000000101',
+      tenantId: VALID_TENANT_ID,
+      ledgerId: '00000000-0000-4000-8000-000000000001',
+      name: 'Cash',
+      currency: 'USD',
+      balanceMinor: 100n,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    };
+    const account2: AccountListItem = {
+      id: '00000000-0000-4000-8000-000000000102',
+      tenantId: VALID_TENANT_ID,
+      ledgerId: '00000000-0000-4000-8000-000000000001',
+      name: 'Revenue',
+      currency: 'USD',
+      balanceMinor: 200n,
+      createdAt: new Date('2026-01-01T00:00:01.000Z'),
+    };
+
+    if (query.cursor === 'next-accounts') {
+      return { data: [account2], nextCursor: null };
+    }
+
+    return { data: [account1], nextCursor: 'next-accounts' };
+  }
+
+  public async listTransactions(
+    query: PaginationQuery,
+  ): Promise<PaginatedResult<TransactionListItem>> {
+    const transaction1: TransactionListItem = {
+      id: '00000000-0000-4000-8000-000000000201',
+      tenantId: VALID_TENANT_ID,
+      ledgerId: '00000000-0000-4000-8000-000000000001',
+      reference: 'tx-ref-1',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:01:00.000Z'),
+    };
+    const transaction2: TransactionListItem = {
+      id: '00000000-0000-4000-8000-000000000202',
+      tenantId: VALID_TENANT_ID,
+      ledgerId: '00000000-0000-4000-8000-000000000001',
+      reference: 'tx-ref-2',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:01:01.000Z'),
+    };
+
+    if (query.cursor === 'next-transactions') {
+      return { data: [transaction2], nextCursor: null };
+    }
+
+    return { data: [transaction1], nextCursor: 'next-transactions' };
+  }
+
+  public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryListItem>> {
+    const entry1: EntryListItem = {
+      id: '00000000-0000-4000-8000-000000000301',
+      transactionId: '00000000-0000-4000-8000-000000000201',
+      accountId: '00000000-0000-4000-8000-000000000101',
+      direction: 'DEBIT',
+      amountMinor: 123n,
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:02:00.000Z'),
+    };
+    const entry2: EntryListItem = {
+      id: '00000000-0000-4000-8000-000000000302',
+      transactionId: '00000000-0000-4000-8000-000000000201',
+      accountId: '00000000-0000-4000-8000-000000000102',
+      direction: 'CREDIT',
+      amountMinor: 123n,
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:02:01.000Z'),
+    };
+
+    if (query.cursor === 'next-entries') {
+      return { data: [entry2], nextCursor: null };
+    }
+
+    return { data: [entry1], nextCursor: 'next-entries' };
+  }
+}
+
 const createServer = () => {
   const repository = new InMemoryLedgerRepository();
   const ledgerService = new LedgerService(repository);
+  const readRepository = new InMemoryLedgerReadRepository();
+  const readService = new LedgerReadService(readRepository);
 
   return buildServer({
     ledgerService,
+    readService,
     logger: false,
   });
 };
@@ -238,8 +331,11 @@ describe('server', () => {
   it('POST /v1/ledgers rejects additional properties', async () => {
     const repository = new InMemoryLedgerRepository();
     const ledgerService = new LedgerService(repository);
+    const readRepository = new InMemoryLedgerReadRepository();
+    const readService = new LedgerReadService(readRepository);
     const server = buildServer({
       ledgerService,
+      readService,
       logger: false,
     });
 
@@ -266,6 +362,83 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/not-a-uuid',
+    });
+
+    expect(response.statusCode).toBe(400);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts returns paginated response with bigint as string', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/accounts',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      data: Array<{ id: string; balance_minor: string }>;
+      next_cursor: string | null;
+    }>(response.body);
+    expect(payload.data.length).toBe(1);
+    expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000101');
+    expect(payload.data[0]?.balance_minor).toBe('100');
+    expect(payload.next_cursor).toBe('next-accounts');
+
+    await server.close();
+  });
+
+  it('GET /v1/transactions supports cursor pagination', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/transactions?cursor=next-transactions&limit=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      data: Array<{ id: string; reference: string }>;
+      next_cursor: string | null;
+    }>(response.body);
+    expect(payload.data.length).toBe(1);
+    expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000202');
+    expect(payload.next_cursor).toBeNull();
+
+    await server.close();
+  });
+
+  it('GET /v1/entries supports cursor pagination with amount as string', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/entries?cursor=next-entries&limit=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      data: Array<{ id: string; amount_minor: string }>;
+      next_cursor: string | null;
+    }>(response.body);
+    expect(payload.data.length).toBe(1);
+    expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000302');
+    expect(payload.data[0]?.amount_minor).toBe('123');
+    expect(payload.next_cursor).toBeNull();
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts validates limit upper bound', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/accounts?limit=201',
     });
 
     expect(response.statusCode).toBe(400);
