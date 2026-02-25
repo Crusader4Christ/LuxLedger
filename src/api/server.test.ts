@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { buildServer } from '@api/server';
-import { RepositoryError } from '@core/errors';
+import { LedgerNotFoundError, RepositoryError } from '@core/errors';
 import { LedgerService } from '@core/ledger-service';
 import { LedgerReadService } from '@core/read-service';
 import type {
@@ -150,12 +150,7 @@ class InMemoryLedgerReadRepository implements LedgerReadRepository {
 
   public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
     if (ledgerId === UNKNOWN_LEDGER_ID) {
-      return {
-        ledgerId,
-        accounts: [],
-        totalDebitsMinor: 0n,
-        totalCreditsMinor: 0n,
-      };
+      throw new LedgerNotFoundError(ledgerId);
     }
 
     return {
@@ -551,6 +546,24 @@ describe('server', () => {
     expect(response.statusCode).toBe(400);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
     expect(payload.error).toBe('INVALID_INPUT');
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers/:ledger_id/trial-balance returns 404 for missing ledger', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/v1/ledgers/${UNKNOWN_LEDGER_ID}/trial-balance`,
+    });
+
+    expect(response.statusCode).toBe(404);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload).toEqual({
+      error: 'LEDGER_NOT_FOUND',
+      message: `Ledger not found: ${UNKNOWN_LEDGER_ID}`,
+    });
 
     await server.close();
   });
