@@ -1,8 +1,8 @@
 export abstract class DomainError extends Error {
   public readonly code: string;
 
-  protected constructor(message: string, code: string) {
-    super(message);
+  protected constructor(message: string, code: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = new.target.name;
     this.code = code;
   }
@@ -18,13 +18,13 @@ export class LedgerNotFoundError extends DomainError {
 }
 
 export class InvariantViolationError extends DomainError {
-  public constructor(message: string) {
-    super(message, 'INVARIANT_VIOLATION');
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, 'INVARIANT_VIOLATION', options);
   }
 }
 
 export class RepositoryError extends DomainError {
-  public constructor(message = 'Persistence operation failed') {
-    super(message, 'REPOSITORY_ERROR');
+  public constructor(message = 'Persistence operation failed', options?: ErrorOptions) {
+    super(message, 'REPOSITORY_ERROR', options);
   }
 }

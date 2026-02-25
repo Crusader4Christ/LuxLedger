@@ -100,9 +100,11 @@ export class DrizzleLedgerRepository implements LedgerRepository {
     const databaseCode = extractDatabaseCode(error);
 
     if (databaseCode && CONSTRAINT_VIOLATION_CODES.has(databaseCode)) {
-      throw new InvariantViolationError(`Unable to ${operation}: data constraints violated`);
+      throw new InvariantViolationError(`Unable to ${operation}: data constraints violated`, {
+        cause: error,
+      });
     }
 
-    throw new RepositoryError();
+    throw new RepositoryError(`Unable to ${operation}`, { cause: error });
   }
 }
