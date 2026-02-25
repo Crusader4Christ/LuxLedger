@@ -1,0 +1,1 @@
+ALTER TABLE "entries" ADD CONSTRAINT "entries_direction_chk" CHECK ("entries"."direction" in ('DEBIT', 'CREDIT'));

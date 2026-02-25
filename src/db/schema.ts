@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { bigint, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  check,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -86,5 +95,9 @@ export const entries = pgTable(
   (table) => ({
     entriesTransactionIdIdx: index('entries_transaction_id_idx').on(table.transactionId),
     entriesAccountIdIdx: index('entries_account_id_idx').on(table.accountId),
+    entriesDirectionChk: check(
+      'entries_direction_chk',
+      sql`${table.direction} in ('DEBIT', 'CREDIT')`,
+    ),
   }),
 );
