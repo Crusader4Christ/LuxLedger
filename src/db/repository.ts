@@ -1,5 +1,11 @@
-import { InvariantViolationError, RepositoryError } from '@core/errors';
-import type { CreateLedgerInput, Ledger, LedgerRepository } from '@core/types';
+import { DomainError, InvariantViolationError, RepositoryError } from '@core/errors';
+import type {
+  CreateLedgerInput,
+  Ledger,
+  LedgerRepository,
+  PostTransactionInput,
+  PostTransactionResult,
+} from '@core/types';
 import { toLedger } from '@db/mappers';
 import * as schema from '@db/schema';
 import { and, asc, eq, sql } from 'drizzle-orm';
@@ -18,26 +24,6 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
 interface DatabaseErrorLike {
   code?: unknown;
   cause?: unknown;
-}
-
-export interface PostingEntryInput {
-  accountId: string;
-  direction: 'DEBIT' | 'CREDIT';
-  amountMinor: bigint;
-  currency: string;
-}
-
-export interface PostTransactionInput {
-  tenantId: string;
-  ledgerId: string;
-  reference: string;
-  currency: string;
-  entries: PostingEntryInput[];
-}
-
-export interface PostTransactionResult {
-  transactionId: string;
-  created: boolean;
 }
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
@@ -161,7 +147,11 @@ export class DrizzleLedgerRepository implements LedgerRepository {
           })),
         );
 
-        for (const entry of input.entries) {
+        const entriesForBalanceUpdate = [...input.entries].sort((a, b) =>
+          a.accountId.localeCompare(b.accountId),
+        );
+
+        for (const entry of entriesForBalanceUpdate) {
           const delta = entry.direction === 'DEBIT' ? -entry.amountMinor : entry.amountMinor;
 
           const [updatedAccount] = await tx
@@ -198,6 +188,10 @@ export class DrizzleLedgerRepository implements LedgerRepository {
   }
 
   private handleDatabaseError(error: unknown, operation: string): never {
+    if (error instanceof DomainError) {
+      throw error;
+    }
+
     const databaseCode = extractDatabaseCode(error);
 
     if (databaseCode && CONSTRAINT_VIOLATION_CODES.has(databaseCode)) {

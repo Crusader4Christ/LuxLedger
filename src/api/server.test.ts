@@ -3,7 +3,13 @@ import { describe, expect, it } from 'bun:test';
 import { buildServer } from '@api/server';
 import { RepositoryError } from '@core/errors';
 import { LedgerService } from '@core/ledger-service';
-import type { CreateLedgerInput, Ledger, LedgerRepository } from '@core/types';
+import type {
+  CreateLedgerInput,
+  Ledger,
+  LedgerRepository,
+  PostTransactionInput,
+  PostTransactionResult,
+} from '@core/types';
 
 class InMemoryLedgerRepository implements LedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
@@ -33,6 +39,10 @@ class InMemoryLedgerRepository implements LedgerRepository {
 
   public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
     return [...this.ledgers.values()].filter((ledger) => ledger.tenantId === tenantId);
+  }
+
+  public async postTransaction(_: PostTransactionInput): Promise<PostTransactionResult> {
+    throw new Error('postTransaction is not used in server tests');
   }
 }
 

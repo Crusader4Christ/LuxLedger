@@ -310,4 +310,55 @@ describe('DrizzleLedgerRepository', () => {
     expect(debitBalance?.balanceMinor).toBe(0n);
     expect(creditBalance?.balanceMinor).toBe(9223372036854775807n);
   });
+
+  it('postTransaction throws InvariantViolationError on account ledger/currency mismatch', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const wrongCurrencyAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Wrong Currency Account',
+      currency: 'EUR',
+      balanceMinor: 0n,
+    });
+    const validAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Valid USD Account',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+
+    await expect(
+      repository.postTransaction({
+        tenantId,
+        ledgerId,
+        reference: 'currency-mismatch-ref',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: wrongCurrencyAccountId,
+            direction: 'DEBIT',
+            amountMinor: 10n,
+            currency: 'USD',
+          },
+          {
+            accountId: validAccountId,
+            direction: 'CREDIT',
+            amountMinor: 10n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const transactionRows = await client.db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.reference, 'currency-mismatch-ref'));
+    expect(transactionRows.length).toBe(0);
+
+    const entryRows = await client.db.select().from(entries);
+    expect(entryRows.length).toBe(0);
+  });
 });
