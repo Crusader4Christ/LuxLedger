@@ -410,7 +410,9 @@ describe('DrizzleLedgerRepository', () => {
 
   it('listAccounts paginates by created_at and id cursor', async () => {
     const tenantId = await createTenant('Tenant A');
+    const tenantB = await createTenant('Tenant B');
     const ledgerId = await createLedger(tenantId, 'Main');
+    const ledgerB = await createLedger(tenantB, 'Secondary');
 
     await createAccount({
       tenantId,
@@ -433,8 +435,15 @@ describe('DrizzleLedgerRepository', () => {
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:00:02.000Z'),
     });
+    await createAccount({
+      tenantId: tenantB,
+      ledgerId: ledgerB,
+      name: 'B1',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:00:03.000Z'),
+    });
 
-    const firstPage = await repository.listAccounts({ limit: 2 });
+    const firstPage = await repository.listAccounts({ tenantId, limit: 2 });
     expect(firstPage.data.length).toBe(2);
     expect(firstPage.nextCursor).toBeDefined();
     const firstCursor = firstPage.nextCursor;
@@ -442,15 +451,20 @@ describe('DrizzleLedgerRepository', () => {
       throw new Error('Expected next cursor for first accounts page');
     }
 
-    const secondPage = await repository.listAccounts({ limit: 2, cursor: firstCursor });
+    const secondPage = await repository.listAccounts({ tenantId, limit: 2, cursor: firstCursor });
     expect(secondPage.data.length).toBe(1);
     expect(secondPage.nextCursor).toBeNull();
     expect(secondPage.data[0]?.name).toBe('A3');
+    expect(
+      [...firstPage.data, ...secondPage.data].every((account) => account.tenantId === tenantId),
+    ).toBeTrue();
   });
 
   it('listTransactions paginates by created_at and id cursor', async () => {
     const tenantId = await createTenant('Tenant A');
+    const tenantB = await createTenant('Tenant B');
     const ledgerId = await createLedger(tenantId, 'Main');
+    const ledgerB = await createLedger(tenantB, 'Secondary');
 
     await createTransaction({
       tenantId,
@@ -473,8 +487,15 @@ describe('DrizzleLedgerRepository', () => {
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:10:02.000Z'),
     });
+    await createTransaction({
+      tenantId: tenantB,
+      ledgerId: ledgerB,
+      reference: 'tx-b-1',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:10:03.000Z'),
+    });
 
-    const firstPage = await repository.listTransactions({ limit: 2 });
+    const firstPage = await repository.listTransactions({ tenantId, limit: 2 });
     expect(firstPage.data.length).toBe(2);
     expect(firstPage.nextCursor).toBeDefined();
     const firstCursor = firstPage.nextCursor;
@@ -483,17 +504,25 @@ describe('DrizzleLedgerRepository', () => {
     }
 
     const secondPage = await repository.listTransactions({
+      tenantId,
       limit: 2,
       cursor: firstCursor,
     });
     expect(secondPage.data.length).toBe(1);
     expect(secondPage.nextCursor).toBeNull();
     expect(secondPage.data[0]?.reference).toBe('tx-3');
+    expect(
+      [...firstPage.data, ...secondPage.data].every(
+        (transaction) => transaction.tenantId === tenantId,
+      ),
+    ).toBeTrue();
   });
 
   it('listEntries paginates by created_at and id cursor', async () => {
     const tenantId = await createTenant('Tenant A');
+    const tenantB = await createTenant('Tenant B');
     const ledgerId = await createLedger(tenantId, 'Main');
+    const ledgerB = await createLedger(tenantB, 'Secondary');
     const debitAccountId = await createAccount({
       tenantId,
       ledgerId,
@@ -510,6 +539,18 @@ describe('DrizzleLedgerRepository', () => {
       tenantId,
       ledgerId,
       reference: 'tx-entries',
+      currency: 'USD',
+    });
+    const accountB = await createAccount({
+      tenantId: tenantB,
+      ledgerId: ledgerB,
+      name: 'B Cash',
+      currency: 'USD',
+    });
+    const txB = await createTransaction({
+      tenantId: tenantB,
+      ledgerId: ledgerB,
+      reference: 'tx-b-entries',
       currency: 'USD',
     });
 
@@ -537,8 +578,16 @@ describe('DrizzleLedgerRepository', () => {
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:20:02.000Z'),
     });
+    await createEntry({
+      transactionId: txB,
+      accountId: accountB,
+      direction: 'DEBIT',
+      amountMinor: 999n,
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:20:03.000Z'),
+    });
 
-    const firstPage = await repository.listEntries({ limit: 2 });
+    const firstPage = await repository.listEntries({ tenantId, limit: 2 });
     expect(firstPage.data.length).toBe(2);
     expect(firstPage.nextCursor).toBeDefined();
     const firstCursor = firstPage.nextCursor;
@@ -546,9 +595,12 @@ describe('DrizzleLedgerRepository', () => {
       throw new Error('Expected next cursor for first entries page');
     }
 
-    const secondPage = await repository.listEntries({ limit: 2, cursor: firstCursor });
+    const secondPage = await repository.listEntries({ tenantId, limit: 2, cursor: firstCursor });
     expect(secondPage.data.length).toBe(1);
     expect(secondPage.nextCursor).toBeNull();
     expect(secondPage.data[0]?.amountMinor).toBe(20n);
+    expect(
+      [...firstPage.data, ...secondPage.data].every((entry) => entry.amountMinor !== 999n),
+    ).toBeTrue();
   });
 });

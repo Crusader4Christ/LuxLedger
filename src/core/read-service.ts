@@ -33,6 +33,10 @@ export class LedgerReadService {
   }
 
   private validateQuery(query: PaginationQuery): void {
+    if (query.tenantId.trim().length === 0) {
+      throw new InvariantViolationError('tenantId is required');
+    }
+
     if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 200) {
       throw new InvariantViolationError('limit must be an integer between 1 and 200');
     }

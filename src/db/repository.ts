@@ -254,7 +254,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       const rows = await this.db
         .select()
         .from(schema.accounts)
-        .where(cursorPredicate)
+        .where(and(eq(schema.accounts.tenantId, query.tenantId), cursorPredicate))
         .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id))
         .limit(query.limit + 1);
 
@@ -289,7 +289,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       const rows = await this.db
         .select()
         .from(schema.transactions)
-        .where(cursorPredicate)
+        .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
         .orderBy(asc(schema.transactions.createdAt), asc(schema.transactions.id))
         .limit(query.limit + 1);
 
@@ -319,16 +319,17 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       const rows = await this.db
         .select()
         .from(schema.entries)
-        .where(cursorPredicate)
+        .innerJoin(schema.transactions, eq(schema.entries.transactionId, schema.transactions.id))
+        .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
         .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id))
         .limit(query.limit + 1);
 
       const hasNext = rows.length > query.limit;
       const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-      const last = pageRows.at(-1);
+      const last = pageRows.at(-1)?.entries;
 
       return {
-        data: pageRows.map(toEntryListItem),
+        data: pageRows.map((row) => toEntryListItem(row.entries)),
         nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
       };
     } catch (error) {

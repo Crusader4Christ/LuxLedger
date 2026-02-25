@@ -38,6 +38,7 @@ export interface PostTransactionResult {
 }
 
 export interface PaginationQuery {
+  tenantId: string;
   limit: number;
   cursor?: string;
 }
