@@ -122,6 +122,23 @@ describe('createTransaction invariants', () => {
     );
   });
 
+  it('throws when posting account is not found', () => {
+    const invalidInput: CreateTransactionInput = {
+      ...baseInput,
+      postings: [
+        {
+          ...baseInput.postings[0],
+          accountId: 'missing-account',
+        },
+        baseInput.postings[1],
+      ],
+    };
+
+    expect(() => createTransaction(invalidInput, baseAccounts)).toThrowError(
+      new InvariantViolationError('account not found: missing-account'),
+    );
+  });
+
   it('throws when amount is negative', () => {
     const invalidInput: CreateTransactionInput = {
       ...baseInput,
@@ -138,7 +155,7 @@ describe('createTransaction invariants', () => {
     };
 
     expect(() => createTransaction(invalidInput, baseAccounts)).toThrowError(
-      new InvariantViolationError('amount must be greater than 0'),
+      new InvariantViolationError('amount must be positive'),
     );
   });
 
@@ -155,7 +172,27 @@ describe('createTransaction invariants', () => {
     };
 
     expect(() => createTransaction(invalidInput, baseAccounts)).toThrowError(
-      new InvariantViolationError('no zero entries'),
+      new InvariantViolationError('amount must be positive'),
+    );
+  });
+
+  it('throws when amount is not integer minor units', () => {
+    const invalidInput: CreateTransactionInput = {
+      ...baseInput,
+      postings: [
+        {
+          ...baseInput.postings[0],
+          amount: 10.5,
+        },
+        {
+          ...baseInput.postings[1],
+          amount: 10.5,
+        },
+      ],
+    };
+
+    expect(() => createTransaction(invalidInput, baseAccounts)).toThrowError(
+      new InvariantViolationError('amount must be integer (minor units)'),
     );
   });
 });

@@ -27,12 +27,7 @@ export interface Transaction {
   postings: Posting[];
 }
 
-export interface CreateTransactionInput {
-  id: string;
-  ledgerId: string;
-  currency: string;
-  postings: Posting[];
-}
+export type CreateTransactionInput = Transaction;
 
 const isValidDirection = (direction: string): direction is Direction =>
   direction === DIRECTIONS.DEBIT || direction === DIRECTIONS.CREDIT;
@@ -57,8 +52,8 @@ export const createTransaction = (
   for (const posting of input.postings) {
     assert(isValidDirection(posting.direction), 'posting direction must be DEBIT or CREDIT');
 
-    assert(posting.amount !== 0, 'no zero entries');
-    assert(posting.amount > 0, 'amount must be greater than 0');
+    assert(Number.isInteger(posting.amount), 'amount must be integer (minor units)');
+    assert(posting.amount > 0, 'amount must be positive');
 
     assert(posting.currency === input.currency, 'currency must match');
 
@@ -77,10 +72,5 @@ export const createTransaction = (
 
   assert(debitTotal === creditTotal, 'total debits must equal total credits');
 
-  return {
-    id: input.id,
-    ledgerId: input.ledgerId,
-    currency: input.currency,
-    postings: input.postings,
-  };
+  return input;
 };
