@@ -33,6 +33,7 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
 
   registerLedgerRoutes(server, {
     ledgerService: options.ledgerService,
+    readService: options.readService,
   });
   registerListingRoutes(server, {
     readService: options.readService,

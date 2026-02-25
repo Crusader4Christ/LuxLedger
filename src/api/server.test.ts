@@ -16,6 +16,7 @@ import type {
   PostTransactionInput,
   PostTransactionResult,
   TransactionListItem,
+  TrialBalance,
 } from '@core/types';
 
 class InMemoryLedgerRepository implements LedgerRepository {
@@ -145,6 +146,39 @@ class InMemoryLedgerReadRepository implements LedgerReadRepository {
     }
 
     return { data: [entry1], nextCursor: 'next-entries' };
+  }
+
+  public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
+    if (ledgerId === UNKNOWN_LEDGER_ID) {
+      return {
+        ledgerId,
+        accounts: [],
+        totalDebitsMinor: 0n,
+        totalCreditsMinor: 0n,
+      };
+    }
+
+    return {
+      ledgerId,
+      accounts: [
+        {
+          accountId: '00000000-0000-4000-8000-000000000101',
+          code: '1000',
+          name: 'Cash',
+          normalBalance: 'DEBIT',
+          balanceMinor: 100n,
+        },
+        {
+          accountId: '00000000-0000-4000-8000-000000000102',
+          code: '4000',
+          name: 'Revenue',
+          normalBalance: 'CREDIT',
+          balanceMinor: 100n,
+        },
+      ],
+      totalDebitsMinor: 100n,
+      totalCreditsMinor: 100n,
+    };
   }
 }
 
@@ -466,6 +500,52 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/accounts',
+    });
+
+    expect(response.statusCode).toBe(400);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers/:ledger_id/trial-balance returns trial balance with string amounts', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers/00000000-0000-4000-8000-000000000001/trial-balance',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      ledger_id: string;
+      accounts: Array<{
+        account_id: string;
+        code: string;
+        name: string;
+        normal_balance: 'DEBIT' | 'CREDIT';
+        balance: string;
+      }>;
+      total_debits: string;
+      total_credits: string;
+    }>(response.body);
+
+    expect(payload.ledger_id).toBe('00000000-0000-4000-8000-000000000001');
+    expect(payload.accounts.length).toBe(2);
+    expect(payload.accounts[0]?.balance).toBe('100');
+    expect(payload.total_debits).toBe('100');
+    expect(payload.total_credits).toBe('100');
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers/:ledger_id/trial-balance validates ledger_id format', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers/not-a-uuid/trial-balance',
     });
 
     expect(response.statusCode).toBe(400);
