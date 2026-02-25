@@ -22,3 +22,9 @@ export class InvariantViolationError extends DomainError {
     super(message, 'INVARIANT_VIOLATION');
   }
 }
+
+export class RepositoryError extends DomainError {
+  public constructor(message = 'Persistence operation failed') {
+    super(message, 'REPOSITORY_ERROR');
+  }
+}
