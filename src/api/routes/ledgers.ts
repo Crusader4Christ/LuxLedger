@@ -9,23 +9,20 @@ interface LedgersRouteDependencies {
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
-const sendDomainError = (reply: FastifyReply, error: unknown): void => {
+const sendDomainError = (reply: FastifyReply, error: unknown): FastifyReply => {
   if (error instanceof LedgerNotFoundError) {
-    void reply.status(404).send({ error: error.code, message: error.message });
-    return;
+    return reply.status(404).send({ error: error.code, message: error.message });
   }
 
   if (error instanceof InvariantViolationError) {
-    void reply.status(400).send({ error: error.code, message: error.message });
-    return;
+    return reply.status(400).send({ error: error.code, message: error.message });
   }
 
   if (error instanceof RepositoryError) {
-    void reply.status(500).send({
+    return reply.status(500).send({
       error: 'INTERNAL_ERROR',
       message: 'Internal server error',
     });
-    return;
   }
 
   throw error;
@@ -55,7 +52,7 @@ export const registerLedgerRoutes = (
 
       return reply.status(201).send(ledger);
     } catch (error) {
-      sendDomainError(reply, error);
+      return sendDomainError(reply, error);
     }
   });
 
@@ -74,7 +71,7 @@ export const registerLedgerRoutes = (
       const ledger = await dependencies.ledgerService.getLedgerById(id);
       return reply.status(200).send(ledger);
     } catch (error) {
-      sendDomainError(reply, error);
+      return sendDomainError(reply, error);
     }
   });
 
@@ -93,7 +90,7 @@ export const registerLedgerRoutes = (
       const ledgers = await dependencies.ledgerService.getLedgersByTenant(tenantId);
       return reply.status(200).send(ledgers);
     } catch (error) {
-      sendDomainError(reply, error);
+      return sendDomainError(reply, error);
     }
   });
 };

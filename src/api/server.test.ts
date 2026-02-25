@@ -229,7 +229,7 @@ describe('server', () => {
     await server.close();
   });
 
-  it('POST /ledgers maps service invariant violations to 400', async () => {
+  it('POST /ledgers trims invalid input at route boundary', async () => {
     const repository = new InMemoryLedgerRepository();
     const ledgerService = new LedgerService(repository);
     const server = buildServer({
