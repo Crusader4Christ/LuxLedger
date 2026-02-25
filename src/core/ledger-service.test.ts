@@ -32,7 +32,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
 }
 
 describe('LedgerService', () => {
-  it('createLedger creates a ledger for valid input', async () => {
+  it('createLedger returns entity', async () => {
     const repository = new InMemoryLedgerRepository();
     const service = new LedgerService(repository);
 
@@ -55,7 +55,7 @@ describe('LedgerService', () => {
     );
   });
 
-  it('getLedgerById returns ledger when found', async () => {
+  it('getLedgerById returns correct ledger', async () => {
     const repository = new InMemoryLedgerRepository();
     const service = new LedgerService(repository);
 
@@ -70,7 +70,7 @@ describe('LedgerService', () => {
     expect(found.tenantId).toBe('tenant-1');
   });
 
-  it('getLedgerById throws LedgerNotFoundError when ledger does not exist', async () => {
+  it('getLedgerById throws LedgerNotFoundError if not found', async () => {
     const repository = new InMemoryLedgerRepository();
     const service = new LedgerService(repository);
 
