@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { InvariantViolationError, RepositoryError } from '@core/errors';
+import { InvariantViolationError, LedgerNotFoundError, RepositoryError } from '@core/errors';
 import { createDbClient } from '@db/client';
 import { DrizzleLedgerRepository } from '@db/repository';
 import { accounts, entries, ledgers, tenants, transactions } from '@db/schema';
@@ -661,8 +661,12 @@ describe('DrizzleLedgerRepository', () => {
       balanceMinor: 50n,
     });
 
-    await expect(repository.getTrialBalance(ledgerId)).rejects.toBeInstanceOf(
-      InvariantViolationError,
-    );
+    await expect(repository.getTrialBalance(ledgerId)).rejects.toBeInstanceOf(RepositoryError);
+  });
+
+  it('getTrialBalance throws LedgerNotFoundError for missing ledger', async () => {
+    await expect(
+      repository.getTrialBalance('00000000-0000-4000-8000-000000000999'),
+    ).rejects.toBeInstanceOf(LedgerNotFoundError);
   });
 });

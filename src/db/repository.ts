@@ -1,4 +1,9 @@
-import { DomainError, InvariantViolationError, RepositoryError } from '@core/errors';
+import {
+  DomainError,
+  InvariantViolationError,
+  LedgerNotFoundError,
+  RepositoryError,
+} from '@core/errors';
 import type {
   AccountListItem,
   CreateLedgerInput,
@@ -341,6 +346,16 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
   public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
     try {
+      const [ledger] = await this.db
+        .select({ id: schema.ledgers.id })
+        .from(schema.ledgers)
+        .where(eq(schema.ledgers.id, ledgerId))
+        .limit(1);
+
+      if (!ledger) {
+        throw new LedgerNotFoundError(ledgerId);
+      }
+
       const accountRows = await this.db
         .select()
         .from(schema.accounts)
@@ -370,7 +385,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       });
 
       if (totalDebitsMinor !== totalCreditsMinor) {
-        throw new InvariantViolationError('trial balance totals mismatch');
+        throw new RepositoryError('trial balance totals mismatch');
       }
 
       return {
