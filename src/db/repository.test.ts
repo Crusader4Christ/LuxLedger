@@ -197,7 +197,139 @@ describe('DrizzleLedgerRepository', () => {
     expect(tenantLedgers.every((ledger) => ledger.tenantId === tenantA)).toBeTrue();
   });
 
-  it('postTransaction is idempotent for same tenant_id and reference', async () => {
+  it('postTransaction persists transaction, entries, and balances on successful posting', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+
+    const result = await repository.postTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'success-ref',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: debitAccountId,
+          direction: 'DEBIT',
+          amountMinor: 250n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: 'CREDIT',
+          amountMinor: 250n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    expect(result.created).toBeTrue();
+
+    const [transactionRow] = await client.db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.id, result.transactionId))
+      .limit(1);
+    expect(transactionRow?.reference).toBe('success-ref');
+
+    const entryRows = await client.db
+      .select()
+      .from(entries)
+      .where(eq(entries.transactionId, result.transactionId));
+    expect(entryRows.length).toBe(2);
+
+    const [debitBalance] = await client.db
+      .select({ balanceMinor: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, debitAccountId))
+      .limit(1);
+    const [creditBalance] = await client.db
+      .select({ balanceMinor: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, creditAccountId))
+      .limit(1);
+    expect(debitBalance?.balanceMinor).toBe(-250n);
+    expect(creditBalance?.balanceMinor).toBe(250n);
+  });
+
+  it('postTransaction rejects imbalanced entries', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+
+    await expect(
+      repository.postTransaction({
+        tenantId,
+        ledgerId,
+        reference: 'imbalanced-ref',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: debitAccountId,
+            direction: 'DEBIT',
+            amountMinor: 200n,
+            currency: 'USD',
+          },
+          {
+            accountId: creditAccountId,
+            direction: 'CREDIT',
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const transactionRows = await client.db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.reference, 'imbalanced-ref'));
+    expect(transactionRows.length).toBe(0);
+
+    const entryRows = await client.db.select().from(entries);
+    expect(entryRows.length).toBe(0);
+
+    const [debitBalance] = await client.db
+      .select({ balanceMinor: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, debitAccountId))
+      .limit(1);
+    const [creditBalance] = await client.db
+      .select({ balanceMinor: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, creditAccountId))
+      .limit(1);
+    expect(debitBalance?.balanceMinor).toBe(0n);
+    expect(creditBalance?.balanceMinor).toBe(0n);
+  });
+
+  it('postTransaction handles idempotency conflict without duplicate effects', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
     const debitAccountId = await createAccount({
@@ -357,7 +489,7 @@ describe('DrizzleLedgerRepository', () => {
     expect(creditBalance?.balanceMinor).toBe(9223372036854775807n);
   });
 
-  it('postTransaction throws InvariantViolationError on account ledger/currency mismatch', async () => {
+  it('postTransaction rejects currency mismatch', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
     const wrongCurrencyAccountId = await createAccount({
@@ -402,6 +534,58 @@ describe('DrizzleLedgerRepository', () => {
       .select()
       .from(transactions)
       .where(eq(transactions.reference, 'currency-mismatch-ref'));
+    expect(transactionRows.length).toBe(0);
+
+    const entryRows = await client.db.select().from(entries);
+    expect(entryRows.length).toBe(0);
+  });
+
+  it('postTransaction rejects cross-ledger account posting', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const sourceLedgerId = await createLedger(tenantId, 'Main');
+    const otherLedgerId = await createLedger(tenantId, 'Secondary');
+    const sourceAccountId = await createAccount({
+      tenantId,
+      ledgerId: sourceLedgerId,
+      name: 'Source Ledger Account',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+    const otherLedgerAccountId = await createAccount({
+      tenantId,
+      ledgerId: otherLedgerId,
+      name: 'Other Ledger Account',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+
+    await expect(
+      repository.postTransaction({
+        tenantId,
+        ledgerId: sourceLedgerId,
+        reference: 'cross-ledger-ref',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: sourceAccountId,
+            direction: 'DEBIT',
+            amountMinor: 10n,
+            currency: 'USD',
+          },
+          {
+            accountId: otherLedgerAccountId,
+            direction: 'CREDIT',
+            amountMinor: 10n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const transactionRows = await client.db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.reference, 'cross-ledger-ref'));
     expect(transactionRows.length).toBe(0);
 
     const entryRows = await client.db.select().from(entries);
