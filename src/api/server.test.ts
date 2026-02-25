@@ -186,6 +186,7 @@ const createServer = () => {
   return buildServer({
     ledgerService,
     readService,
+    readinessCheck: async () => {},
     logger: false,
   });
 };
@@ -207,6 +208,48 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(200);
     expect(payload).toEqual({ ok: true });
+
+    await server.close();
+  });
+
+  it('returns ready response when readiness check succeeds', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/ready',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(parsePayload<{ ok: boolean }>(response.body)).toEqual({ ok: true });
+
+    await server.close();
+  });
+
+  it('returns 503 when readiness check fails', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const ledgerService = new LedgerService(repository);
+    const readRepository = new InMemoryLedgerReadRepository();
+    const readService = new LedgerReadService(readRepository);
+    const server = buildServer({
+      ledgerService,
+      readService,
+      readinessCheck: async () => {
+        throw new Error('db unavailable');
+      },
+      logger: false,
+    });
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/ready',
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(parsePayload<{ error: string; message: string }>(response.body)).toEqual({
+      error: 'NOT_READY',
+      message: 'Service not ready',
+    });
 
     await server.close();
   });
@@ -377,6 +420,7 @@ describe('server', () => {
     const server = buildServer({
       ledgerService,
       readService,
+      readinessCheck: async () => {},
       logger: false,
     });
 

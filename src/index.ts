@@ -25,6 +25,9 @@ const readService = new LedgerReadService(ledgerRepository);
 const server = buildServer({
   ledgerService,
   readService,
+  readinessCheck: async () => {
+    await dbClient.sql`select 1`;
+  },
   logger: true,
 });
 const port = parsePort(process.env.PORT);
