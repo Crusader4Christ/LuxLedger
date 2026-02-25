@@ -26,6 +26,9 @@ const createTenant = async (name: string): Promise<string> => {
 
 describe('DrizzleLedgerRepository', () => {
   beforeAll(async () => {
+    await client.db.execute('DROP TABLE IF EXISTS entries CASCADE');
+    await client.db.execute('DROP TABLE IF EXISTS transactions CASCADE');
+    await client.db.execute('DROP TABLE IF EXISTS accounts CASCADE');
     await migrate(client.db, { migrationsFolder: 'drizzle' });
   });
 
