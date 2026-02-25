@@ -10,6 +10,24 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 const databaseUrl =
   process.env.DATABASE_URL_TEST ?? 'postgresql://luxledger:luxledger@localhost:5433/luxledger_test';
 
+const assertSafeTestDatabaseUrl = (value: string): void => {
+  const parsed = new URL(value);
+  const databaseName = parsed.pathname.replace(/^\/+/, '');
+  const normalized = databaseName.toLowerCase();
+
+  if (databaseName.length === 0) {
+    throw new Error('Unsafe DATABASE_URL_TEST: database name is missing');
+  }
+
+  if (normalized === 'luxledger' || !normalized.includes('test')) {
+    throw new Error(
+      `Unsafe DATABASE_URL_TEST: expected a test database name, got "${databaseName}"`,
+    );
+  }
+};
+
+assertSafeTestDatabaseUrl(databaseUrl);
+
 const client = createDbClient({
   databaseUrl,
   max: 1,
