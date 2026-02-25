@@ -32,67 +32,73 @@ const parseShutdownTimeout = (value: string | undefined): number => {
   return timeout;
 };
 
-const dbClient = createDbClient();
-const ledgerRepository = new DrizzleLedgerRepository(dbClient.db);
-const ledgerService = new LedgerService(ledgerRepository);
-const readService = new LedgerReadService(ledgerRepository);
-const server = buildServer({
-  ledgerService,
-  readService,
-  readinessCheck: async () => {
-    await dbClient.sql`select 1`;
-  },
-  logger: true,
-});
-const port = parsePort(process.env.PORT);
-const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);
+export const run = async (): Promise<void> => {
+  const dbClient = createDbClient();
+  const ledgerRepository = new DrizzleLedgerRepository(dbClient.db);
+  const ledgerService = new LedgerService(ledgerRepository);
+  const readService = new LedgerReadService(ledgerRepository);
+  const server = buildServer({
+    ledgerService,
+    readService,
+    readinessCheck: async () => {
+      await dbClient.sql`select 1`;
+    },
+    logger: true,
+  });
+  const port = parsePort(process.env.PORT);
+  const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);
 
-let isShuttingDown = false;
+  let isShuttingDown = false;
 
-const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
-  if (isShuttingDown) {
-    return;
-  }
+  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+    if (isShuttingDown) {
+      return;
+    }
 
-  isShuttingDown = true;
-  server.log.info({ signal }, 'Received shutdown signal');
+    isShuttingDown = true;
+    server.log.info({ signal }, 'Received shutdown signal');
 
-  const hardStopTimer = setTimeout(() => {
-    server.log.error({ timeoutMs: shutdownTimeoutMs }, 'Graceful shutdown timed out');
-    process.exit(1);
-  }, shutdownTimeoutMs);
-  hardStopTimer.unref();
+    const hardStopTimer = setTimeout(() => {
+      server.log.error({ timeoutMs: shutdownTimeoutMs }, 'Graceful shutdown timed out');
+      process.exit(1);
+    }, shutdownTimeoutMs);
+    hardStopTimer.unref();
+
+    try {
+      // Fastify close waits for in-flight requests to drain.
+      await server.close();
+      await dbClient.sql.end({ timeout: 5 });
+      clearTimeout(hardStopTimer);
+      process.exit(0);
+    } catch (error) {
+      clearTimeout(hardStopTimer);
+      server.log.error(error);
+      process.exit(1);
+    }
+  };
+
+  process.once('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
+
+  process.once('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
 
   try {
-    // Fastify close waits for in-flight requests to drain.
-    await server.close();
-    await dbClient.sql.end({ timeout: 5 });
-    clearTimeout(hardStopTimer);
-    process.exit(0);
+    await server.listen({
+      host: '0.0.0.0',
+      port,
+    });
   } catch (error) {
-    clearTimeout(hardStopTimer);
     server.log.error(error);
+
+    await dbClient.sql.end({ timeout: 5 });
+
     process.exit(1);
   }
 };
 
-process.once('SIGINT', () => {
-  void shutdown('SIGINT');
-});
-
-process.once('SIGTERM', () => {
-  void shutdown('SIGTERM');
-});
-
-try {
-  await server.listen({
-    host: '0.0.0.0',
-    port,
-  });
-} catch (error) {
-  server.log.error(error);
-
-  await dbClient.sql.end({ timeout: 5 });
-
-  process.exit(1);
+if (import.meta.main) {
+  await run();
 }
