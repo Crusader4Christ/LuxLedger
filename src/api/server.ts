@@ -10,10 +10,18 @@ import type { LedgerService } from '@core/ledger-service';
 import type { LedgerReadService } from '@core/read-service';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
-export interface BuildServerOptions {
+export interface ApplicationDependencies {
   apiKeyService: ApiKeyService;
   ledgerService: LedgerService;
   readService: LedgerReadService;
+}
+
+export interface BuildServerOptions extends ApplicationDependencies {
+  readinessCheck: () => Promise<void>;
+  logger?: FastifyServerOptions['logger'];
+}
+
+export interface CreateServerCoreOptions {
   readinessCheck: () => Promise<void>;
   logger?: FastifyServerOptions['logger'];
 }
@@ -28,7 +36,7 @@ const isValidationError = (error: unknown): error is { validation: unknown; mess
   'message' in error &&
   typeof (error as { message: unknown }).message === 'string';
 
-export const buildServer = (options: BuildServerOptions): FastifyInstance => {
+export const createServerCore = (options: CreateServerCoreOptions): FastifyInstance => {
   const server = Fastify({
     logger: options.logger ?? true,
     requestIdHeader: 'x-request-id',
@@ -48,37 +56,8 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
     },
   });
 
-  server.decorateRequest('tenantId');
-  server.decorateRequest('apiKeyId');
-  server.decorateRequest('apiKeyRole');
-
   server.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
-
-    if (!request.url.startsWith('/v1/')) {
-      return;
-    }
-
-    const apiKeyHeader = request.headers[API_KEY_HEADER];
-    const authorizationHeader = request.headers.authorization;
-    const bearerToken =
-      typeof authorizationHeader === 'string' && authorizationHeader.startsWith(BEARER_PREFIX)
-        ? authorizationHeader.slice(BEARER_PREFIX.length).trim()
-        : null;
-    const apiKey = typeof apiKeyHeader === 'string' ? apiKeyHeader : bearerToken;
-
-    if (!apiKey) {
-      throw new UnauthorizedError('API key is required');
-    }
-
-    const auth = await options.apiKeyService.authenticate(apiKey);
-    request.tenantId = auth.tenantId;
-    request.apiKeyId = auth.apiKeyId;
-    request.apiKeyRole = auth.role;
-
-    if (request.url.startsWith('/v1/admin/') && auth.role !== 'ADMIN') {
-      throw new ForbiddenError('Admin API key is required');
-    }
   });
 
   server.get('/health', async () => {
@@ -96,17 +75,6 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
         message: 'Service not ready',
       });
     }
-  });
-
-  registerLedgerRoutes(server, {
-    ledgerService: options.ledgerService,
-    readService: options.readService,
-  });
-  registerListingRoutes(server, {
-    readService: options.readService,
-  });
-  registerAdminApiKeyRoutes(server, {
-    apiKeyService: options.apiKeyService,
   });
 
   server.setErrorHandler((error, request, reply) => {
@@ -129,6 +97,68 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
       error: 'INTERNAL_ERROR',
       message: 'Internal server error',
     });
+  });
+
+  return server;
+};
+
+export const registerApplication = (
+  server: FastifyInstance,
+  dependencies: ApplicationDependencies,
+): void => {
+  server.decorateRequest('tenantId');
+  server.decorateRequest('apiKeyId');
+  server.decorateRequest('apiKeyRole');
+
+  server.addHook('onRequest', async (request) => {
+    if (!request.url.startsWith('/v1/')) {
+      return;
+    }
+
+    const apiKeyHeader = request.headers[API_KEY_HEADER];
+    const authorizationHeader = request.headers.authorization;
+    const bearerToken =
+      typeof authorizationHeader === 'string' && authorizationHeader.startsWith(BEARER_PREFIX)
+        ? authorizationHeader.slice(BEARER_PREFIX.length).trim()
+        : null;
+    const apiKey = typeof apiKeyHeader === 'string' ? apiKeyHeader : bearerToken;
+
+    if (!apiKey) {
+      throw new UnauthorizedError('API key is required');
+    }
+
+    const auth = await dependencies.apiKeyService.authenticate(apiKey);
+    request.tenantId = auth.tenantId;
+    request.apiKeyId = auth.apiKeyId;
+    request.apiKeyRole = auth.role;
+
+    if (request.url.startsWith('/v1/admin/') && auth.role !== 'ADMIN') {
+      throw new ForbiddenError('Admin API key is required');
+    }
+  });
+
+  registerLedgerRoutes(server, {
+    ledgerService: dependencies.ledgerService,
+    readService: dependencies.readService,
+  });
+  registerListingRoutes(server, {
+    readService: dependencies.readService,
+  });
+  registerAdminApiKeyRoutes(server, {
+    apiKeyService: dependencies.apiKeyService,
+  });
+};
+
+export const buildServer = (options: BuildServerOptions): FastifyInstance => {
+  const server = createServerCore({
+    readinessCheck: options.readinessCheck,
+    logger: options.logger,
+  });
+
+  registerApplication(server, {
+    apiKeyService: options.apiKeyService,
+    ledgerService: options.ledgerService,
+    readService: options.readService,
   });
 
   return server;

@@ -39,6 +39,10 @@ export interface PostTransactionResult {
   created: boolean;
 }
 
+export interface OperationLogger {
+  info(object: Record<string, unknown>, message: string): void;
+}
+
 export interface PaginationQuery {
   tenantId: string;
   limit: number;

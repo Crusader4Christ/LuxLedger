@@ -13,6 +13,7 @@ import type {
   Ledger,
   LedgerReadRepository,
   LedgerRepository,
+  OperationLogger,
   PaginatedResult,
   PaginationQuery,
   PostTransactionInput,
@@ -47,10 +48,6 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
 interface DatabaseErrorLike {
   code?: unknown;
   cause?: unknown;
-}
-
-interface RepositoryLogger {
-  info(object: Record<string, unknown>, message: string): void;
 }
 
 interface CursorValue {
@@ -146,13 +143,10 @@ export class DrizzleLedgerRepository
   implements LedgerRepository, LedgerReadRepository, ApiKeyRepository
 {
   private readonly db: PostgresJsDatabase<typeof schema>;
-  private logger?: RepositoryLogger;
+  private readonly logger?: OperationLogger;
 
-  public constructor(db: PostgresJsDatabase<typeof schema>) {
+  public constructor(db: PostgresJsDatabase<typeof schema>, logger?: OperationLogger) {
     this.db = db;
-  }
-
-  public setLogger(logger: RepositoryLogger): void {
     this.logger = logger;
   }
 

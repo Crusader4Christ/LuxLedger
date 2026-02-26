@@ -615,13 +615,13 @@ describe('DrizzleLedgerRepository', () => {
     });
 
     const logs: Array<{ object: Record<string, unknown>; message: string }> = [];
-    repository.setLogger({
+    const repositoryWithLogger = new DrizzleLedgerRepository(client.db, {
       info: (object, message) => {
         logs.push({ object, message });
       },
     });
 
-    const result = await repository.postTransaction({
+    const result = await repositoryWithLogger.postTransaction({
       tenantId,
       ledgerId,
       reference: 'log-ref-1',
@@ -645,10 +645,6 @@ describe('DrizzleLedgerRepository', () => {
     expect(logs.length).toBeGreaterThan(0);
     expect(logs[0]?.message).toBe('Posting committed');
     expect(logs[0]?.object.transactionId).toBe(result.transactionId);
-
-    repository.setLogger({
-      info: () => {},
-    });
   });
 
   it('listAccounts paginates by created_at and id cursor', async () => {
