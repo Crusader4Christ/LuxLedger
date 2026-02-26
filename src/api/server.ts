@@ -4,27 +4,13 @@ import { sendDomainError } from '@api/errors';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
-import type { ApiKeyService } from '@core/api-key-service';
+import type {
+  ApplicationDependencies,
+  BuildServerOptions,
+  CreateServerCoreOptions,
+} from '@api/server-types';
 import { ForbiddenError, UnauthorizedError } from '@core/errors';
-import type { LedgerService } from '@core/ledger-service';
-import type { LedgerReadService } from '@core/read-service';
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
-
-export interface ApplicationDependencies {
-  apiKeyService: ApiKeyService;
-  ledgerService: LedgerService;
-  readService: LedgerReadService;
-}
-
-export interface BuildServerOptions extends ApplicationDependencies {
-  readinessCheck: () => Promise<void>;
-  logger: FastifyServerOptions['logger'];
-}
-
-export interface CreateServerCoreOptions {
-  readinessCheck: () => Promise<void>;
-  logger: FastifyServerOptions['logger'];
-}
+import Fastify, { type FastifyInstance } from 'fastify';
 
 const API_KEY_HEADER = 'x-api-key';
 const BEARER_PREFIX = 'Bearer ';

@@ -31,6 +31,7 @@ import {
   toLedger,
   toTransactionListItem,
 } from '@db/mappers';
+import type { CursorValue, DatabaseErrorLike } from '@db/repository-types';
 import * as schema from '@db/schema';
 import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -44,16 +45,6 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
   '23505', // unique_violation
   '23514', // check_violation
 ]);
-
-interface DatabaseErrorLike {
-  code?: unknown;
-  cause?: unknown;
-}
-
-interface CursorValue {
-  createdAt: Date;
-  id: string;
-}
 
 const parseCursor = (cursor: string | undefined): CursorValue | null => {
   if (!cursor) {
