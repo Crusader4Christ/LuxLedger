@@ -4,11 +4,7 @@ import { sendDomainError } from '@api/errors';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
-import type {
-  ApplicationDependencies,
-  BuildServerOptions,
-  CreateServerCoreOptions,
-} from '@api/server-types';
+import type { ApplicationDependencies, CreateServerCoreOptions } from '@api/server-types';
 import { ForbiddenError, UnauthorizedError } from '@core/errors';
 import Fastify, { type FastifyInstance } from 'fastify';
 
@@ -133,19 +129,4 @@ export const registerApplication = (
   registerAdminApiKeyRoutes(server, {
     apiKeyService: dependencies.apiKeyService,
   });
-};
-
-export const buildServer = (options: BuildServerOptions): FastifyInstance => {
-  const server = createServerCore({
-    readinessCheck: options.readinessCheck,
-    logger: options.logger,
-  });
-
-  registerApplication(server, {
-    apiKeyService: options.apiKeyService,
-    ledgerService: options.ledgerService,
-    readService: options.readService,
-  });
-
-  return server;
 };

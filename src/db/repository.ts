@@ -13,7 +13,6 @@ import type {
   Ledger,
   LedgerReadRepository,
   LedgerRepository,
-  OperationLogger,
   PaginatedResult,
   PaginationQuery,
   PostTransactionInput,
@@ -35,6 +34,7 @@ import type { CursorValue, DatabaseErrorLike } from '@db/repository-types';
 import * as schema from '@db/schema';
 import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { Logger } from 'pino';
 
 const CONSTRAINT_VIOLATION_CODES = new Set([
   '22001', // string_data_right_truncation
@@ -134,9 +134,9 @@ export class DrizzleLedgerRepository
   implements LedgerRepository, LedgerReadRepository, ApiKeyRepository
 {
   private readonly db: PostgresJsDatabase<typeof schema>;
-  private readonly logger: OperationLogger;
+  private readonly logger: Logger;
 
-  public constructor(db: PostgresJsDatabase<typeof schema>, logger: OperationLogger) {
+  public constructor(db: PostgresJsDatabase<typeof schema>, logger: Logger) {
     this.db = db;
     this.logger = logger;
   }

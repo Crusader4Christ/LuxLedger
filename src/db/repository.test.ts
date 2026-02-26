@@ -6,6 +6,7 @@ import { DrizzleLedgerRepository } from '@db/repository';
 import { accounts, entries, ledgers, tenants, transactions } from '@db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import type { Logger } from 'pino';
 
 const databaseUrl =
   process.env.DATABASE_URL_TEST ?? 'postgresql://luxledger:luxledger@localhost:5433/luxledger_test';
@@ -37,7 +38,7 @@ const client = createDbClient({
 
 const repository = new DrizzleLedgerRepository(client.db, {
   info: () => {},
-});
+} as unknown as Logger);
 
 const createTenant = async (name: string): Promise<string> => {
   const [tenant] = await client.db.insert(tenants).values({ name }).returning({ id: tenants.id });
@@ -618,10 +619,10 @@ describe('DrizzleLedgerRepository', () => {
 
     const logs: Array<{ object: Record<string, unknown>; message: string }> = [];
     const repositoryWithLogger = new DrizzleLedgerRepository(client.db, {
-      info: (object, message) => {
+      info: (object: Record<string, unknown>, message: string) => {
         logs.push({ object, message });
       },
-    });
+    } as unknown as Logger);
 
     const result = await repositoryWithLogger.postTransaction({
       tenantId,

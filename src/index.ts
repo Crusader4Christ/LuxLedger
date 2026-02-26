@@ -4,6 +4,7 @@ import { LedgerService } from '@core/ledger-service';
 import { LedgerReadService } from '@core/read-service';
 import { createDbClient } from '@db/client';
 import { DrizzleLedgerRepository } from '@db/repository';
+import type { Logger } from 'pino';
 
 const parsePort = (value: string | undefined): number => {
   if (value === undefined) {
@@ -41,7 +42,10 @@ export const run = async (): Promise<void> => {
     },
     logger: true,
   });
-  const ledgerRepository = new DrizzleLedgerRepository(dbClient.db, server.log);
+  const ledgerRepository = new DrizzleLedgerRepository(
+    dbClient.db,
+    server.log as unknown as Logger,
+  );
   const apiKeyService = new ApiKeyService(ledgerRepository);
   const ledgerService = new LedgerService(ledgerRepository);
   const readService = new LedgerReadService(ledgerRepository);

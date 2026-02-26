@@ -1,7 +1,7 @@
 import type { ApiKeyService } from '@core/api-key-service';
 import type { LedgerService } from '@core/ledger-service';
 import type { LedgerReadService } from '@core/read-service';
-import type { FastifyServerOptions } from 'fastify';
+import type { Logger } from 'pino';
 
 export interface ApplicationDependencies {
   apiKeyService: ApiKeyService;
@@ -9,12 +9,7 @@ export interface ApplicationDependencies {
   readService: LedgerReadService;
 }
 
-export interface BuildServerOptions extends ApplicationDependencies {
-  readinessCheck: () => Promise<void>;
-  logger: FastifyServerOptions['logger'];
-}
-
 export interface CreateServerCoreOptions {
   readinessCheck: () => Promise<void>;
-  logger: FastifyServerOptions['logger'];
+  logger: Logger | boolean;
 }

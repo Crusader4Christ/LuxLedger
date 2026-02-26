@@ -1,6 +1,7 @@
 import { ApiKeyService } from '@core/api-key-service';
 import { createDbClient } from '@db/client';
 import { DrizzleLedgerRepository } from '@db/repository';
+import type { Logger } from 'pino';
 
 const requireEnv = (name: string): string => {
   const value = process.env[name];
@@ -12,7 +13,7 @@ const requireEnv = (name: string): string => {
 
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
-  const repository = new DrizzleLedgerRepository(dbClient.db, console);
+  const repository = new DrizzleLedgerRepository(dbClient.db, console as unknown as Logger);
   const apiKeyService = new ApiKeyService(repository);
 
   try {
