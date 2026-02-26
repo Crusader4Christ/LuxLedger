@@ -33,38 +33,6 @@ const parseShutdownTimeout = (value: string | undefined): number => {
   return timeout;
 };
 
-const maybeBootstrapInitialAdmin = async (
-  apiKeyService: ApiKeyService,
-  logger: { info: (obj: Record<string, unknown>, message: string) => void },
-): Promise<void> => {
-  const bootstrapApiKey = process.env.BOOTSTRAP_ADMIN_API_KEY;
-  if (!bootstrapApiKey) {
-    return;
-  }
-
-  const tenantName = process.env.BOOTSTRAP_TENANT_NAME;
-  if (!tenantName || tenantName.trim().length === 0) {
-    throw new Error('BOOTSTRAP_TENANT_NAME is required when BOOTSTRAP_ADMIN_API_KEY is set');
-  }
-
-  const keyName = process.env.BOOTSTRAP_ADMIN_KEY_NAME ?? 'Initial admin key';
-
-  const result = await apiKeyService.bootstrapInitialAdmin({
-    tenantName,
-    keyName,
-    rawApiKey: bootstrapApiKey,
-  });
-
-  logger.info(
-    {
-      created: result.created,
-      tenantId: result.tenantId,
-      apiKeyId: result.apiKeyId,
-    },
-    'Bootstrap admin key check completed',
-  );
-};
-
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
   const ledgerRepository = new DrizzleLedgerRepository(dbClient.db);
@@ -81,7 +49,6 @@ export const run = async (): Promise<void> => {
     logger: true,
   });
   ledgerRepository.setLogger(server.log);
-  await maybeBootstrapInitialAdmin(apiKeyService, server.log);
   const port = parsePort(process.env.PORT);
   const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);
 
