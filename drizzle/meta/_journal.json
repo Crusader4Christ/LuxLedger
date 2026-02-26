@@ -22,6 +22,13 @@
       "when": 1772039189606,
       "tag": "0002_cold_cloak",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772116410663,
+      "tag": "0003_colorful_wraith",
+      "breakpoints": true
     }
   ]
 }

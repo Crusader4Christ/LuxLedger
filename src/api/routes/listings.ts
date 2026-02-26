@@ -7,19 +7,14 @@ interface ListingsRouteDependencies {
 }
 
 interface PaginationQuery {
-  tenant_id: string;
   limit?: number;
   cursor?: string;
 }
 
 const paginationQuerySchema = {
   type: 'object',
-  required: ['tenant_id'],
+  additionalProperties: false,
   properties: {
-    tenant_id: {
-      type: 'string',
-      format: 'uuid',
-    },
     limit: {
       type: 'integer',
       minimum: 1,
@@ -49,7 +44,7 @@ export const registerListingRoutes = (
     async (request, reply) => {
       try {
         const page = await dependencies.readService.listAccounts({
-          tenantId: request.query.tenant_id,
+          tenantId: request.tenantId as string,
           limit: resolveLimit(request.query.limit),
           cursor: request.query.cursor,
         });
@@ -82,7 +77,7 @@ export const registerListingRoutes = (
     async (request, reply) => {
       try {
         const page = await dependencies.readService.listTransactions({
-          tenantId: request.query.tenant_id,
+          tenantId: request.tenantId as string,
           limit: resolveLimit(request.query.limit),
           cursor: request.query.cursor,
         });
@@ -114,7 +109,7 @@ export const registerListingRoutes = (
     async (request, reply) => {
       try {
         const page = await dependencies.readService.listEntries({
-          tenantId: request.query.tenant_id,
+          tenantId: request.tenantId as string,
           limit: resolveLimit(request.query.limit),
           cursor: request.query.cursor,
         });

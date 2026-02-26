@@ -7,6 +7,7 @@ import type {
   PaginationQuery,
   TransactionListItem,
   TrialBalance,
+  TrialBalanceQuery,
 } from '@core/types';
 
 export class LedgerReadService {
@@ -33,12 +34,16 @@ export class LedgerReadService {
     return this.repository.listEntries(query);
   }
 
-  public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
-    if (ledgerId.trim().length === 0) {
+  public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
+    if (query.tenantId.trim().length === 0) {
+      throw new InvariantViolationError('tenantId is required');
+    }
+
+    if (query.ledgerId.trim().length === 0) {
       throw new InvariantViolationError('ledgerId is required');
     }
 
-    return this.repository.getTrialBalance(ledgerId);
+    return this.repository.getTrialBalance(query);
   }
 
   private validateQuery(query: PaginationQuery): void {
