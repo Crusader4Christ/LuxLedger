@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
 import type { LedgerService } from '@core/ledger-service';
@@ -21,11 +22,25 @@ const isValidationError = (error: unknown): error is { validation: unknown; mess
 export const buildServer = (options: BuildServerOptions): FastifyInstance => {
   const server = Fastify({
     logger: options.logger ?? true,
+    requestIdHeader: 'x-request-id',
+    requestIdLogLabel: 'requestId',
+    genReqId: (request) => {
+      const headerValue = request.headers['x-request-id'];
+      if (typeof headerValue === 'string' && headerValue.length > 0) {
+        return headerValue;
+      }
+
+      return randomUUID();
+    },
     ajv: {
       customOptions: {
         removeAdditional: false,
       },
     },
+  });
+
+  server.addHook('onRequest', async (request, reply) => {
+    reply.header('x-request-id', request.id);
   });
 
   server.get('/health', async () => {
