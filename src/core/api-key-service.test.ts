@@ -14,6 +14,20 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     }
   }
 
+  public async countApiKeys(): Promise<number> {
+    return this.keys.size;
+  }
+
+  public async createTenant(input: {
+    name: string;
+  }): Promise<{ id: string; name: string; createdAt: Date }> {
+    return {
+      id: `tenant-${input.name.toLowerCase().replaceAll(/\s+/g, '-')}`,
+      name: input.name,
+      createdAt: new Date(),
+    };
+  }
+
   public async findActiveApiKeyByHash(keyHash: string): Promise<StoredApiKey | null> {
     for (const key of this.keys.values()) {
       if (key.keyHash === keyHash && key.revokedAt === null) {
@@ -144,5 +158,30 @@ describe('ApiKeyService', () => {
         role: 'SERVICE',
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('bootstrapInitialAdmin creates first admin key when key store is empty', async () => {
+    const emptyRepository = new InMemoryApiKeyRepository([]);
+    const bootstrapService = new ApiKeyService(emptyRepository);
+
+    const result = await bootstrapService.bootstrapInitialAdmin({
+      tenantName: 'Bootstrap Tenant',
+      keyName: 'Initial admin',
+      rawApiKey: 'llk_bootstrap_admin',
+    });
+
+    expect(result.created).toBeTrue();
+    expect(result.tenantId).toBeDefined();
+    expect(result.apiKeyId).toBeDefined();
+  });
+
+  it('bootstrapInitialAdmin skips when at least one key already exists', async () => {
+    const result = await service.bootstrapInitialAdmin({
+      tenantName: 'Ignored',
+      keyName: 'Ignored',
+      rawApiKey: 'llk_ignored',
+    });
+
+    expect(result).toEqual({ created: false });
   });
 });

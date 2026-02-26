@@ -133,6 +133,18 @@ export interface CreateApiKeyResult {
   key: ApiKeyListItem;
 }
 
+export interface BootstrapAdminInput {
+  tenantName: string;
+  keyName: string;
+  rawApiKey: string;
+}
+
+export interface BootstrapAdminResult {
+  created: boolean;
+  tenantId?: string;
+  apiKeyId?: string;
+}
+
 export interface LedgerRepository {
   createLedger(input: CreateLedgerInput): Promise<Ledger>;
   findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null>;
@@ -148,6 +160,8 @@ export interface LedgerReadRepository {
 }
 
 export interface ApiKeyRepository {
+  countApiKeys(): Promise<number>;
+  createTenant(input: { name: string }): Promise<Tenant>;
   findActiveApiKeyByHash(keyHash: string): Promise<StoredApiKey | null>;
   createApiKey(input: {
     tenantId: string;

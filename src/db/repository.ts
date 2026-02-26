@@ -156,6 +156,36 @@ export class DrizzleLedgerRepository
     this.logger = logger;
   }
 
+  public async countApiKeys(): Promise<number> {
+    try {
+      const [row] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.apiKeys)
+        .limit(1);
+      return row?.count ?? 0;
+    } catch (error) {
+      this.handleDatabaseError(error, 'count api keys');
+    }
+  }
+
+  public async createTenant(input: {
+    name: string;
+  }): Promise<{ id: string; name: string; createdAt: Date }> {
+    try {
+      const [created] = await this.db
+        .insert(schema.tenants)
+        .values({ name: input.name })
+        .returning();
+      return {
+        id: created.id,
+        name: created.name,
+        createdAt: created.createdAt,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'create tenant');
+    }
+  }
+
   public async findActiveApiKeyByHash(keyHash: string): Promise<StoredApiKey | null> {
     try {
       const [row] = await this.db

@@ -233,6 +233,20 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return null;
   }
 
+  public async countApiKeys(): Promise<number> {
+    return this.keys.size;
+  }
+
+  public async createTenant(input: {
+    name: string;
+  }): Promise<{ id: string; name: string; createdAt: Date }> {
+    return {
+      id: VALID_TENANT_ID,
+      name: input.name,
+      createdAt: new Date(),
+    };
+  }
+
   public async createApiKey(input: {
     tenantId: string;
     name: string;

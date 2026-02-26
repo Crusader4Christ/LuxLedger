@@ -5,6 +5,8 @@ import type {
   ApiKeyRepository,
   ApiKeyRole,
   AuthContext,
+  BootstrapAdminInput,
+  BootstrapAdminResult,
   CreateApiKeyInput,
   CreateApiKeyResult,
 } from '@core/types';
@@ -64,6 +66,31 @@ export class ApiKeyService {
   public async listApiKeys(actor: AuthContext): Promise<ApiKeyListItem[]> {
     this.assertAdmin(actor);
     return this.repository.listApiKeys(actor.tenantId);
+  }
+
+  public async bootstrapInitialAdmin(input: BootstrapAdminInput): Promise<BootstrapAdminResult> {
+    this.assertNonEmpty(input.tenantName, 'tenantName is required');
+    this.assertNonEmpty(input.keyName, 'keyName is required');
+    this.assertNonEmpty(input.rawApiKey, 'rawApiKey is required');
+
+    const existingKeys = await this.repository.countApiKeys();
+    if (existingKeys > 0) {
+      return { created: false };
+    }
+
+    const tenant = await this.repository.createTenant({ name: input.tenantName.trim() });
+    const created = await this.repository.createApiKey({
+      tenantId: tenant.id,
+      name: input.keyName.trim(),
+      role: 'ADMIN',
+      keyHash: hashApiKey(input.rawApiKey),
+    });
+
+    return {
+      created: true,
+      tenantId: tenant.id,
+      apiKeyId: created.id,
+    };
   }
 
   public async revokeApiKey(actor: AuthContext, apiKeyId: string): Promise<void> {
