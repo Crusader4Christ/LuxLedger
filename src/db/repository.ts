@@ -196,7 +196,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
     try {
       assertBalancedEntries(input.entries);
 
-      return await this.db.transaction(async (tx) => {
+      const result = await this.db.transaction(async (tx) => {
         const [insertedTransaction] = await tx
           .insert(schema.transactions)
           .values({
@@ -280,11 +280,13 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
           }
         }
 
-        const result = {
+        return {
           transactionId: insertedTransaction.id,
           created: true,
         };
+      });
 
+      if (result.created) {
         this.logger?.info(
           {
             transactionId: result.transactionId,
@@ -295,9 +297,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
           },
           'Posting committed',
         );
+      }
 
-        return result;
-      });
+      return result;
     } catch (error) {
       this.handleDatabaseError(error, 'post transaction');
     }
