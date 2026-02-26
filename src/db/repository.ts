@@ -30,9 +30,11 @@ import {
   toLedger,
   toTransactionListItem,
 } from '@db/mappers';
+import type { CursorValue, DatabaseErrorLike } from '@db/repository-types';
 import * as schema from '@db/schema';
 import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { Logger } from 'pino';
 
 const CONSTRAINT_VIOLATION_CODES = new Set([
   '22001', // string_data_right_truncation
@@ -43,20 +45,6 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
   '23505', // unique_violation
   '23514', // check_violation
 ]);
-
-interface DatabaseErrorLike {
-  code?: unknown;
-  cause?: unknown;
-}
-
-interface RepositoryLogger {
-  info(object: Record<string, unknown>, message: string): void;
-}
-
-interface CursorValue {
-  createdAt: Date;
-  id: string;
-}
 
 const parseCursor = (cursor: string | undefined): CursorValue | null => {
   if (!cursor) {
@@ -146,13 +134,10 @@ export class DrizzleLedgerRepository
   implements LedgerRepository, LedgerReadRepository, ApiKeyRepository
 {
   private readonly db: PostgresJsDatabase<typeof schema>;
-  private logger?: RepositoryLogger;
+  private readonly logger: Logger;
 
-  public constructor(db: PostgresJsDatabase<typeof schema>) {
+  public constructor(db: PostgresJsDatabase<typeof schema>, logger: Logger) {
     this.db = db;
-  }
-
-  public setLogger(logger: RepositoryLogger): void {
     this.logger = logger;
   }
 
@@ -363,7 +348,7 @@ export class DrizzleLedgerRepository
             throw new RepositoryError('Unable to resolve idempotent transaction');
           }
 
-          this.logger?.info(
+          this.logger.info(
             {
               transactionId: existingTransaction.id,
               tenantId: input.tenantId,
@@ -425,7 +410,7 @@ export class DrizzleLedgerRepository
       });
 
       if (result.created) {
-        this.logger?.info(
+        this.logger.info(
           {
             transactionId: result.transactionId,
             tenantId: input.tenantId,

@@ -1,9 +1,10 @@
-import { buildServer } from '@api/server';
+import { createServerCore, registerApplication } from '@api/server';
 import { ApiKeyService } from '@core/api-key-service';
 import { LedgerService } from '@core/ledger-service';
 import { LedgerReadService } from '@core/read-service';
 import { createDbClient } from '@db/client';
 import { DrizzleLedgerRepository } from '@db/repository';
+import type { Logger } from 'pino';
 
 const parsePort = (value: string | undefined): number => {
   if (value === undefined) {
@@ -35,20 +36,24 @@ const parseShutdownTimeout = (value: string | undefined): number => {
 
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
-  const ledgerRepository = new DrizzleLedgerRepository(dbClient.db);
-  const apiKeyService = new ApiKeyService(ledgerRepository);
-  const ledgerService = new LedgerService(ledgerRepository);
-  const readService = new LedgerReadService(ledgerRepository);
-  const server = buildServer({
-    apiKeyService,
-    ledgerService,
-    readService,
+  const server = createServerCore({
     readinessCheck: async () => {
       await dbClient.sql`select 1`;
     },
     logger: true,
   });
-  ledgerRepository.setLogger(server.log);
+  const ledgerRepository = new DrizzleLedgerRepository(
+    dbClient.db,
+    server.log as unknown as Logger,
+  );
+  const apiKeyService = new ApiKeyService(ledgerRepository);
+  const ledgerService = new LedgerService(ledgerRepository);
+  const readService = new LedgerReadService(ledgerRepository);
+  registerApplication(server, {
+    apiKeyService,
+    ledgerService,
+    readService,
+  });
   const port = parsePort(process.env.PORT);
   const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);
 

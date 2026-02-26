@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { buildServer } from '@api/server';
+import { createServerCore, registerApplication } from '@api/server';
 import { ApiKeyService } from '@core/api-key-service';
 import { LedgerNotFoundError, RepositoryError } from '@core/errors';
 import { LedgerService } from '@core/ledger-service';
@@ -301,7 +301,7 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
   }
 }
 
-const createServer = () => {
+const createServer = (readinessCheck: () => Promise<void> = async () => {}) => {
   const repository = new InMemoryLedgerRepository();
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);
@@ -309,13 +309,18 @@ const createServer = () => {
   const readRepository = new InMemoryLedgerReadRepository();
   const readService = new LedgerReadService(readRepository);
 
-  return buildServer({
+  const server = createServerCore({
+    readinessCheck,
+    logger: false,
+  });
+
+  registerApplication(server, {
     apiKeyService,
     ledgerService,
     readService,
-    readinessCheck: async () => {},
-    logger: false,
   });
+
+  return server;
 };
 
 const parsePayload = <T>(body: string): T => JSON.parse(body) as T;
@@ -379,20 +384,8 @@ describe('server', () => {
   });
 
   it('returns 503 when readiness check fails', async () => {
-    const repository = new InMemoryLedgerRepository();
-    const apiKeyRepository = new InMemoryApiKeyRepository();
-    const apiKeyService = new ApiKeyService(apiKeyRepository);
-    const ledgerService = new LedgerService(repository);
-    const readRepository = new InMemoryLedgerReadRepository();
-    const readService = new LedgerReadService(readRepository);
-    const server = buildServer({
-      apiKeyService,
-      ledgerService,
-      readService,
-      readinessCheck: async () => {
-        throw new Error('db unavailable');
-      },
-      logger: false,
+    const server = createServer(async () => {
+      throw new Error('db unavailable');
     });
 
     const response = await server.inject({
@@ -600,19 +593,7 @@ describe('server', () => {
   });
 
   it('POST /v1/ledgers rejects additional properties', async () => {
-    const repository = new InMemoryLedgerRepository();
-    const apiKeyRepository = new InMemoryApiKeyRepository();
-    const apiKeyService = new ApiKeyService(apiKeyRepository);
-    const ledgerService = new LedgerService(repository);
-    const readRepository = new InMemoryLedgerReadRepository();
-    const readService = new LedgerReadService(readRepository);
-    const server = buildServer({
-      apiKeyService,
-      ledgerService,
-      readService,
-      readinessCheck: async () => {},
-      logger: false,
-    });
+    const server = createServer();
 
     const response = await server.inject({
       method: 'POST',
