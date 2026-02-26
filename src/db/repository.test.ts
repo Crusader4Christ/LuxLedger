@@ -180,8 +180,11 @@ describe('DrizzleLedgerRepository', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
-  it('findLedgerById returns null when not found', async () => {
-    const result = await repository.findLedgerById('00000000-0000-0000-0000-000000000099');
+  it('findLedgerByIdForTenant returns null when not found', async () => {
+    const result = await repository.findLedgerByIdForTenant(
+      '11111111-1111-4111-8111-111111111111',
+      '00000000-0000-0000-0000-000000000099',
+    );
     expect(result).toBeNull();
   });
 

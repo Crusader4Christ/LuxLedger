@@ -42,8 +42,9 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return ledger;
   }
 
-  public async findLedgerById(id: string): Promise<Ledger | null> {
-    return this.ledgers.get(id) ?? null;
+  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
+    const ledger = this.ledgers.get(id);
+    return ledger && ledger.tenantId === tenantId ? ledger : null;
   }
 
   public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
@@ -434,6 +435,33 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(200);
     expect(parsePayload<Ledger>(response.body)).toEqual(created);
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers/:id returns 404 for ledger of another tenant', async () => {
+    const server = createServer();
+
+    const createdResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
+      payload: {
+        name: 'Main ledger',
+      },
+    });
+
+    const created = parsePayload<Ledger>(createdResponse.body);
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/v1/ledgers/${created.id}`,
+      headers: { 'x-tenant-id': '22222222-2222-4222-8222-222222222222' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('LEDGER_NOT_FOUND');
 
     await server.close();
   });

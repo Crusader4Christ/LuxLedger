@@ -77,7 +77,10 @@ export const registerLedgerRoutes = (
     },
     async (request, reply) => {
       try {
-        const ledger = await dependencies.ledgerService.getLedgerById(request.params.id);
+        const ledger = await dependencies.ledgerService.getLedgerById(
+          request.tenantId as string,
+          request.params.id,
+        );
         return reply.status(200).send(ledger);
       } catch (error) {
         return sendDomainError(reply, error);

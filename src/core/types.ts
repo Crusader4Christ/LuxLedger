@@ -99,7 +99,7 @@ export interface TrialBalanceQuery {
 
 export interface LedgerRepository {
   createLedger(input: CreateLedgerInput): Promise<Ledger>;
-  findLedgerById(id: string): Promise<Ledger | null>;
+  findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null>;
   findLedgersByTenant(tenantId: string): Promise<Ledger[]>;
   postTransaction(input: PostTransactionInput): Promise<PostTransactionResult>;
 }

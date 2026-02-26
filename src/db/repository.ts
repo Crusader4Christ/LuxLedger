@@ -161,12 +161,12 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
     }
   }
 
-  public async findLedgerById(id: string): Promise<Ledger | null> {
+  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
     try {
       const [ledger] = await this.db
         .select()
         .from(schema.ledgers)
-        .where(eq(schema.ledgers.id, id))
+        .where(and(eq(schema.ledgers.tenantId, tenantId), eq(schema.ledgers.id, id)))
         .limit(1);
 
       if (!ledger) {
@@ -175,7 +175,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
       return toLedger(ledger);
     } catch (error) {
-      this.handleDatabaseError(error, 'find ledger by id');
+      this.handleDatabaseError(error, 'find ledger by id for tenant');
     }
   }
 

@@ -18,10 +18,11 @@ export class LedgerService {
     });
   }
 
-  public async getLedgerById(id: string): Promise<Ledger> {
+  public async getLedgerById(tenantId: string, id: string): Promise<Ledger> {
+    this.assertNonEmpty(tenantId, 'tenantId is required');
     this.assertNonEmpty(id, 'ledger id is required');
 
-    const ledger = await this.repository.findLedgerById(id);
+    const ledger = await this.repository.findLedgerByIdForTenant(tenantId, id);
 
     if (!ledger) {
       throw new LedgerNotFoundError(id);
