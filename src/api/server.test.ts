@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 
 import { buildServer } from '@api/server';
+import { ApiKeyService } from '@core/api-key-service';
 import { LedgerNotFoundError, RepositoryError } from '@core/errors';
 import { LedgerService } from '@core/ledger-service';
 import { LedgerReadService } from '@core/read-service';
 import type {
   AccountListItem,
+  ApiKeyListItem,
+  ApiKeyRepository,
   CreateLedgerInput,
   EntryListItem,
   Ledger,
@@ -15,6 +19,7 @@ import type {
   PaginationQuery,
   PostTransactionInput,
   PostTransactionResult,
+  StoredApiKey,
   TransactionListItem,
   TrialBalance,
   TrialBalanceQuery,
@@ -179,13 +184,119 @@ class InMemoryLedgerReadRepository implements LedgerReadRepository {
   }
 }
 
+class InMemoryApiKeyRepository implements ApiKeyRepository {
+  private readonly keys = new Map<string, ApiKeyListItem & { keyHash: string }>();
+
+  public constructor() {
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    this.seed({
+      id: '00000000-0000-4000-8000-000000000901',
+      tenantId: VALID_TENANT_ID,
+      name: 'Admin key',
+      role: 'ADMIN',
+      createdAt: now,
+      revokedAt: null,
+      keyHash: hashApiKey(VALID_ADMIN_API_KEY),
+    });
+    this.seed({
+      id: '00000000-0000-4000-8000-000000000902',
+      tenantId: VALID_TENANT_ID,
+      name: 'Service key',
+      role: 'SERVICE',
+      createdAt: now,
+      revokedAt: null,
+      keyHash: hashApiKey(VALID_SERVICE_API_KEY),
+    });
+    this.seed({
+      id: '00000000-0000-4000-8000-000000000903',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+      name: 'Other tenant admin',
+      role: 'ADMIN',
+      createdAt: now,
+      revokedAt: null,
+      keyHash: hashApiKey(OTHER_TENANT_ADMIN_API_KEY),
+    });
+  }
+
+  public async findActiveApiKeyByHash(keyHash: string): Promise<StoredApiKey | null> {
+    for (const key of this.keys.values()) {
+      if (key.keyHash === keyHash && key.revokedAt === null) {
+        return {
+          id: key.id,
+          tenantId: key.tenantId,
+          role: key.role,
+          keyHash: key.keyHash,
+          revokedAt: key.revokedAt,
+        };
+      }
+    }
+    return null;
+  }
+
+  public async createApiKey(input: {
+    tenantId: string;
+    name: string;
+    role: 'ADMIN' | 'SERVICE';
+    keyHash: string;
+  }): Promise<ApiKeyListItem> {
+    const createdAt = new Date();
+    const id = `00000000-0000-4000-8000-${String(this.keys.size + 904).padStart(12, '0')}`;
+    const created: ApiKeyListItem & { keyHash: string } = {
+      id,
+      tenantId: input.tenantId,
+      name: input.name,
+      role: input.role,
+      createdAt,
+      revokedAt: null,
+      keyHash: input.keyHash,
+    };
+    this.seed(created);
+    return this.toListItem(created);
+  }
+
+  public async listApiKeys(tenantId: string): Promise<ApiKeyListItem[]> {
+    return [...this.keys.values()]
+      .filter((key) => key.tenantId === tenantId)
+      .map((key) => this.toListItem(key));
+  }
+
+  public async revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean> {
+    const key = this.keys.get(apiKeyId);
+    if (!key || key.tenantId !== tenantId || key.revokedAt !== null) {
+      return false;
+    }
+
+    key.revokedAt = new Date();
+    this.keys.set(apiKeyId, key);
+    return true;
+  }
+
+  private seed(key: ApiKeyListItem & { keyHash: string }): void {
+    this.keys.set(key.id, key);
+  }
+
+  private toListItem(key: ApiKeyListItem & { keyHash: string }): ApiKeyListItem {
+    return {
+      id: key.id,
+      tenantId: key.tenantId,
+      name: key.name,
+      role: key.role,
+      createdAt: key.createdAt,
+      revokedAt: key.revokedAt,
+    };
+  }
+}
+
 const createServer = () => {
   const repository = new InMemoryLedgerRepository();
+  const apiKeyRepository = new InMemoryApiKeyRepository();
+  const apiKeyService = new ApiKeyService(apiKeyRepository);
   const ledgerService = new LedgerService(repository);
   const readRepository = new InMemoryLedgerReadRepository();
   const readService = new LedgerReadService(readRepository);
 
   return buildServer({
+    apiKeyService,
     ledgerService,
     readService,
     readinessCheck: async () => {},
@@ -194,10 +305,15 @@ const createServer = () => {
 };
 
 const parsePayload = <T>(body: string): T => JSON.parse(body) as T;
+const hashApiKey = (value: string): string =>
+  createHash('sha256').update(value, 'utf8').digest('hex');
 const VALID_TENANT_ID = '11111111-1111-4111-8111-111111111111';
-const INVALID_TENANT_ID = 'not-a-uuid';
 const UNKNOWN_LEDGER_ID = '00000000-0000-4000-8000-999999999999';
-const TENANT_HEADERS = { 'x-tenant-id': VALID_TENANT_ID };
+const VALID_ADMIN_API_KEY = 'llk_admin_test_key';
+const VALID_SERVICE_API_KEY = 'llk_service_test_key';
+const OTHER_TENANT_ADMIN_API_KEY = 'llk_admin_other_tenant';
+const INVALID_API_KEY = 'llk_invalid';
+const ADMIN_AUTH_HEADERS = { 'x-api-key': VALID_ADMIN_API_KEY };
 
 describe('server', () => {
   it('returns health response', async () => {
@@ -250,10 +366,13 @@ describe('server', () => {
 
   it('returns 503 when readiness check fails', async () => {
     const repository = new InMemoryLedgerRepository();
+    const apiKeyRepository = new InMemoryApiKeyRepository();
+    const apiKeyService = new ApiKeyService(apiKeyRepository);
     const ledgerService = new LedgerService(repository);
     const readRepository = new InMemoryLedgerReadRepository();
     const readService = new LedgerReadService(readRepository);
     const server = buildServer({
+      apiKeyService,
       ledgerService,
       readService,
       readinessCheck: async () => {
@@ -282,7 +401,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
       payload: { name: '' },
     });
 
@@ -299,7 +418,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${UNKNOWN_LEDGER_ID}`,
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(404);
@@ -311,7 +430,7 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/ledgers requires x-tenant-id header', async () => {
+  it('GET /v1/ledgers requires x-api-key header', async () => {
     const server = createServer();
 
     const response = await server.inject({
@@ -319,25 +438,25 @@ describe('server', () => {
       url: '/v1/ledgers',
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(401);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
-    expect(payload.error).toBe('INVALID_INPUT');
+    expect(payload.error).toBe('UNAUTHORIZED');
 
     await server.close();
   });
 
-  it('GET /v1/ledgers validates x-tenant-id header format', async () => {
+  it('GET /v1/ledgers rejects invalid x-api-key', async () => {
     const server = createServer();
 
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers',
-      headers: { 'x-tenant-id': INVALID_TENANT_ID },
+      headers: { 'x-api-key': INVALID_API_KEY },
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(401);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
-    expect(payload.error).toBe('INVALID_INPUT');
+    expect(payload.error).toBe('UNAUTHORIZED');
 
     await server.close();
   });
@@ -348,7 +467,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
       payload: {
         name: 'force-db-error',
       },
@@ -369,7 +488,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
       payload: {
         name: 'Main ledger',
       },
@@ -391,7 +510,7 @@ describe('server', () => {
     await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
       payload: {
         name: 'Main ledger',
       },
@@ -400,7 +519,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -419,7 +538,7 @@ describe('server', () => {
     const createdResponse = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
       payload: {
         name: 'Main ledger',
       },
@@ -430,7 +549,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${created.id}`,
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -445,7 +564,7 @@ describe('server', () => {
     const createdResponse = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
       payload: {
         name: 'Main ledger',
       },
@@ -456,7 +575,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${created.id}`,
-      headers: { 'x-tenant-id': '22222222-2222-4222-8222-222222222222' },
+      headers: { 'x-api-key': OTHER_TENANT_ADMIN_API_KEY },
     });
 
     expect(response.statusCode).toBe(404);
@@ -468,10 +587,13 @@ describe('server', () => {
 
   it('POST /v1/ledgers rejects additional properties', async () => {
     const repository = new InMemoryLedgerRepository();
+    const apiKeyRepository = new InMemoryApiKeyRepository();
+    const apiKeyService = new ApiKeyService(apiKeyRepository);
     const ledgerService = new LedgerService(repository);
     const readRepository = new InMemoryLedgerReadRepository();
     const readService = new LedgerReadService(readRepository);
     const server = buildServer({
+      apiKeyService,
       ledgerService,
       readService,
       readinessCheck: async () => {},
@@ -481,7 +603,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
       payload: {
         name: 'Main ledger',
         extra: 'nope',
@@ -501,7 +623,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/not-a-uuid',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(400);
@@ -517,7 +639,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/accounts',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -539,7 +661,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/transactions?cursor=next-transactions&limit=1',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -560,7 +682,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/entries?cursor=next-entries&limit=1',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -582,7 +704,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/accounts?limit=201',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(400);
@@ -592,7 +714,7 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/accounts requires x-tenant-id header', async () => {
+  it('GET /v1/accounts requires x-api-key header', async () => {
     const server = createServer();
 
     const response = await server.inject({
@@ -600,9 +722,9 @@ describe('server', () => {
       url: '/v1/accounts',
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(401);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
-    expect(payload.error).toBe('INVALID_INPUT');
+    expect(payload.error).toBe('UNAUTHORIZED');
 
     await server.close();
   });
@@ -613,7 +735,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/00000000-0000-4000-8000-000000000001/trial-balance',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -645,7 +767,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/not-a-uuid/trial-balance',
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(400);
@@ -661,7 +783,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${UNKNOWN_LEDGER_ID}/trial-balance`,
-      headers: TENANT_HEADERS,
+      headers: ADMIN_AUTH_HEADERS,
     });
 
     expect(response.statusCode).toBe(404);
@@ -680,12 +802,76 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/00000000-0000-4000-8000-000000000001/trial-balance',
-      headers: { 'x-tenant-id': '22222222-2222-4222-8222-222222222222' },
+      headers: { 'x-api-key': OTHER_TENANT_ADMIN_API_KEY },
     });
 
     expect(response.statusCode).toBe(404);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
     expect(payload.error).toBe('LEDGER_NOT_FOUND');
+
+    await server.close();
+  });
+
+  it('GET /v1/admin/api-keys rejects non-admin API key', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/admin/api-keys',
+      headers: { 'x-api-key': VALID_SERVICE_API_KEY },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parsePayload<{ error: string }>(response.body).error).toBe('FORBIDDEN');
+
+    await server.close();
+  });
+
+  it('POST /v1/admin/api-keys creates key for tenant', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/api-keys',
+      headers: ADMIN_AUTH_HEADERS,
+      payload: {
+        name: 'New service key',
+        role: 'SERVICE',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const payload = parsePayload<{ api_key: string; key: { tenant_id: string; role: string } }>(
+      response.body,
+    );
+    expect(payload.api_key.startsWith('llk_')).toBeTrue();
+    expect(payload.key.tenant_id).toBe(VALID_TENANT_ID);
+    expect(payload.key.role).toBe('SERVICE');
+
+    await server.close();
+  });
+
+  it('POST /v1/admin/api-keys/:id/revoke revokes existing key', async () => {
+    const server = createServer();
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/api-keys',
+      headers: ADMIN_AUTH_HEADERS,
+      payload: {
+        name: 'Revoke me',
+        role: 'SERVICE',
+      },
+    });
+    const createdPayload = parsePayload<{ key: { id: string } }>(created.body);
+
+    const revokeResponse = await server.inject({
+      method: 'POST',
+      url: `/v1/admin/api-keys/${createdPayload.key.id}/revoke`,
+      headers: ADMIN_AUTH_HEADERS,
+    });
+
+    expect(revokeResponse.statusCode).toBe(204);
 
     await server.close();
   });

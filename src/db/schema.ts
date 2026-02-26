@@ -16,6 +16,26 @@ export const tenants = pgTable('tenants', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    name: text('name').notNull(),
+    role: text('role').notNull(),
+    keyHash: text('key_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (table) => ({
+    apiKeysTenantIdIdx: index('api_keys_tenant_id_idx').on(table.tenantId),
+    apiKeysKeyHashUq: uniqueIndex('api_keys_key_hash_uq').on(table.keyHash),
+    apiKeysRoleChk: check('api_keys_role_chk', sql`${table.role} in ('ADMIN', 'SERVICE')`),
+  }),
+);
+
 export const ledgers = pgTable(
   'ledgers',
   {

@@ -29,6 +29,13 @@
       "when": 1772116410663,
       "tag": "0003_colorful_wraith",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772118808349,
+      "tag": "0004_warm_stryfe",
+      "breakpoints": true
     }
   ]
 }

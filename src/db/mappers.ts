@@ -1,18 +1,20 @@
 import { InvariantViolationError } from '@core/errors';
 import type {
   AccountListItem,
+  ApiKeyListItem,
   EntryListItem,
   Ledger,
   Tenant,
   TransactionListItem,
 } from '@core/types';
-import type { accounts, entries, ledgers, tenants, transactions } from '@db/schema';
+import type { accounts, apiKeys, entries, ledgers, tenants, transactions } from '@db/schema';
 
 type TenantRow = typeof tenants.$inferSelect;
 type LedgerRow = typeof ledgers.$inferSelect;
 type AccountRow = typeof accounts.$inferSelect;
 type TransactionRow = typeof transactions.$inferSelect;
 type EntryRow = typeof entries.$inferSelect;
+type ApiKeyRow = typeof apiKeys.$inferSelect;
 
 const toDirection = (value: string): 'DEBIT' | 'CREDIT' => {
   if (value === 'DEBIT' || value === 'CREDIT') {
@@ -63,4 +65,13 @@ export const toEntryListItem = (row: EntryRow): EntryListItem => ({
   amountMinor: row.amountMinor,
   currency: row.currency,
   createdAt: row.createdAt,
+});
+
+export const toApiKeyListItem = (row: ApiKeyRow): ApiKeyListItem => ({
+  id: row.id,
+  tenantId: row.tenantId,
+  name: row.name,
+  role: row.role === 'ADMIN' ? 'ADMIN' : 'SERVICE',
+  createdAt: row.createdAt,
+  revokedAt: row.revokedAt,
 });
