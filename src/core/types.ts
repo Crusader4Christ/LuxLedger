@@ -92,9 +92,14 @@ export interface TrialBalance {
   totalCreditsMinor: bigint;
 }
 
+export interface TrialBalanceQuery {
+  tenantId: string;
+  ledgerId: string;
+}
+
 export interface LedgerRepository {
   createLedger(input: CreateLedgerInput): Promise<Ledger>;
-  findLedgerById(id: string): Promise<Ledger | null>;
+  findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null>;
   findLedgersByTenant(tenantId: string): Promise<Ledger[]>;
   postTransaction(input: PostTransactionInput): Promise<PostTransactionResult>;
 }
@@ -103,5 +108,5 @@ export interface LedgerReadRepository {
   listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountListItem>>;
   listTransactions(query: PaginationQuery): Promise<PaginatedResult<TransactionListItem>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryListItem>>;
-  getTrialBalance(ledgerId: string): Promise<TrialBalance>;
+  getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
 }

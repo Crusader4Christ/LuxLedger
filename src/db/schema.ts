@@ -81,6 +81,9 @@ export const entries = pgTable(
   'entries',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     transactionId: uuid('transaction_id')
       .notNull()
       .references(() => transactions.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -93,6 +96,7 @@ export const entries = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    entriesTenantIdIdx: index('entries_tenant_id_idx').on(table.tenantId),
     entriesTransactionIdIdx: index('entries_transaction_id_idx').on(table.transactionId),
     entriesAccountIdIdx: index('entries_account_id_idx').on(table.accountId),
     entriesDirectionChk: check(

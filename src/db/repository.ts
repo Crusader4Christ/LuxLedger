@@ -18,6 +18,7 @@ import type {
   TransactionListItem,
   TrialBalance,
   TrialBalanceAccount,
+  TrialBalanceQuery,
 } from '@core/types';
 import { toAccountListItem, toEntryListItem, toLedger, toTransactionListItem } from '@db/mappers';
 import * as schema from '@db/schema';
@@ -160,12 +161,12 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
     }
   }
 
-  public async findLedgerById(id: string): Promise<Ledger | null> {
+  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
     try {
       const [ledger] = await this.db
         .select()
         .from(schema.ledgers)
-        .where(eq(schema.ledgers.id, id))
+        .where(and(eq(schema.ledgers.tenantId, tenantId), eq(schema.ledgers.id, id)))
         .limit(1);
 
       if (!ledger) {
@@ -174,7 +175,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
       return toLedger(ledger);
     } catch (error) {
-      this.handleDatabaseError(error, 'find ledger by id');
+      this.handleDatabaseError(error, 'find ledger by id for tenant');
     }
   }
 
@@ -242,6 +243,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
         await tx.insert(schema.entries).values(
           input.entries.map((entry) => ({
+            tenantId: input.tenantId,
             transactionId: insertedTransaction.id,
             accountId: entry.accountId,
             direction: entry.direction,
@@ -383,17 +385,16 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       const rows = await this.db
         .select()
         .from(schema.entries)
-        .innerJoin(schema.transactions, eq(schema.entries.transactionId, schema.transactions.id))
-        .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
+        .where(and(eq(schema.entries.tenantId, query.tenantId), cursorPredicate))
         .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id))
         .limit(query.limit + 1);
 
       const hasNext = rows.length > query.limit;
       const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-      const last = pageRows.at(-1)?.entries;
+      const last = pageRows.at(-1);
 
       return {
-        data: pageRows.map((row) => toEntryListItem(row.entries)),
+        data: pageRows.map((row) => toEntryListItem(row)),
         nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
       };
     } catch (error) {
@@ -401,22 +402,29 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
     }
   }
 
-  public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
+  public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
     try {
       const [ledger] = await this.db
         .select({ id: schema.ledgers.id })
         .from(schema.ledgers)
-        .where(eq(schema.ledgers.id, ledgerId))
+        .where(
+          and(eq(schema.ledgers.id, query.ledgerId), eq(schema.ledgers.tenantId, query.tenantId)),
+        )
         .limit(1);
 
       if (!ledger) {
-        throw new LedgerNotFoundError(ledgerId);
+        throw new LedgerNotFoundError(query.ledgerId);
       }
 
       const accountRows = await this.db
         .select()
         .from(schema.accounts)
-        .where(eq(schema.accounts.ledgerId, ledgerId))
+        .where(
+          and(
+            eq(schema.accounts.ledgerId, query.ledgerId),
+            eq(schema.accounts.tenantId, query.tenantId),
+          ),
+        )
         .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id));
 
       let totalDebitsMinor = 0n;
@@ -446,7 +454,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       }
 
       return {
-        ledgerId,
+        ledgerId: query.ledgerId,
         accounts,
         totalDebitsMinor,
         totalCreditsMinor,

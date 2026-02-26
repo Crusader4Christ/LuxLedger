@@ -17,6 +17,7 @@ import type {
   PostTransactionResult,
   TransactionListItem,
   TrialBalance,
+  TrialBalanceQuery,
 } from '@core/types';
 
 class InMemoryLedgerRepository implements LedgerRepository {
@@ -41,8 +42,9 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return ledger;
   }
 
-  public async findLedgerById(id: string): Promise<Ledger | null> {
-    return this.ledgers.get(id) ?? null;
+  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
+    const ledger = this.ledgers.get(id);
+    return ledger && ledger.tenantId === tenantId ? ledger : null;
   }
 
   public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
@@ -148,13 +150,13 @@ class InMemoryLedgerReadRepository implements LedgerReadRepository {
     return { data: [entry1], nextCursor: 'next-entries' };
   }
 
-  public async getTrialBalance(ledgerId: string): Promise<TrialBalance> {
-    if (ledgerId === UNKNOWN_LEDGER_ID) {
-      throw new LedgerNotFoundError(ledgerId);
+  public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
+    if (query.tenantId !== VALID_TENANT_ID || query.ledgerId === UNKNOWN_LEDGER_ID) {
+      throw new LedgerNotFoundError(query.ledgerId);
     }
 
     return {
-      ledgerId,
+      ledgerId: query.ledgerId,
       accounts: [
         {
           accountId: '00000000-0000-4000-8000-000000000101',
@@ -193,7 +195,9 @@ const createServer = () => {
 
 const parsePayload = <T>(body: string): T => JSON.parse(body) as T;
 const VALID_TENANT_ID = '11111111-1111-4111-8111-111111111111';
+const INVALID_TENANT_ID = 'not-a-uuid';
 const UNKNOWN_LEDGER_ID = '00000000-0000-4000-8000-999999999999';
+const TENANT_HEADERS = { 'x-tenant-id': VALID_TENANT_ID };
 
 describe('server', () => {
   it('returns health response', async () => {
@@ -278,7 +282,8 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      payload: { tenant_id: '', name: '' },
+      headers: TENANT_HEADERS,
+      payload: { name: '' },
     });
 
     expect(response.statusCode).toBe(400);
@@ -294,6 +299,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${UNKNOWN_LEDGER_ID}`,
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(404);
@@ -305,12 +311,28 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/ledgers validates tenant_id query', async () => {
+  it('GET /v1/ledgers requires x-tenant-id header', async () => {
     const server = createServer();
 
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers',
+    });
+
+    expect(response.statusCode).toBe(400);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers validates x-tenant-id header format', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+      headers: { 'x-tenant-id': INVALID_TENANT_ID },
     });
 
     expect(response.statusCode).toBe(400);
@@ -326,8 +348,8 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
       payload: {
-        tenant_id: VALID_TENANT_ID,
         name: 'force-db-error',
       },
     });
@@ -347,8 +369,8 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
       payload: {
-        tenant_id: VALID_TENANT_ID,
         name: 'Main ledger',
       },
     });
@@ -363,36 +385,22 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/ledgers rejects invalid tenant_id format', async () => {
-    const server = createServer();
-
-    const response = await server.inject({
-      method: 'GET',
-      url: '/v1/ledgers?tenant_id=invalid-tenant',
-    });
-
-    expect(response.statusCode).toBe(400);
-    const payload = parsePayload<{ error: string; message: string }>(response.body);
-    expect(payload.error).toBe('INVALID_INPUT');
-
-    await server.close();
-  });
-
-  it('GET /v1/ledgers?tenant_id returns tenant ledgers', async () => {
+  it('GET /v1/ledgers returns tenant ledgers from header context', async () => {
     const server = createServer();
 
     await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
       payload: {
-        tenant_id: VALID_TENANT_ID,
         name: 'Main ledger',
       },
     });
 
     const response = await server.inject({
       method: 'GET',
-      url: `/v1/ledgers?tenant_id=${VALID_TENANT_ID}`,
+      url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -411,8 +419,8 @@ describe('server', () => {
     const createdResponse = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
       payload: {
-        tenant_id: VALID_TENANT_ID,
         name: 'Main ledger',
       },
     });
@@ -422,10 +430,38 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${created.id}`,
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
     expect(parsePayload<Ledger>(response.body)).toEqual(created);
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers/:id returns 404 for ledger of another tenant', async () => {
+    const server = createServer();
+
+    const createdResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
+      payload: {
+        name: 'Main ledger',
+      },
+    });
+
+    const created = parsePayload<Ledger>(createdResponse.body);
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/v1/ledgers/${created.id}`,
+      headers: { 'x-tenant-id': '22222222-2222-4222-8222-222222222222' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('LEDGER_NOT_FOUND');
 
     await server.close();
   });
@@ -445,8 +481,8 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
+      headers: TENANT_HEADERS,
       payload: {
-        tenant_id: VALID_TENANT_ID,
         name: 'Main ledger',
         extra: 'nope',
       },
@@ -465,6 +501,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/not-a-uuid',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(400);
@@ -479,7 +516,8 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: `/v1/accounts?tenant_id=${VALID_TENANT_ID}`,
+      url: '/v1/accounts',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -500,7 +538,8 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: `/v1/transactions?tenant_id=${VALID_TENANT_ID}&cursor=next-transactions&limit=1`,
+      url: '/v1/transactions?cursor=next-transactions&limit=1',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -520,7 +559,8 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: `/v1/entries?tenant_id=${VALID_TENANT_ID}&cursor=next-entries&limit=1`,
+      url: '/v1/entries?cursor=next-entries&limit=1',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -541,7 +581,8 @@ describe('server', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: `/v1/accounts?tenant_id=${VALID_TENANT_ID}&limit=201`,
+      url: '/v1/accounts?limit=201',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(400);
@@ -551,7 +592,7 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/accounts requires tenant_id', async () => {
+  it('GET /v1/accounts requires x-tenant-id header', async () => {
     const server = createServer();
 
     const response = await server.inject({
@@ -572,6 +613,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/00000000-0000-4000-8000-000000000001/trial-balance',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(200);
@@ -603,6 +645,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/not-a-uuid/trial-balance',
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(400);
@@ -618,6 +661,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${UNKNOWN_LEDGER_ID}/trial-balance`,
+      headers: TENANT_HEADERS,
     });
 
     expect(response.statusCode).toBe(404);
@@ -626,6 +670,22 @@ describe('server', () => {
       error: 'LEDGER_NOT_FOUND',
       message: `Ledger not found: ${UNKNOWN_LEDGER_ID}`,
     });
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers/:ledger_id/trial-balance returns 404 for wrong tenant context', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers/00000000-0000-4000-8000-000000000001/trial-balance',
+      headers: { 'x-tenant-id': '22222222-2222-4222-8222-222222222222' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('LEDGER_NOT_FOUND');
 
     await server.close();
   });

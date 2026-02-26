@@ -28,8 +28,9 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return ledger;
   }
 
-  public async findLedgerById(id: string): Promise<Ledger | null> {
-    return this.ledgers.get(id) ?? null;
+  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
+    const ledger = this.ledgers.get(id);
+    return ledger && ledger.tenantId === tenantId ? ledger : null;
   }
 
   public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
@@ -74,7 +75,7 @@ describe('LedgerService', () => {
       name: 'Cash',
     });
 
-    const found = await service.getLedgerById(created.id);
+    const found = await service.getLedgerById('tenant-1', created.id);
 
     expect(found.id).toBe(created.id);
     expect(found.tenantId).toBe('tenant-1');
@@ -84,7 +85,21 @@ describe('LedgerService', () => {
     const repository = new InMemoryLedgerRepository();
     const service = new LedgerService(repository);
 
-    await expect(service.getLedgerById('missing-ledger')).rejects.toBeInstanceOf(
+    await expect(service.getLedgerById('tenant-1', 'missing-ledger')).rejects.toBeInstanceOf(
+      LedgerNotFoundError,
+    );
+  });
+
+  it('getLedgerById throws LedgerNotFoundError for another tenant ledger', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    const created = await service.createLedger({
+      tenantId: 'tenant-a',
+      name: 'Cash',
+    });
+
+    await expect(service.getLedgerById('tenant-b', created.id)).rejects.toBeInstanceOf(
       LedgerNotFoundError,
     );
   });

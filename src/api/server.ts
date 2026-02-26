@@ -1,3 +1,4 @@
+import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
@@ -11,6 +12,9 @@ export interface BuildServerOptions {
   readinessCheck: () => Promise<void>;
   logger?: FastifyServerOptions['logger'];
 }
+
+const TENANT_HEADER = 'x-tenant-id';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isValidationError = (error: unknown): error is { validation: unknown; message: string } =>
   typeof error === 'object' &&
@@ -39,8 +43,28 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
     },
   });
 
-  server.addHook('onRequest', async (request, reply) => {
+  server.decorateRequest('tenantId');
+
+  server.addHook('onRequest', (request, reply, done) => {
     reply.header('x-request-id', request.id);
+
+    if (!request.url.startsWith('/v1/')) {
+      done();
+      return;
+    }
+
+    const tenantHeader = request.headers[TENANT_HEADER];
+
+    if (typeof tenantHeader !== 'string' || !UUID_PATTERN.test(tenantHeader)) {
+      reply.status(400).send({
+        error: 'INVALID_INPUT',
+        message: `${TENANT_HEADER} header must be a valid UUID`,
+      });
+      return;
+    }
+
+    request.tenantId = tenantHeader;
+    done();
   });
 
   server.get('/health', async () => {

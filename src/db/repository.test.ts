@@ -94,6 +94,7 @@ const createTransaction = async (input: {
 };
 
 const createEntry = async (input: {
+  tenantId: string;
   transactionId: string;
   accountId: string;
   direction: 'DEBIT' | 'CREDIT';
@@ -104,6 +105,7 @@ const createEntry = async (input: {
   const [entry] = await client.db
     .insert(entries)
     .values({
+      tenantId: input.tenantId,
       transactionId: input.transactionId,
       accountId: input.accountId,
       direction: input.direction,
@@ -178,8 +180,11 @@ describe('DrizzleLedgerRepository', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
-  it('findLedgerById returns null when not found', async () => {
-    const result = await repository.findLedgerById('00000000-0000-0000-0000-000000000099');
+  it('findLedgerByIdForTenant returns null when not found', async () => {
+    const result = await repository.findLedgerByIdForTenant(
+      '11111111-1111-4111-8111-111111111111',
+      '00000000-0000-0000-0000-000000000099',
+    );
     expect(result).toBeNull();
   });
 
@@ -250,6 +255,7 @@ describe('DrizzleLedgerRepository', () => {
       .from(entries)
       .where(eq(entries.transactionId, result.transactionId));
     expect(entryRows.length).toBe(2);
+    expect(entryRows.every((row) => row.tenantId === tenantId)).toBeTrue();
 
     const [debitBalance] = await client.db
       .select({ balanceMinor: accounts.balanceMinor })
@@ -792,6 +798,7 @@ describe('DrizzleLedgerRepository', () => {
     });
 
     await createEntry({
+      tenantId,
       transactionId,
       accountId: debitAccountId,
       direction: 'DEBIT',
@@ -800,6 +807,7 @@ describe('DrizzleLedgerRepository', () => {
       createdAt: new Date('2026-01-01T00:20:00.000Z'),
     });
     await createEntry({
+      tenantId,
       transactionId,
       accountId: creditAccountId,
       direction: 'CREDIT',
@@ -808,6 +816,7 @@ describe('DrizzleLedgerRepository', () => {
       createdAt: new Date('2026-01-01T00:20:01.000Z'),
     });
     await createEntry({
+      tenantId,
       transactionId,
       accountId: debitAccountId,
       direction: 'DEBIT',
@@ -816,6 +825,7 @@ describe('DrizzleLedgerRepository', () => {
       createdAt: new Date('2026-01-01T00:20:02.000Z'),
     });
     await createEntry({
+      tenantId: tenantB,
       transactionId: txB,
       accountId: accountB,
       direction: 'DEBIT',
@@ -859,7 +869,7 @@ describe('DrizzleLedgerRepository', () => {
       balanceMinor: 100n,
     });
 
-    const trialBalance = await repository.getTrialBalance(ledgerId);
+    const trialBalance = await repository.getTrialBalance({ tenantId, ledgerId });
 
     expect(trialBalance.ledgerId).toBe(ledgerId);
     expect(trialBalance.totalDebitsMinor).toBe(100n);
@@ -898,12 +908,30 @@ describe('DrizzleLedgerRepository', () => {
       balanceMinor: 50n,
     });
 
-    await expect(repository.getTrialBalance(ledgerId)).rejects.toBeInstanceOf(RepositoryError);
+    await expect(repository.getTrialBalance({ tenantId, ledgerId })).rejects.toBeInstanceOf(
+      RepositoryError,
+    );
   });
 
   it('getTrialBalance throws LedgerNotFoundError for missing ledger', async () => {
     await expect(
-      repository.getTrialBalance('00000000-0000-4000-8000-000000000999'),
+      repository.getTrialBalance({
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        ledgerId: '00000000-0000-4000-8000-000000000999',
+      }),
+    ).rejects.toBeInstanceOf(LedgerNotFoundError);
+  });
+
+  it('getTrialBalance throws LedgerNotFoundError for ledger of another tenant', async () => {
+    const tenantA = await createTenant('Tenant A');
+    const tenantB = await createTenant('Tenant B');
+    const ledgerB = await createLedger(tenantB, 'Ledger B');
+
+    await expect(
+      repository.getTrialBalance({
+        tenantId: tenantA,
+        ledgerId: ledgerB,
+      }),
     ).rejects.toBeInstanceOf(LedgerNotFoundError);
   });
 });
