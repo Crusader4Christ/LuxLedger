@@ -6,6 +6,8 @@ import {
 } from '@core/errors';
 import type {
   AccountListItem,
+  ApiKeyListItem,
+  ApiKeyRepository,
   CreateLedgerInput,
   EntryListItem,
   Ledger,
@@ -15,12 +17,19 @@ import type {
   PaginationQuery,
   PostTransactionInput,
   PostTransactionResult,
+  StoredApiKey,
   TransactionListItem,
   TrialBalance,
   TrialBalanceAccount,
   TrialBalanceQuery,
 } from '@core/types';
-import { toAccountListItem, toEntryListItem, toLedger, toTransactionListItem } from '@db/mappers';
+import {
+  toAccountListItem,
+  toApiKeyListItem,
+  toEntryListItem,
+  toLedger,
+  toTransactionListItem,
+} from '@db/mappers';
 import * as schema from '@db/schema';
 import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -133,7 +142,9 @@ const extractDatabaseCode = (error: unknown): string | null => {
   return null;
 };
 
-export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepository {
+export class DrizzleLedgerRepository
+  implements LedgerRepository, LedgerReadRepository, ApiKeyRepository
+{
   private readonly db: PostgresJsDatabase<typeof schema>;
   private logger?: RepositoryLogger;
 
@@ -145,17 +156,136 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
     this.logger = logger;
   }
 
-  public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
+  public async countApiKeys(): Promise<number> {
+    try {
+      const [row] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.apiKeys)
+        .limit(1);
+      return row?.count ?? 0;
+    } catch (error) {
+      this.handleDatabaseError(error, 'count api keys');
+    }
+  }
+
+  public async createTenant(input: {
+    name: string;
+  }): Promise<{ id: string; name: string; createdAt: Date }> {
     try {
       const [created] = await this.db
-        .insert(schema.ledgers)
-        .values({
-          tenantId: input.tenantId,
-          name: input.name,
-        })
+        .insert(schema.tenants)
+        .values({ name: input.name })
         .returning();
+      return {
+        id: created.id,
+        name: created.name,
+        createdAt: created.createdAt,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'create tenant');
+    }
+  }
 
-      return toLedger(created);
+  public async findActiveApiKeyByHash(keyHash: string): Promise<StoredApiKey | null> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(schema.apiKeys)
+        .where(and(eq(schema.apiKeys.keyHash, keyHash), sql`${schema.apiKeys.revokedAt} is null`))
+        .limit(1);
+
+      if (!row) {
+        return null;
+      }
+
+      return {
+        id: row.id,
+        tenantId: row.tenantId,
+        role: row.role === 'ADMIN' ? 'ADMIN' : 'SERVICE',
+        keyHash: row.keyHash,
+        revokedAt: row.revokedAt,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'find api key by hash');
+    }
+  }
+
+  public async createApiKey(input: {
+    tenantId: string;
+    name: string;
+    role: 'ADMIN' | 'SERVICE';
+    keyHash: string;
+  }): Promise<ApiKeyListItem> {
+    try {
+      return await this.withTenantContext(input.tenantId, async (tx) => {
+        const [created] = await tx
+          .insert(schema.apiKeys)
+          .values({
+            tenantId: input.tenantId,
+            name: input.name,
+            role: input.role,
+            keyHash: input.keyHash,
+          })
+          .returning();
+
+        return toApiKeyListItem(created);
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'create api key');
+    }
+  }
+
+  public async listApiKeys(tenantId: string): Promise<ApiKeyListItem[]> {
+    try {
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const rows = await tx
+          .select()
+          .from(schema.apiKeys)
+          .where(eq(schema.apiKeys.tenantId, tenantId))
+          .orderBy(asc(schema.apiKeys.createdAt), asc(schema.apiKeys.id));
+
+        return rows.map(toApiKeyListItem);
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'list api keys');
+    }
+  }
+
+  public async revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean> {
+    try {
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const [row] = await tx
+          .update(schema.apiKeys)
+          .set({ revokedAt: sql`now()` })
+          .where(
+            and(
+              eq(schema.apiKeys.id, apiKeyId),
+              eq(schema.apiKeys.tenantId, tenantId),
+              sql`${schema.apiKeys.revokedAt} is null`,
+            ),
+          )
+          .returning({ id: schema.apiKeys.id });
+
+        return Boolean(row);
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'revoke api key');
+    }
+  }
+
+  public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
+    try {
+      return await this.withTenantContext(input.tenantId, async (tx) => {
+        const [created] = await tx
+          .insert(schema.ledgers)
+          .values({
+            tenantId: input.tenantId,
+            name: input.name,
+          })
+          .returning();
+
+        return toLedger(created);
+      });
     } catch (error) {
       this.handleDatabaseError(error, 'create ledger');
     }
@@ -163,17 +293,19 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
   public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
     try {
-      const [ledger] = await this.db
-        .select()
-        .from(schema.ledgers)
-        .where(and(eq(schema.ledgers.tenantId, tenantId), eq(schema.ledgers.id, id)))
-        .limit(1);
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const [ledger] = await tx
+          .select()
+          .from(schema.ledgers)
+          .where(and(eq(schema.ledgers.tenantId, tenantId), eq(schema.ledgers.id, id)))
+          .limit(1);
 
-      if (!ledger) {
-        return null;
-      }
+        if (!ledger) {
+          return null;
+        }
 
-      return toLedger(ledger);
+        return toLedger(ledger);
+      });
     } catch (error) {
       this.handleDatabaseError(error, 'find ledger by id for tenant');
     }
@@ -181,13 +313,15 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
   public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
     try {
-      const rows = await this.db
-        .select()
-        .from(schema.ledgers)
-        .where(eq(schema.ledgers.tenantId, tenantId))
-        .orderBy(asc(schema.ledgers.createdAt), asc(schema.ledgers.id));
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const rows = await tx
+          .select()
+          .from(schema.ledgers)
+          .where(eq(schema.ledgers.tenantId, tenantId))
+          .orderBy(asc(schema.ledgers.createdAt), asc(schema.ledgers.id));
 
-      return rows.map((row) => toLedger(row));
+        return rows.map((row) => toLedger(row));
+      });
     } catch (error) {
       this.handleDatabaseError(error, 'find ledgers by tenant');
     }
@@ -198,6 +332,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
       assertBalancedEntries(input.entries);
 
       const result = await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+
         const [insertedTransaction] = await tx
           .insert(schema.transactions)
           .values({
@@ -309,29 +445,34 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
   public async listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountListItem>> {
     try {
-      const cursor = parseCursor(query.cursor);
-      const cursorPredicate = cursor
-        ? or(
-            gt(schema.accounts.createdAt, cursor.createdAt),
-            and(eq(schema.accounts.createdAt, cursor.createdAt), gt(schema.accounts.id, cursor.id)),
-          )
-        : sql`true`;
+      return await this.withTenantContext(query.tenantId, async (tx) => {
+        const cursor = parseCursor(query.cursor);
+        const cursorPredicate = cursor
+          ? or(
+              gt(schema.accounts.createdAt, cursor.createdAt),
+              and(
+                eq(schema.accounts.createdAt, cursor.createdAt),
+                gt(schema.accounts.id, cursor.id),
+              ),
+            )
+          : sql`true`;
 
-      const rows = await this.db
-        .select()
-        .from(schema.accounts)
-        .where(and(eq(schema.accounts.tenantId, query.tenantId), cursorPredicate))
-        .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id))
-        .limit(query.limit + 1);
+        const rows = await tx
+          .select()
+          .from(schema.accounts)
+          .where(and(eq(schema.accounts.tenantId, query.tenantId), cursorPredicate))
+          .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id))
+          .limit(query.limit + 1);
 
-      const hasNext = rows.length > query.limit;
-      const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-      const last = pageRows.at(-1);
+        const hasNext = rows.length > query.limit;
+        const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
+        const last = pageRows.at(-1);
 
-      return {
-        data: pageRows.map(toAccountListItem),
-        nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
-      };
+        return {
+          data: pageRows.map(toAccountListItem),
+          nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+        };
+      });
     } catch (error) {
       this.handleDatabaseError(error, 'list accounts');
     }
@@ -341,32 +482,34 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
     query: PaginationQuery,
   ): Promise<PaginatedResult<TransactionListItem>> {
     try {
-      const cursor = parseCursor(query.cursor);
-      const cursorPredicate = cursor
-        ? or(
-            gt(schema.transactions.createdAt, cursor.createdAt),
-            and(
-              eq(schema.transactions.createdAt, cursor.createdAt),
-              gt(schema.transactions.id, cursor.id),
-            ),
-          )
-        : sql`true`;
+      return await this.withTenantContext(query.tenantId, async (tx) => {
+        const cursor = parseCursor(query.cursor);
+        const cursorPredicate = cursor
+          ? or(
+              gt(schema.transactions.createdAt, cursor.createdAt),
+              and(
+                eq(schema.transactions.createdAt, cursor.createdAt),
+                gt(schema.transactions.id, cursor.id),
+              ),
+            )
+          : sql`true`;
 
-      const rows = await this.db
-        .select()
-        .from(schema.transactions)
-        .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
-        .orderBy(asc(schema.transactions.createdAt), asc(schema.transactions.id))
-        .limit(query.limit + 1);
+        const rows = await tx
+          .select()
+          .from(schema.transactions)
+          .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
+          .orderBy(asc(schema.transactions.createdAt), asc(schema.transactions.id))
+          .limit(query.limit + 1);
 
-      const hasNext = rows.length > query.limit;
-      const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-      const last = pageRows.at(-1);
+        const hasNext = rows.length > query.limit;
+        const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
+        const last = pageRows.at(-1);
 
-      return {
-        data: pageRows.map(toTransactionListItem),
-        nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
-      };
+        return {
+          data: pageRows.map(toTransactionListItem),
+          nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+        };
+      });
     } catch (error) {
       this.handleDatabaseError(error, 'list transactions');
     }
@@ -374,29 +517,31 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
   public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryListItem>> {
     try {
-      const cursor = parseCursor(query.cursor);
-      const cursorPredicate = cursor
-        ? or(
-            gt(schema.entries.createdAt, cursor.createdAt),
-            and(eq(schema.entries.createdAt, cursor.createdAt), gt(schema.entries.id, cursor.id)),
-          )
-        : sql`true`;
+      return await this.withTenantContext(query.tenantId, async (tx) => {
+        const cursor = parseCursor(query.cursor);
+        const cursorPredicate = cursor
+          ? or(
+              gt(schema.entries.createdAt, cursor.createdAt),
+              and(eq(schema.entries.createdAt, cursor.createdAt), gt(schema.entries.id, cursor.id)),
+            )
+          : sql`true`;
 
-      const rows = await this.db
-        .select()
-        .from(schema.entries)
-        .where(and(eq(schema.entries.tenantId, query.tenantId), cursorPredicate))
-        .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id))
-        .limit(query.limit + 1);
+        const rows = await tx
+          .select()
+          .from(schema.entries)
+          .where(and(eq(schema.entries.tenantId, query.tenantId), cursorPredicate))
+          .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id))
+          .limit(query.limit + 1);
 
-      const hasNext = rows.length > query.limit;
-      const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-      const last = pageRows.at(-1);
+        const hasNext = rows.length > query.limit;
+        const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
+        const last = pageRows.at(-1);
 
-      return {
-        data: pageRows.map((row) => toEntryListItem(row)),
-        nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
-      };
+        return {
+          data: pageRows.map((row) => toEntryListItem(row)),
+          nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+        };
+      });
     } catch (error) {
       this.handleDatabaseError(error, 'list entries');
     }
@@ -404,64 +549,76 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
 
   public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
     try {
-      const [ledger] = await this.db
-        .select({ id: schema.ledgers.id })
-        .from(schema.ledgers)
-        .where(
-          and(eq(schema.ledgers.id, query.ledgerId), eq(schema.ledgers.tenantId, query.tenantId)),
-        )
-        .limit(1);
+      return await this.withTenantContext(query.tenantId, async (tx) => {
+        const [ledger] = await tx
+          .select({ id: schema.ledgers.id })
+          .from(schema.ledgers)
+          .where(
+            and(eq(schema.ledgers.id, query.ledgerId), eq(schema.ledgers.tenantId, query.tenantId)),
+          )
+          .limit(1);
 
-      if (!ledger) {
-        throw new LedgerNotFoundError(query.ledgerId);
-      }
+        if (!ledger) {
+          throw new LedgerNotFoundError(query.ledgerId);
+        }
 
-      const accountRows = await this.db
-        .select()
-        .from(schema.accounts)
-        .where(
-          and(
-            eq(schema.accounts.ledgerId, query.ledgerId),
-            eq(schema.accounts.tenantId, query.tenantId),
-          ),
-        )
-        .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id));
+        const accountRows = await tx
+          .select()
+          .from(schema.accounts)
+          .where(
+            and(
+              eq(schema.accounts.ledgerId, query.ledgerId),
+              eq(schema.accounts.tenantId, query.tenantId),
+            ),
+          )
+          .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id));
 
-      let totalDebitsMinor = 0n;
-      let totalCreditsMinor = 0n;
+        let totalDebitsMinor = 0n;
+        let totalCreditsMinor = 0n;
 
-      const accounts: TrialBalanceAccount[] = accountRows.map((row) => {
-        const isDebit = row.balanceMinor <= 0n;
-        const absoluteBalance = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor;
+        const accounts: TrialBalanceAccount[] = accountRows.map((row) => {
+          const isDebit = row.balanceMinor <= 0n;
+          const absoluteBalance = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor;
 
-        if (isDebit) {
-          totalDebitsMinor += absoluteBalance;
-        } else {
-          totalCreditsMinor += absoluteBalance;
+          if (isDebit) {
+            totalDebitsMinor += absoluteBalance;
+          } else {
+            totalCreditsMinor += absoluteBalance;
+          }
+
+          return {
+            accountId: row.id,
+            code: row.id,
+            name: row.name,
+            normalBalance: isDebit ? 'DEBIT' : 'CREDIT',
+            balanceMinor: absoluteBalance,
+          };
+        });
+
+        if (totalDebitsMinor !== totalCreditsMinor) {
+          throw new RepositoryError('trial balance totals mismatch');
         }
 
         return {
-          accountId: row.id,
-          code: row.id,
-          name: row.name,
-          normalBalance: isDebit ? 'DEBIT' : 'CREDIT',
-          balanceMinor: absoluteBalance,
+          ledgerId: query.ledgerId,
+          accounts,
+          totalDebitsMinor,
+          totalCreditsMinor,
         };
       });
-
-      if (totalDebitsMinor !== totalCreditsMinor) {
-        throw new RepositoryError('trial balance totals mismatch');
-      }
-
-      return {
-        ledgerId: query.ledgerId,
-        accounts,
-        totalDebitsMinor,
-        totalCreditsMinor,
-      };
     } catch (error) {
       this.handleDatabaseError(error, 'get trial balance');
     }
+  }
+
+  private async withTenantContext<T>(
+    tenantId: string,
+    operation: (tx: PostgresJsDatabase<typeof schema>) => Promise<T>,
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+      return operation(tx);
+    });
   }
 
   private handleDatabaseError(error: unknown, operation: string): never {

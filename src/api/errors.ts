@@ -1,4 +1,10 @@
-import { InvariantViolationError, LedgerNotFoundError, RepositoryError } from '@core/errors';
+import {
+  ForbiddenError,
+  InvariantViolationError,
+  LedgerNotFoundError,
+  RepositoryError,
+  UnauthorizedError,
+} from '@core/errors';
 import type { FastifyReply } from 'fastify';
 
 export const sendDomainError = (reply: FastifyReply, error: unknown): FastifyReply => {
@@ -8,6 +14,14 @@ export const sendDomainError = (reply: FastifyReply, error: unknown): FastifyRep
 
   if (error instanceof InvariantViolationError) {
     return reply.status(400).send({ error: error.code, message: error.message });
+  }
+
+  if (error instanceof UnauthorizedError) {
+    return reply.status(401).send({ error: error.code, message: error.message });
+  }
+
+  if (error instanceof ForbiddenError) {
+    return reply.status(403).send({ error: error.code, message: error.message });
   }
 
   if (error instanceof RepositoryError) {

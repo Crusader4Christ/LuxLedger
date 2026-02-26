@@ -28,3 +28,15 @@ export class RepositoryError extends DomainError {
     super(message, 'REPOSITORY_ERROR', options);
   }
 }
+
+export class UnauthorizedError extends DomainError {
+  public constructor(message = 'Unauthorized') {
+    super(message, 'UNAUTHORIZED');
+  }
+}
+
+export class ForbiddenError extends DomainError {
+  public constructor(message = 'Forbidden') {
+    super(message, 'FORBIDDEN');
+  }
+}

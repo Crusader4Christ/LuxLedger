@@ -1,4 +1,5 @@
 import { buildServer } from '@api/server';
+import { ApiKeyService } from '@core/api-key-service';
 import { LedgerService } from '@core/ledger-service';
 import { LedgerReadService } from '@core/read-service';
 import { createDbClient } from '@db/client';
@@ -35,9 +36,11 @@ const parseShutdownTimeout = (value: string | undefined): number => {
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
   const ledgerRepository = new DrizzleLedgerRepository(dbClient.db);
+  const apiKeyService = new ApiKeyService(ledgerRepository);
   const ledgerService = new LedgerService(ledgerRepository);
   const readService = new LedgerReadService(ledgerRepository);
   const server = buildServer({
+    apiKeyService,
     ledgerService,
     readService,
     readinessCheck: async () => {

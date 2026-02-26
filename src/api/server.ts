@@ -1,20 +1,25 @@
 import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
+import { sendDomainError } from '@api/errors';
+import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
+import type { ApiKeyService } from '@core/api-key-service';
+import { ForbiddenError, UnauthorizedError } from '@core/errors';
 import type { LedgerService } from '@core/ledger-service';
 import type { LedgerReadService } from '@core/read-service';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
 export interface BuildServerOptions {
+  apiKeyService: ApiKeyService;
   ledgerService: LedgerService;
   readService: LedgerReadService;
   readinessCheck: () => Promise<void>;
   logger?: FastifyServerOptions['logger'];
 }
 
-const TENANT_HEADER = 'x-tenant-id';
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const API_KEY_HEADER = 'x-api-key';
+const BEARER_PREFIX = 'Bearer ';
 
 const isValidationError = (error: unknown): error is { validation: unknown; message: string } =>
   typeof error === 'object' &&
@@ -44,27 +49,36 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
   });
 
   server.decorateRequest('tenantId');
+  server.decorateRequest('apiKeyId');
+  server.decorateRequest('apiKeyRole');
 
-  server.addHook('onRequest', (request, reply, done) => {
+  server.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
 
     if (!request.url.startsWith('/v1/')) {
-      done();
       return;
     }
 
-    const tenantHeader = request.headers[TENANT_HEADER];
+    const apiKeyHeader = request.headers[API_KEY_HEADER];
+    const authorizationHeader = request.headers.authorization;
+    const bearerToken =
+      typeof authorizationHeader === 'string' && authorizationHeader.startsWith(BEARER_PREFIX)
+        ? authorizationHeader.slice(BEARER_PREFIX.length).trim()
+        : null;
+    const apiKey = typeof apiKeyHeader === 'string' ? apiKeyHeader : bearerToken;
 
-    if (typeof tenantHeader !== 'string' || !UUID_PATTERN.test(tenantHeader)) {
-      reply.status(400).send({
-        error: 'INVALID_INPUT',
-        message: `${TENANT_HEADER} header must be a valid UUID`,
-      });
-      return;
+    if (!apiKey) {
+      throw new UnauthorizedError('API key is required');
     }
 
-    request.tenantId = tenantHeader;
-    done();
+    const auth = await options.apiKeyService.authenticate(apiKey);
+    request.tenantId = auth.tenantId;
+    request.apiKeyId = auth.apiKeyId;
+    request.apiKeyRole = auth.role;
+
+    if (request.url.startsWith('/v1/admin/') && auth.role !== 'ADMIN') {
+      throw new ForbiddenError('Admin API key is required');
+    }
   });
 
   server.get('/health', async () => {
@@ -91,8 +105,17 @@ export const buildServer = (options: BuildServerOptions): FastifyInstance => {
   registerListingRoutes(server, {
     readService: options.readService,
   });
+  registerAdminApiKeyRoutes(server, {
+    apiKeyService: options.apiKeyService,
+  });
 
   server.setErrorHandler((error, request, reply) => {
+    try {
+      return sendDomainError(reply, error);
+    } catch {
+      // Continue with generic error handling below.
+    }
+
     if (isValidationError(error)) {
       return reply.status(400).send({
         error: 'INVALID_INPUT',
