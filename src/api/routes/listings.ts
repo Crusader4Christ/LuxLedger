@@ -1,4 +1,5 @@
 import { sendDomainError } from '@api/errors';
+import { toPageResponse } from '@api/page-response';
 import type { LedgerReadService } from '@core/read-service';
 import type { FastifyInstance } from 'fastify';
 
@@ -49,8 +50,8 @@ export const registerListingRoutes = (
           cursor: request.query.cursor,
         });
 
-        return reply.status(200).send({
-          data: page.data.map((account) => ({
+        return reply.status(200).send(
+          toPageResponse(page, (account) => ({
             id: account.id,
             tenant_id: account.tenantId,
             ledger_id: account.ledgerId,
@@ -59,8 +60,7 @@ export const registerListingRoutes = (
             balance_minor: account.balanceMinor.toString(),
             created_at: account.createdAt.toISOString(),
           })),
-          next_cursor: page.nextCursor,
-        });
+        );
       } catch (error) {
         return sendDomainError(reply, error);
       }
@@ -82,8 +82,8 @@ export const registerListingRoutes = (
           cursor: request.query.cursor,
         });
 
-        return reply.status(200).send({
-          data: page.data.map((transaction) => ({
+        return reply.status(200).send(
+          toPageResponse(page, (transaction) => ({
             id: transaction.id,
             tenant_id: transaction.tenantId,
             ledger_id: transaction.ledgerId,
@@ -91,8 +91,7 @@ export const registerListingRoutes = (
             currency: transaction.currency,
             created_at: transaction.createdAt.toISOString(),
           })),
-          next_cursor: page.nextCursor,
-        });
+        );
       } catch (error) {
         return sendDomainError(reply, error);
       }
@@ -114,8 +113,8 @@ export const registerListingRoutes = (
           cursor: request.query.cursor,
         });
 
-        return reply.status(200).send({
-          data: page.data.map((entry) => ({
+        return reply.status(200).send(
+          toPageResponse(page, (entry) => ({
             id: entry.id,
             transaction_id: entry.transactionId,
             account_id: entry.accountId,
@@ -124,8 +123,7 @@ export const registerListingRoutes = (
             currency: entry.currency,
             created_at: entry.createdAt.toISOString(),
           })),
-          next_cursor: page.nextCursor,
-        });
+        );
       } catch (error) {
         return sendDomainError(reply, error);
       }
