@@ -12,9 +12,7 @@ const requireEnv = (name: string): string => {
 
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
-  const repository = new DrizzleLedgerRepository(dbClient.db, {
-    info: () => {},
-  });
+  const repository = new DrizzleLedgerRepository(dbClient.db, console);
   const apiKeyService = new ApiKeyService(repository);
 
   try {
