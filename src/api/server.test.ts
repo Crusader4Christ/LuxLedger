@@ -208,6 +208,24 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(200);
     expect(payload).toEqual({ ok: true });
+    expect(response.headers['x-request-id']).toBeString();
+
+    await server.close();
+  });
+
+  it('uses incoming x-request-id when provided', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/health',
+      headers: {
+        'x-request-id': 'req-test-123',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-request-id']).toBe('req-test-123');
 
     await server.close();
   });

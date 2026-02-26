@@ -45,6 +45,7 @@ export const run = async (): Promise<void> => {
     },
     logger: true,
   });
+  ledgerRepository.setLogger(server.log);
   const port = parsePort(process.env.PORT);
   const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);
 

@@ -592,6 +592,59 @@ describe('DrizzleLedgerRepository', () => {
     expect(entryRows.length).toBe(0);
   });
 
+  it('postTransaction logs transactionId when posting is committed', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+
+    const logs: Array<{ object: Record<string, unknown>; message: string }> = [];
+    repository.setLogger({
+      info: (object, message) => {
+        logs.push({ object, message });
+      },
+    });
+
+    const result = await repository.postTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'log-ref-1',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: debitAccountId,
+          direction: 'DEBIT',
+          amountMinor: 10n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: 'CREDIT',
+          amountMinor: 10n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0]?.message).toBe('Posting committed');
+    expect(logs[0]?.object.transactionId).toBe(result.transactionId);
+
+    repository.setLogger({
+      info: () => {},
+    });
+  });
+
   it('listAccounts paginates by created_at and id cursor', async () => {
     const tenantId = await createTenant('Tenant A');
     const tenantB = await createTenant('Tenant B');

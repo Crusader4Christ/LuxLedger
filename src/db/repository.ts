@@ -39,6 +39,10 @@ interface DatabaseErrorLike {
   cause?: unknown;
 }
 
+interface RepositoryLogger {
+  info(object: Record<string, unknown>, message: string): void;
+}
+
 interface CursorValue {
   createdAt: Date;
   id: string;
@@ -130,9 +134,14 @@ const extractDatabaseCode = (error: unknown): string | null => {
 
 export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
+  private logger?: RepositoryLogger;
 
   public constructor(db: PostgresJsDatabase<typeof schema>) {
     this.db = db;
+  }
+
+  public setLogger(logger: RepositoryLogger): void {
+    this.logger = logger;
   }
 
   public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
@@ -187,7 +196,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
     try {
       assertBalancedEntries(input.entries);
 
-      return await this.db.transaction(async (tx) => {
+      const result = await this.db.transaction(async (tx) => {
         const [insertedTransaction] = await tx
           .insert(schema.transactions)
           .values({
@@ -216,6 +225,17 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
           if (!existingTransaction) {
             throw new RepositoryError('Unable to resolve idempotent transaction');
           }
+
+          this.logger?.info(
+            {
+              transactionId: existingTransaction.id,
+              tenantId: input.tenantId,
+              ledgerId: input.ledgerId,
+              reference: input.reference,
+              created: false,
+            },
+            'Posting accepted as idempotent retry',
+          );
 
           return { transactionId: existingTransaction.id, created: false };
         }
@@ -265,6 +285,21 @@ export class DrizzleLedgerRepository implements LedgerRepository, LedgerReadRepo
           created: true,
         };
       });
+
+      if (result.created) {
+        this.logger?.info(
+          {
+            transactionId: result.transactionId,
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            reference: input.reference,
+            created: true,
+          },
+          'Posting committed',
+        );
+      }
+
+      return result;
     } catch (error) {
       this.handleDatabaseError(error, 'post transaction');
     }
