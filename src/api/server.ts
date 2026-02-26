@@ -18,12 +18,12 @@ export interface ApplicationDependencies {
 
 export interface BuildServerOptions extends ApplicationDependencies {
   readinessCheck: () => Promise<void>;
-  logger?: FastifyServerOptions['logger'];
+  logger: FastifyServerOptions['logger'];
 }
 
 export interface CreateServerCoreOptions {
   readinessCheck: () => Promise<void>;
-  logger?: FastifyServerOptions['logger'];
+  logger: FastifyServerOptions['logger'];
 }
 
 const API_KEY_HEADER = 'x-api-key';
@@ -38,7 +38,7 @@ const isValidationError = (error: unknown): error is { validation: unknown; mess
 
 export const createServerCore = (options: CreateServerCoreOptions): FastifyInstance => {
   const server = Fastify({
-    logger: options.logger ?? true,
+    logger: options.logger,
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
     genReqId: (request) => {

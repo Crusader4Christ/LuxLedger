@@ -143,9 +143,9 @@ export class DrizzleLedgerRepository
   implements LedgerRepository, LedgerReadRepository, ApiKeyRepository
 {
   private readonly db: PostgresJsDatabase<typeof schema>;
-  private readonly logger?: OperationLogger;
+  private readonly logger: OperationLogger;
 
-  public constructor(db: PostgresJsDatabase<typeof schema>, logger?: OperationLogger) {
+  public constructor(db: PostgresJsDatabase<typeof schema>, logger: OperationLogger) {
     this.db = db;
     this.logger = logger;
   }
@@ -357,7 +357,7 @@ export class DrizzleLedgerRepository
             throw new RepositoryError('Unable to resolve idempotent transaction');
           }
 
-          this.logger?.info(
+          this.logger.info(
             {
               transactionId: existingTransaction.id,
               tenantId: input.tenantId,
@@ -419,7 +419,7 @@ export class DrizzleLedgerRepository
       });
 
       if (result.created) {
-        this.logger?.info(
+        this.logger.info(
           {
             transactionId: result.transactionId,
             tenantId: input.tenantId,

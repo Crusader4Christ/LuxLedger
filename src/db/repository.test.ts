@@ -35,7 +35,9 @@ const client = createDbClient({
   connectTimeoutSeconds: 5,
 });
 
-const repository = new DrizzleLedgerRepository(client.db);
+const repository = new DrizzleLedgerRepository(client.db, {
+  info: () => {},
+});
 
 const createTenant = async (name: string): Promise<string> => {
   const [tenant] = await client.db.insert(tenants).values({ name }).returning({ id: tenants.id });
