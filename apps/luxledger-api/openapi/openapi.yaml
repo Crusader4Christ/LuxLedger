@@ -1,0 +1,514 @@
+openapi: 3.1.0
+info:
+  title: LuxLedger API
+  version: 0.1.0
+  description: Reference REST API built on top of @lux/ledger.
+servers:
+  - url: http://localhost:3000
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+  /ready:
+    get:
+      summary: Readiness check
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        '503':
+          $ref: '#/components/responses/NotReadyError'
+  /v1/ledgers:
+    post:
+      summary: Create ledger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+      responses:
+        '201':
+          description: Ledger created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    get:
+      summary: List tenant ledgers
+      responses:
+        '200':
+          description: Tenant ledgers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Ledger'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/ledgers/{id}:
+    get:
+      summary: Get ledger by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Ledger
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/transactions:
+    post:
+      summary: Create transaction (idempotent by tenant+reference)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ledger_id, reference, currency, entries]
+              properties:
+                ledger_id:
+                  type: string
+                  format: uuid
+                reference:
+                  type: string
+                  minLength: 1
+                currency:
+                  type: string
+                  minLength: 1
+                entries:
+                  type: array
+                  minItems: 2
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [account_id, direction, amount_minor, currency]
+                    properties:
+                      account_id:
+                        type: string
+                        format: uuid
+                      direction:
+                        type: string
+                        enum: [DEBIT, CREDIT]
+                      amount_minor:
+                        type: string
+                        pattern: '^[1-9][0-9]*$'
+                      currency:
+                        type: string
+                        minLength: 1
+      responses:
+        '201':
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransactionResponse'
+        '200':
+          description: Idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransactionResponse'
+    get:
+      summary: List transactions
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Transaction page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionsPage'
+  /v1/accounts:
+    get:
+      summary: List accounts
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Account page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountsPage'
+  /v1/entries:
+    get:
+      summary: List entries
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Entry page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntriesPage'
+  /v1/ledgers/{ledger_id}/trial-balance:
+    get:
+      summary: Get trial balance
+      parameters:
+        - in: path
+          name: ledger_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Trial balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrialBalanceResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/admin/api-keys:
+    get:
+      summary: List API keys (admin only)
+      responses:
+        '200':
+          description: API key list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeysListResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+    post:
+      summary: Create API key (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, role]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                role:
+                  type: string
+                  enum: [ADMIN, SERVICE]
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateApiKeyResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  /v1/admin/api-keys/{id}/revoke:
+    post:
+      summary: Revoke API key (admin only)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: API key revoked
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+      required: false
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      required: false
+  responses:
+    BadRequestError:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnauthorizedError:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ForbiddenError:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotReadyError:
+      description: Service not ready
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+    Ledger:
+      type: object
+      required: [id, tenantId, name, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateTransactionResponse:
+      type: object
+      required: [transaction_id, created]
+      properties:
+        transaction_id:
+          type: string
+          format: uuid
+        created:
+          type: boolean
+    AccountsPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [id, tenant_id, ledger_id, name, currency, balance_minor, created_at]
+            properties:
+              id:
+                type: string
+                format: uuid
+              tenant_id:
+                type: string
+                format: uuid
+              ledger_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              currency:
+                type: string
+              balance_minor:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+        next_cursor:
+          type: string
+          nullable: true
+    TransactionsPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [id, tenant_id, ledger_id, reference, currency, created_at]
+            properties:
+              id:
+                type: string
+                format: uuid
+              tenant_id:
+                type: string
+                format: uuid
+              ledger_id:
+                type: string
+                format: uuid
+              reference:
+                type: string
+              currency:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+        next_cursor:
+          type: string
+          nullable: true
+    EntriesPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required:
+              [id, transaction_id, account_id, direction, amount_minor, currency, created_at]
+            properties:
+              id:
+                type: string
+                format: uuid
+              transaction_id:
+                type: string
+                format: uuid
+              account_id:
+                type: string
+                format: uuid
+              direction:
+                type: string
+                enum: [DEBIT, CREDIT]
+              amount_minor:
+                type: string
+              currency:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+        next_cursor:
+          type: string
+          nullable: true
+    TrialBalanceResponse:
+      type: object
+      required: [ledger_id, accounts, total_debits, total_credits]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        accounts:
+          type: array
+          items:
+            type: object
+            required: [account_id, code, name, normal_balance, balance]
+            properties:
+              account_id:
+                type: string
+                format: uuid
+              code:
+                type: string
+              name:
+                type: string
+              normal_balance:
+                type: string
+                enum: [DEBIT, CREDIT]
+              balance:
+                type: string
+        total_debits:
+          type: string
+        total_credits:
+          type: string
+    ApiKey:
+      type: object
+      required: [id, tenant_id, name, role, created_at, revoked_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          type: string
+          enum: [ADMIN, SERVICE]
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+    ApiKeysListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKey'
+    CreateApiKeyResponse:
+      type: object
+      required: [api_key, key]
+      properties:
+        api_key:
+          type: string
+        key:
+          $ref: '#/components/schemas/ApiKey'

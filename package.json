@@ -2,17 +2,21 @@
   "name": "luxledger",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts",
+    "dev": "bun run --watch apps/luxledger-api/src/index.ts",
+    "start": "bun run apps/luxledger-api/src/index.ts",
     "test": "bun test",
-    "lint": "bunx @biomejs/biome check src/",
-    "lint:fix": "bunx @biomejs/biome check --write src/",
+    "lint": "bunx @biomejs/biome check apps/ packages/",
+    "lint:fix": "bunx @biomejs/biome check --write apps/ packages/",
     "typecheck": "tsc --noEmit",
     "db:generate": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
-    "bootstrap:admin-key": "bun run src/bootstrap-admin-key.ts"
+    "bootstrap:admin-key": "bun run apps/luxledger-api/src/bootstrap-admin-key.ts"
   },
   "dependencies": {
     "fastify": "^5.7.4",

@@ -1,0 +1,7 @@
+{
+  "name": "luxledger-api",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Reference REST API app built on top of @lux/ledger"
+}

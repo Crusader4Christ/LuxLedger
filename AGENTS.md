@@ -12,10 +12,19 @@ Financial core infrastructure — double-entry ledger component.
 
 ## Project Structure
 ```
-src/
-  core/     — domain logic, ledger invariants, pure functions
-  api/      — Fastify routes, schemas, hooks
-  db/       — Drizzle schema, migrations, queries
+apps/
+  luxledger-api/
+    src/
+      services/ — application services, validation, orchestration
+      api/      — Fastify routes, schemas, hooks
+packages/
+  ledger/
+    src/
+      base/         — shared primitives (Id, Money, DomainError, etc.)
+      application/  — app-facing contracts and app-level errors
+      utils/        — reusable helpers (e.g. assertNonEmpty)
+      */            — domain modules (tenant, ledger, account, transaction, entry, api-key)
+  ledger-drizzle-adapter/  — Drizzle/Postgres adapter (@lux/ledger-drizzle-adapter)
 ```
 
 ## Commands
@@ -37,8 +46,8 @@ bun run dev
 ```
 
 ## Environment Variables
-- `DATABASE_URL` — `postgresql://luxledger:luxledger@localhost:5432/luxledger`
-- `DATABASE_URL_TEST` — `postgresql://luxledger:luxledger@localhost:5433/luxledger_test`
+- `DATABASE_URL` — `postgresql://luxledger:luxledger@127.0.0.1:5432/luxledger`
+- `DATABASE_URL_TEST` — `postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test`
 - `NODE_ENV` — `development` | `production` | `test`
 
 ## Git Workflow
@@ -53,7 +62,7 @@ bun run dev
 - Small PRs (≤ 400 lines if possible)
 
 ## Definition of Done
-- All core invariants covered by tests
+- All `@lux/ledger` domain invariants covered by tests
 - `bun test` passes
 - `bun run typecheck` passes
 - No circular dependencies
@@ -67,12 +76,12 @@ bun run dev
 - No soft deletes in core tables
 
 ## Error Policy
-- Core throws domain errors only
-- API maps domain errors to HTTP responses
+- Domain (`@lux/ledger`) throws domain/application errors only
+- API maps domain/application errors to HTTP responses
 - No database errors leaked to API
 
 ## Testing Rules
-- No mocks for core logic
+- No mocks for `@lux/ledger` domain logic
 - Use real PostgreSQL test DB
 - Each invariant must have positive and negative test case
 
@@ -90,8 +99,10 @@ bun run dev
 - Performance considerations must not break correctness.
 - Any dependency addition must be justified in PR description.
 - Minimum dependencies (Fastify + Drizzle, nothing else unless justified)
-- Tests required for all core invariants (double-entry balance, idempotency)
-- Dependency direction: api → core ← db
-- Core must not import from api or db implementations.
-- Core may depend only on domain interfaces.
-- Core layer must have zero external runtime dependencies.
+- Tests required for all `@lux/ledger` invariants (double-entry balance, idempotency)
+- Dependency direction:
+  - `apps/luxledger-api/src/api` → `apps/luxledger-api/src/services`
+  - `apps/luxledger-api/src/services` → `@lux/ledger` and `@lux/ledger/application`
+  - `packages/ledger-drizzle-adapter` → `@lux/ledger` and `@lux/ledger/application` (never `apps/*`)
+- `@lux/ledger` must not import from `apps/*` or adapter implementations.
+- `@lux/ledger` domain layer must have zero external runtime dependencies.
