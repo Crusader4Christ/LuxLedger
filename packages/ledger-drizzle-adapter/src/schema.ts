@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { AccountSide, ApiKeyRole, EntryDirection } from '@lux/ledger';
+import { AccountSide, EntryDirection } from '@lux/ledger';
 import {
   bigint,
   check,
