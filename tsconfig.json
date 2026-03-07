@@ -12,14 +12,18 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
+    "baseUrl": ".",
     "paths": {
-      "@core/*": ["./src/core/*"],
-      "@db/*": ["./src/db/*"],
-      "@api/*": ["./src/api/*"]
+      "@services/*": ["apps/luxledger-api/src/services/*"],
+      "@api/*": ["apps/luxledger-api/src/api/*"],
+      "@lux/ledger": ["packages/ledger/src/index.ts"],
+      "@lux/ledger/*": ["packages/ledger/src/*"],
+      "@lux/ledger-drizzle-adapter": ["packages/ledger-drizzle-adapter/src/index.ts"],
+      "@lux/ledger-drizzle-adapter/*": ["packages/ledger-drizzle-adapter/src/*"]
     },
     "types": ["bun-types"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["packages/**/*.ts", "apps/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
