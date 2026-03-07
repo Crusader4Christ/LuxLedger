@@ -97,6 +97,7 @@ class InMemoryLedgerReadRepository {
       tenantId: VALID_TENANT_ID,
       ledgerId: '00000000-0000-4000-8000-000000000001',
       name: 'Cash',
+      side: EntryDirection.DEBIT,
       currency: 'USD',
       balanceMinor: 100n,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -106,6 +107,7 @@ class InMemoryLedgerReadRepository {
       tenantId: VALID_TENANT_ID,
       ledgerId: '00000000-0000-4000-8000-000000000001',
       name: 'Revenue',
+      side: EntryDirection.CREDIT,
       currency: 'USD',
       balanceMinor: 200n,
       createdAt: new Date('2026-01-01T00:00:01.000Z'),
@@ -794,11 +796,12 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(200);
     const payload = parsePayload<{
-      data: Array<{ id: string; balance_minor: string }>;
+      data: Array<{ id: string; side: EntryDirection; balance_minor: string }>;
       next_cursor: string | null;
     }>(response.body);
     expect(payload.data.length).toBe(1);
     expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000101');
+    expect(payload.data[0]?.side).toBe(EntryDirection.DEBIT);
     expect(payload.data[0]?.balance_minor).toBe('100');
     expect(payload.next_cursor).toBe('next-accounts');
 

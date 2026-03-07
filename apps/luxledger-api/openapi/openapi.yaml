@@ -360,7 +360,7 @@ components:
           type: array
           items:
             type: object
-            required: [id, tenant_id, ledger_id, name, currency, balance_minor, created_at]
+            required: [id, tenant_id, ledger_id, name, side, currency, balance_minor, created_at]
             properties:
               id:
                 type: string
@@ -373,6 +373,9 @@ components:
                 format: uuid
               name:
                 type: string
+              side:
+                type: string
+                enum: [DEBIT, CREDIT]
               currency:
                 type: string
               balance_minor:

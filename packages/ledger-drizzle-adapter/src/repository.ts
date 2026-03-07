@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   AccountEntity,
+  AccountSide,
   ApiKeyRole,
   ApiKeyEntity,
   CreateTransactionUseCase,
@@ -123,6 +124,14 @@ const parseEntryDirection = (direction: string): EntryDirection => {
   }
 
   throw new RepositoryError('Unable to parse entry direction');
+};
+
+const parseAccountSide = (side: string): AccountSide => {
+  if ((Object.values(AccountSide) as AccountSide[]).includes(side as AccountSide)) {
+    return side as AccountSide;
+  }
+
+  throw new RepositoryError('Unable to parse account side');
 };
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
@@ -544,6 +553,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 tenantId: row.tenantId,
                 ledgerId: row.ledgerId,
                 name: row.name,
+                side: parseAccountSide(row.side),
                 currency: row.currency,
                 balanceMinor: row.balanceMinor,
                 createdAt: row.createdAt,
@@ -709,7 +719,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         let totalCreditsMinor = 0n;
 
         const accounts: TrialBalanceAccount[] = accountRows.map((row) => {
-          const isDebit = row.balanceMinor <= 0n;
+          const side = parseAccountSide(row.side);
+          const isDebit = side === AccountSide.DEBIT;
           const absoluteBalance = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor;
 
           if (isDebit) {
@@ -722,7 +733,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             accountId: row.id,
             code: row.id,
             name: row.name,
-            normalBalance: isDebit ? EntryDirection.DEBIT : EntryDirection.CREDIT,
+            normalBalance: side,
             balanceMinor: absoluteBalance,
           };
         });

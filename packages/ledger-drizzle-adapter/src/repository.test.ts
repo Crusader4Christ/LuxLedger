@@ -62,6 +62,7 @@ const createAccount = async (input: {
   tenantId: string;
   ledgerId: string;
   name: string;
+  side?: EntryDirection;
   currency: string;
   balanceMinor?: bigint;
   createdAt?: Date;
@@ -72,6 +73,7 @@ const createAccount = async (input: {
       tenantId: input.tenantId,
       ledgerId: input.ledgerId,
       name: input.name,
+      side: input.side ?? EntryDirection.DEBIT,
       currency: input.currency,
       balanceMinor: input.balanceMinor ?? 0n,
       createdAt: input.createdAt,
@@ -957,6 +959,7 @@ describe('DrizzleLedgerRepository', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
+      side: EntryDirection.DEBIT,
       currency: 'USD',
       balanceMinor: -100n,
     });
@@ -964,6 +967,7 @@ describe('DrizzleLedgerRepository', () => {
       tenantId,
       ledgerId,
       name: 'Revenue',
+      side: EntryDirection.CREDIT,
       currency: 'USD',
       balanceMinor: 100n,
     });
