@@ -8,6 +8,28 @@ servers:
 security:
   - BearerAuth: []
 paths:
+  /openapi.yaml:
+    get:
+      summary: OpenAPI specification
+      security: []
+      responses:
+        '200':
+          description: OpenAPI YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /docs:
+    get:
+      summary: Swagger UI
+      security: []
+      responses:
+        '200':
+          description: Swagger UI HTML page
+          content:
+            text/html:
+              schema:
+                type: string
   /health:
     get:
       summary: Health check

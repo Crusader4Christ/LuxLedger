@@ -42,13 +42,16 @@ const requireEnv = (name: string): string => {
 };
 
 const parseJwtAccessTtlSeconds = (value: string | undefined): number => {
+  const minTtlSeconds = 300;
+  const maxTtlSeconds = 900;
+
   if (value === undefined) {
-    return 900;
+    return maxTtlSeconds;
   }
 
   const ttl = Number(value);
-  if (!Number.isInteger(ttl) || ttl <= 0) {
-    throw new Error('JWT_ACCESS_TTL_SECONDS must be a positive integer');
+  if (!Number.isInteger(ttl) || ttl < minTtlSeconds || ttl > maxTtlSeconds) {
+    throw new Error('JWT_ACCESS_TTL_SECONDS must be an integer between 300 and 900');
   }
 
   return ttl;

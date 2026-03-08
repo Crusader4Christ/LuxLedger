@@ -38,6 +38,10 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return null;
   }
 
+  public async findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null> {
+    return this.keys.get(apiKeyId) ?? null;
+  }
+
   public async createApiKey(input: {
     tenantId: string;
     name: string;
@@ -179,5 +183,28 @@ describe('ApiKeyService', () => {
     });
 
     expect(result).toEqual({ created: false });
+  });
+
+  it('assertAccessTokenIsActive rejects revoked key', async () => {
+    const admin = await service.authenticate(adminKey);
+    await service.revokeApiKey(admin, 'service-1');
+
+    await expect(
+      service.assertAccessTokenIsActive({
+        apiKeyId: 'service-1',
+        tenantId: 'tenant-a',
+        role: ApiKeyRole.SERVICE,
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  it('assertAccessTokenIsActive rejects token context mismatch', async () => {
+    await expect(
+      service.assertAccessTokenIsActive({
+        apiKeyId: 'admin-1',
+        tenantId: 'tenant-b',
+        role: ApiKeyRole.ADMIN,
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
   });
 });

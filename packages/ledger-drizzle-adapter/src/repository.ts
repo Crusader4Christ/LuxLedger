@@ -199,6 +199,32 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
+  public async findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(schema.apiKeys)
+        .where(eq(schema.apiKeys.id, apiKeyId))
+        .limit(1);
+
+      if (!row) {
+        return null;
+      }
+
+      return new ApiKeyEntity({
+        id: row.id,
+        tenantId: row.tenantId,
+        name: row.name,
+        role: parseApiKeyRole(row.role),
+        keyHash: row.keyHash,
+        createdAt: row.createdAt,
+        revokedAt: row.revokedAt,
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'find api key by id');
+    }
+  }
+
   public async createApiKey(input: {
     tenantId: string;
     name: string;

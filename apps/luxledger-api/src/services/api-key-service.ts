@@ -103,6 +103,17 @@ export class ApiKeyService {
     }
   }
 
+  public async assertAccessTokenIsActive(context: AuthContext): Promise<void> {
+    const key = await this.repository.findApiKeyById(context.apiKeyId);
+    if (!key || key.revokedAt !== null) {
+      throw new UnauthorizedError('Invalid access token');
+    }
+
+    if (key.tenantId !== context.tenantId || key.role !== context.role) {
+      throw new UnauthorizedError('Invalid access token');
+    }
+  }
+
   private assertAdmin(actor: AuthContext): void {
     if (actor.role !== ApiKeyRole.ADMIN) {
       throw new ForbiddenError('Admin API key is required');

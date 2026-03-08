@@ -1,5 +1,7 @@
 import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { sendDomainError } from '@api/errors';
 import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
@@ -13,6 +15,31 @@ import Fastify, { type FastifyInstance } from 'fastify';
 const API_KEY_HEADER = 'x-api-key';
 const BEARER_PREFIX = 'Bearer ';
 const TOKEN_ENDPOINT = '/v1/auth/token';
+const OPENAPI_SPEC_PATH = fileURLToPath(new URL('../../openapi/openapi.yaml', import.meta.url));
+const OPENAPI_SPEC_CONTENT = readFileSync(OPENAPI_SPEC_PATH, 'utf8');
+const SWAGGER_UI_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LuxLedger API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.ui = SwaggerUIBundle({
+        url: '/openapi.yaml',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        defaultModelsExpandDepth: 1,
+        docExpansion: 'list'
+      });
+    </script>
+  </body>
+</html>
+`;
 
 const isValidationError = (error: unknown): error is { validation: unknown; message: string } =>
   typeof error === 'object' &&
@@ -60,6 +87,20 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
         message: 'Service not ready',
       });
     }
+  });
+
+  server.get('/openapi.yaml', async (_request, reply) => {
+    return reply
+      .header('content-type', 'application/yaml; charset=utf-8')
+      .status(200)
+      .send(OPENAPI_SPEC_CONTENT);
+  });
+
+  server.get('/docs', async (_request, reply) => {
+    return reply
+      .header('content-type', 'text/html; charset=utf-8')
+      .status(200)
+      .send(SWAGGER_UI_HTML);
   });
 
   server.setErrorHandler((error, request, reply) => {
@@ -120,6 +161,7 @@ export const registerApplication = (
 
     const token = authorizationHeader.slice(BEARER_PREFIX.length).trim();
     const auth = verifyAccessToken(token, dependencies.jwtAuth);
+    await dependencies.apiKeyService.assertAccessTokenIsActive(auth);
     request.tenantId = auth.tenantId;
     request.apiKeyId = auth.apiKeyId;
     request.apiKeyRole = auth.role;

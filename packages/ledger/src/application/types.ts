@@ -92,6 +92,7 @@ export interface ApiKeyRepository {
   countApiKeys(): Promise<number>;
   createTenant(input: CreateTenantInput): Promise<Tenant>;
   findActiveApiKeyByHash(keyHash: string): Promise<ApiKeyEntity | null>;
+  findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null>;
   createApiKey(input: PersistApiKeyInput): Promise<ApiKeyEntity>;
   listApiKeys(tenantId: string): Promise<ApiKeyEntity[]>;
   revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean>;

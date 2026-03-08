@@ -26,13 +26,16 @@ Reference REST API built on top of `@lux/ledger`.
 
 - `JWT_SIGNING_KEY` (required) — HMAC secret used to sign access tokens.
 - `JWT_ISSUER` (optional, default `luxledger-api`) — JWT issuer claim.
-- `JWT_ACCESS_TTL_SECONDS` (optional, default `900`) — access token TTL in seconds.
+- `JWT_ACCESS_TTL_SECONDS` (optional, default `900`) — access token TTL in seconds, must be between `300` and `900`.
+- Revocation model: short-lived access token + request-time API key status check. A token is rejected immediately after the underlying API key is revoked.
 
 ## OpenAPI
 
 API contract lives in:
 
 - `apps/luxledger-api/openapi/openapi.yaml`
+- Local raw spec endpoint: `GET /openapi.yaml`
+- Local Swagger UI: `GET /docs`
 
 ## Main endpoints
 

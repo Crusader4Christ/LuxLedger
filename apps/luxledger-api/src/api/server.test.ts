@@ -282,6 +282,10 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return null;
   }
 
+  public async findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null> {
+    return this.keys.get(apiKeyId) ?? null;
+  }
+
   public async countApiKeys(): Promise<number> {
     return this.keys.size;
   }
@@ -471,6 +475,37 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(200);
     expect(parsePayload<{ ok: boolean }>(response.body)).toEqual({ ok: true });
+
+    await server.close();
+  });
+
+  it('serves openapi specification file', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/openapi.yaml',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/yaml');
+    expect(response.body).toContain('openapi: 3.1.0');
+
+    await server.close();
+  });
+
+  it('serves swagger ui page', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/docs',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.body).toContain('SwaggerUIBundle');
+    expect(response.body).toContain("url: '/openapi.yaml'");
 
     await server.close();
   });
@@ -1141,6 +1176,44 @@ describe('server', () => {
     });
 
     expect(revokeResponse.statusCode).toBe(204);
+
+    await server.close();
+  });
+
+  it('rejects already-issued token after api key revocation', async () => {
+    const server = createServer();
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/api-keys',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Short lived service',
+        role: ApiKeyRole.SERVICE,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const createdPayload = parsePayload<{ api_key: string; key: { id: string } }>(created.body);
+
+    const token = await issueToken(server, createdPayload.api_key);
+
+    const revokeResponse = await server.inject({
+      method: 'POST',
+      url: `/v1/admin/api-keys/${createdPayload.key.id}/revoke`,
+      headers: await authHeaders(server),
+    });
+    expect(revokeResponse.statusCode).toBe(204);
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(parsePayload<{ error: string }>(response.body).error).toBe('UNAUTHORIZED');
 
     await server.close();
   });
