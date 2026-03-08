@@ -57,6 +57,7 @@ export const registerListingRoutes = (
             tenant_id: account.tenantId,
             ledger_id: account.ledgerId,
             name: account.name,
+            side: account.side,
             currency: account.currency,
             balance_minor: account.balanceMinor.toString(),
             created_at: account.createdAt.toISOString(),

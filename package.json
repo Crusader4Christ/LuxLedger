@@ -11,10 +11,12 @@
     "dev": "bun run --watch apps/luxledger-api/src/index.ts",
     "start": "bun run apps/luxledger-api/src/index.ts",
     "test": "bun test",
+    "test:integration": "bun test apps/luxledger-api/src/services/integration",
     "lint": "bunx @biomejs/biome check apps/ packages/",
     "lint:fix": "bunx @biomejs/biome check --write apps/ packages/",
     "typecheck": "tsc --noEmit",
-    "db:generate": "bunx drizzle-kit generate",
+    "db:generate": "bash ./scripts/db-generate-named.sh",
+    "db:generate:raw": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
     "bootstrap:admin-key": "bun run apps/luxledger-api/src/bootstrap-admin-key.ts"
   },

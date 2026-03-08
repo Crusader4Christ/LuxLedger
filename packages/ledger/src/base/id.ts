@@ -1,4 +1,5 @@
 import { DomainError } from './domain-error';
+import { isNonEmptyString } from './string';
 
 class InvalidIdError extends DomainError {
   public constructor(name: string, value: string) {
@@ -10,7 +11,7 @@ export abstract class Id {
   public readonly value: string;
 
   protected constructor(value: string, name: string) {
-    if (value.trim().length === 0) {
+    if (!isNonEmptyString(value)) {
       throw new InvalidIdError(name, value);
     }
 

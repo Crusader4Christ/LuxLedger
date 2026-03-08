@@ -1,9 +1,10 @@
 import { sql } from 'drizzle-orm';
-import { ApiKeyRole, EntryDirection } from '@lux/ledger';
+import { AccountSide, EntryDirection } from '@lux/ledger';
 import {
   bigint,
   check,
   index,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -16,6 +17,12 @@ export const tenants = pgTable('tenants', {
   name: text('name').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const accountSideEnum = pgEnum('account_side', Object.values(AccountSide) as [string, ...string[]]);
+export const entryDirectionEnum = pgEnum(
+  'entry_direction',
+  Object.values(EntryDirection) as [string, ...string[]],
+);
 
 export const apiKeys = pgTable(
   'api_keys',
@@ -35,10 +42,7 @@ export const apiKeys = pgTable(
     apiKeysKeyHashUq: uniqueIndex('api_keys_key_hash_uq').on(table.keyHash),
     apiKeysRoleChk: check(
       'api_keys_role_chk',
-      sql`${table.role} in (${sql.join(
-        Object.values(ApiKeyRole).map((role) => sql`${role}`),
-        sql`, `,
-      )})`,
+      sql`${table.role} in ('ADMIN', 'SERVICE')`,
     ),
   }),
 );
@@ -70,6 +74,7 @@ export const accounts = pgTable(
       .notNull()
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     name: text('name').notNull(),
+    side: accountSideEnum('side').notNull(),
     currency: text('currency').notNull(),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -117,7 +122,7 @@ export const entries = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    direction: text('direction').notNull(),
+    direction: entryDirectionEnum('direction').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -126,12 +131,5 @@ export const entries = pgTable(
     entriesTenantIdIdx: index('entries_tenant_id_idx').on(table.tenantId),
     entriesTransactionIdIdx: index('entries_transaction_id_idx').on(table.transactionId),
     entriesAccountIdIdx: index('entries_account_id_idx').on(table.accountId),
-    entriesDirectionChk: check(
-      'entries_direction_chk',
-      sql`${table.direction} in (${sql.join(
-        Object.values(EntryDirection).map((direction) => sql`${direction}`),
-        sql`, `,
-      )})`,
-    ),
   }),
 );

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   AccountEntity,
+  AccountSide,
   ApiKeyRole,
   ApiKeyEntity,
   CreateTransactionUseCase,
@@ -123,6 +124,14 @@ const parseEntryDirection = (direction: string): EntryDirection => {
   }
 
   throw new RepositoryError('Unable to parse entry direction');
+};
+
+const parseAccountSide = (side: string): AccountSide => {
+  if ((Object.values(AccountSide) as AccountSide[]).includes(side as AccountSide)) {
+    return side as AccountSide;
+  }
+
+  throw new RepositoryError('Unable to parse account side');
 };
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
@@ -544,6 +553,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 tenantId: row.tenantId,
                 ledgerId: row.ledgerId,
                 name: row.name,
+                side: parseAccountSide(row.side),
                 currency: row.currency,
                 balanceMinor: row.balanceMinor,
                 createdAt: row.createdAt,
@@ -709,21 +719,25 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         let totalCreditsMinor = 0n;
 
         const accounts: TrialBalanceAccount[] = accountRows.map((row) => {
-          const isDebit = row.balanceMinor <= 0n;
-          const absoluteBalance = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor;
+          const side = parseAccountSide(row.side);
+          const isDebit = row.balanceMinor < 0n;
+          const isContra =
+            row.balanceMinor !== 0n &&
+            (side === AccountSide.DEBIT ? !isDebit : isDebit);
 
           if (isDebit) {
-            totalDebitsMinor += absoluteBalance;
-          } else {
-            totalCreditsMinor += absoluteBalance;
+            totalDebitsMinor += -row.balanceMinor;
+          } else if (row.balanceMinor > 0n) {
+            totalCreditsMinor += row.balanceMinor;
           }
 
           return {
             accountId: row.id,
             code: row.id,
             name: row.name,
-            normalBalance: isDebit ? EntryDirection.DEBIT : EntryDirection.CREDIT,
-            balanceMinor: absoluteBalance,
+            normalBalance: side,
+            balanceMinor: isDebit ? -row.balanceMinor : row.balanceMinor,
+            isContra,
           };
         });
 

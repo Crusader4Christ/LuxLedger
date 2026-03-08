@@ -206,6 +206,7 @@ export const registerLedgerRoutes = (
             name: account.name,
             normal_balance: account.normalBalance,
             balance: account.balanceMinor.toString(),
+            is_contra: account.isContra,
           })),
           total_debits: trialBalance.totalDebitsMinor.toString(),
           total_credits: trialBalance.totalCreditsMinor.toString(),
