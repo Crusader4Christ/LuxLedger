@@ -1,16 +1,18 @@
 import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
 import { sendDomainError } from '@api/errors';
+import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
-import { ApiKeyRole } from '@lux/ledger';
 import type { ApplicationDependencies, CreateServerCoreOptions } from '@api/server-types';
+import { ApiKeyRole } from '@lux/ledger';
 import { ForbiddenError, UnauthorizedError } from '@services/errors';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 const API_KEY_HEADER = 'x-api-key';
 const BEARER_PREFIX = 'Bearer ';
+const TOKEN_ENDPOINT = '/v1/auth/token';
 
 const isValidationError = (error: unknown): error is { validation: unknown; message: string } =>
   typeof error === 'object' &&
@@ -98,19 +100,26 @@ export const registerApplication = (
       return;
     }
 
-    const apiKeyHeader = request.headers[API_KEY_HEADER];
-    const authorizationHeader = request.headers.authorization;
-    const bearerToken =
-      typeof authorizationHeader === 'string' && authorizationHeader.startsWith(BEARER_PREFIX)
-        ? authorizationHeader.slice(BEARER_PREFIX.length).trim()
-        : null;
-    const apiKey = typeof apiKeyHeader === 'string' ? apiKeyHeader : bearerToken;
+    if (request.url === TOKEN_ENDPOINT) {
+      const apiKeyHeader = request.headers[API_KEY_HEADER];
+      if (typeof apiKeyHeader !== 'string') {
+        throw new UnauthorizedError('API key is required');
+      }
 
-    if (!apiKey) {
-      throw new UnauthorizedError('API key is required');
+      const auth = await dependencies.apiKeyService.authenticate(apiKeyHeader);
+      request.tenantId = auth.tenantId;
+      request.apiKeyId = auth.apiKeyId;
+      request.apiKeyRole = auth.role;
+      return;
     }
 
-    const auth = await dependencies.apiKeyService.authenticate(apiKey);
+    const authorizationHeader = request.headers.authorization;
+    if (typeof authorizationHeader !== 'string' || !authorizationHeader.startsWith(BEARER_PREFIX)) {
+      throw new UnauthorizedError('Bearer token is required');
+    }
+
+    const token = authorizationHeader.slice(BEARER_PREFIX.length).trim();
+    const auth = verifyAccessToken(token, dependencies.jwtAuth);
     request.tenantId = auth.tenantId;
     request.apiKeyId = auth.apiKeyId;
     request.apiKeyRole = auth.role;
@@ -118,6 +127,23 @@ export const registerApplication = (
     if (request.url.startsWith('/v1/admin/') && auth.role !== ApiKeyRole.ADMIN) {
       throw new ForbiddenError('Admin API key is required');
     }
+  });
+
+  server.post(TOKEN_ENDPOINT, async (request, reply) => {
+    const accessToken = issueAccessToken(
+      {
+        apiKeyId: request.apiKeyId as string,
+        tenantId: request.tenantId as string,
+        role: request.apiKeyRole as ApiKeyRole,
+      },
+      dependencies.jwtAuth,
+    );
+
+    return reply.status(200).send({
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: dependencies.jwtAuth.accessTokenTtlSeconds,
+    });
   });
 
   registerLedgerRoutes(server, {

@@ -16,6 +16,18 @@ Reference REST API built on top of `@lux/ledger`.
 - Drizzle ORM
 - PostgreSQL
 
+## Authentication
+
+- `POST /v1/auth/token` accepts `x-api-key` and returns a short-lived JWT access token.
+- All other `/v1/*` endpoints require `Authorization: Bearer <access_token>`.
+- Admin endpoints (`/v1/admin/*`) require a token issued from an API key with `ADMIN` role.
+
+## Auth environment variables
+
+- `JWT_SIGNING_KEY` (required) — HMAC secret used to sign access tokens.
+- `JWT_ISSUER` (optional, default `luxledger-api`) — JWT issuer claim.
+- `JWT_ACCESS_TTL_SECONDS` (optional, default `900`) — access token TTL in seconds.
+
 ## OpenAPI
 
 API contract lives in:

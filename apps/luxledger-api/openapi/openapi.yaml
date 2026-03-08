@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: LuxLedger API
-  version: 0.1.0
+  version: 0.2.0
   description: Reference REST API built on top of @lux/ledger.
 servers:
   - url: http://localhost:3000
 security:
-  - ApiKeyAuth: []
+  - BearerAuth: []
 paths:
   /health:
     get:
@@ -40,6 +40,20 @@ paths:
                     type: boolean
         '503':
           $ref: '#/components/responses/NotReadyError'
+  /v1/auth/token:
+    post:
+      summary: Exchange API key for short-lived access token
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Access token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
   /v1/ledgers:
     post:
       summary: Create ledger
@@ -96,6 +110,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Ledger'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
   /v1/transactions:
@@ -152,6 +170,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreateTransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
     get:
       summary: List transactions
       parameters:
@@ -164,6 +188,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TransactionsPage'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
   /v1/accounts:
     get:
       summary: List accounts
@@ -177,6 +205,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccountsPage'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
   /v1/entries:
     get:
       summary: List entries
@@ -190,6 +222,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EntriesPage'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
   /v1/ledgers/{ledger_id}/trial-balance:
     get:
       summary: Get trial balance
@@ -207,6 +243,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TrialBalanceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
   /v1/admin/api-keys:
@@ -219,6 +259,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiKeysListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
     post:
@@ -245,6 +287,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreateApiKeyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
   /v1/admin/api-keys/{id}/revoke:
@@ -260,16 +306,22 @@ paths:
       responses:
         '204':
           description: API key revoked
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
         '400':
           $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
 components:
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
       in: header
       name: x-api-key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   parameters:
     Limit:
       name: limit
@@ -284,6 +336,7 @@ components:
       in: query
       schema:
         type: string
+        minLength: 1
       required: false
   responses:
     BadRequestError:
@@ -293,7 +346,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     UnauthorizedError:
-      description: Missing or invalid API key
+      description: Missing or invalid credentials
       content:
         application/json:
           schema:
@@ -325,6 +378,18 @@ components:
           type: string
         message:
           type: string
+    AuthTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          minimum: 1
     Ledger:
       type: object
       required: [id, tenantId, name, createdAt, updatedAt]
@@ -459,7 +524,7 @@ components:
           type: array
           items:
             type: object
-            required: [account_id, code, name, normal_balance, balance, is_contra]
+            required: [account_id, code, name, normal_balance, balance]
             properties:
               account_id:
                 type: string
@@ -473,8 +538,6 @@ components:
                 enum: [DEBIT, CREDIT]
               balance:
                 type: string
-              is_contra:
-                type: boolean
         total_debits:
           type: string
         total_credits:

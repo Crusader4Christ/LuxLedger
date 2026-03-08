@@ -32,6 +32,28 @@ const parseShutdownTimeout = (value: string | undefined): number => {
   return timeout;
 };
 
+const requireEnv = (name: string): string => {
+  const value = process.env[name];
+  if (!value || value.trim().length === 0) {
+    throw new Error(`${name} is required`);
+  }
+
+  return value;
+};
+
+const parseJwtAccessTtlSeconds = (value: string | undefined): number => {
+  if (value === undefined) {
+    return 900;
+  }
+
+  const ttl = Number(value);
+  if (!Number.isInteger(ttl) || ttl <= 0) {
+    throw new Error('JWT_ACCESS_TTL_SECONDS must be a positive integer');
+  }
+
+  return ttl;
+};
+
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
   const server = createServerCore({
@@ -49,6 +71,11 @@ export const run = async (): Promise<void> => {
   registerApplication(server, {
     apiKeyService,
     ledgerService,
+    jwtAuth: {
+      signingKey: requireEnv('JWT_SIGNING_KEY'),
+      issuer: process.env.JWT_ISSUER ?? 'luxledger-api',
+      accessTokenTtlSeconds: parseJwtAccessTtlSeconds(process.env.JWT_ACCESS_TTL_SECONDS),
+    },
   });
   const port = parsePort(process.env.PORT);
   const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);

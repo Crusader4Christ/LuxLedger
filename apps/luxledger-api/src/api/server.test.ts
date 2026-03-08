@@ -373,6 +373,11 @@ const createServer = (
   registerApplication(server, {
     apiKeyService,
     ledgerService,
+    jwtAuth: {
+      signingKey: JWT_SIGNING_KEY,
+      issuer: JWT_ISSUER,
+      accessTokenTtlSeconds: JWT_TTL_SECONDS,
+    },
   });
 
   return server;
@@ -387,7 +392,39 @@ const VALID_ADMIN_API_KEY = 'llk_admin_test_key';
 const VALID_SERVICE_API_KEY = 'llk_service_test_key';
 const OTHER_TENANT_ADMIN_API_KEY = 'llk_admin_other_tenant';
 const INVALID_API_KEY = 'llk_invalid';
-const ADMIN_AUTH_HEADERS = { 'x-api-key': VALID_ADMIN_API_KEY };
+const JWT_SIGNING_KEY = 'test-signing-key-1234567890';
+const JWT_ISSUER = 'luxledger-api-test';
+const JWT_TTL_SECONDS = 900;
+
+const issueToken = async (
+  server: ReturnType<typeof createServer>,
+  apiKey: string,
+): Promise<string> => {
+  const response = await server.inject({
+    method: 'POST',
+    url: '/v1/auth/token',
+    headers: {
+      'x-api-key': apiKey,
+    },
+  });
+
+  expect(response.statusCode).toBe(200);
+  const payload = parsePayload<{
+    access_token: string;
+    token_type: string;
+    expires_in: number;
+  }>(response.body);
+  expect(payload.token_type).toBe('Bearer');
+  expect(payload.expires_in).toBe(JWT_TTL_SECONDS);
+  return payload.access_token;
+};
+
+const authHeaders = async (
+  server: ReturnType<typeof createServer>,
+  apiKey = VALID_ADMIN_API_KEY,
+): Promise<{ authorization: string }> => ({
+  authorization: `Bearer ${await issueToken(server, apiKey)}`,
+});
 
 describe('server', () => {
   it('returns health response', async () => {
@@ -463,7 +500,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: { name: '' },
     });
 
@@ -480,7 +517,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${UNKNOWN_LEDGER_ID}`,
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(404);
@@ -492,7 +529,32 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/ledgers requires x-api-key header', async () => {
+  it('POST /v1/auth/token returns access token for valid api key', async () => {
+    const server = createServer();
+
+    const token = await issueToken(server, VALID_ADMIN_API_KEY);
+
+    expect(token.length > 0).toBeTrue();
+
+    await server.close();
+  });
+
+  it('POST /v1/auth/token requires x-api-key header', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/auth/token',
+    });
+
+    expect(response.statusCode).toBe(401);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('UNAUTHORIZED');
+
+    await server.close();
+  });
+
+  it('GET /v1/ledgers requires bearer token header', async () => {
     const server = createServer();
 
     const response = await server.inject({
@@ -507,13 +569,15 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/ledgers rejects invalid x-api-key', async () => {
+  it('GET /v1/ledgers rejects invalid bearer token', async () => {
     const server = createServer();
 
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers',
-      headers: { 'x-api-key': INVALID_API_KEY },
+      headers: {
+        authorization: `Bearer ${INVALID_API_KEY}`,
+      },
     });
 
     expect(response.statusCode).toBe(401);
@@ -529,7 +593,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'force-db-error',
       },
@@ -550,7 +614,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Main ledger',
       },
@@ -572,7 +636,7 @@ describe('server', () => {
     const ledgerResponse = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Main ledger',
       },
@@ -582,7 +646,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/transactions',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         ledger_id: ledger.id,
         reference: 'txn-ref-1',
@@ -619,7 +683,7 @@ describe('server', () => {
     const ledgerResponse = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Main ledger',
       },
@@ -649,13 +713,13 @@ describe('server', () => {
     const first = await server.inject({
       method: 'POST',
       url: '/v1/transactions',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload,
     });
     const second = await server.inject({
       method: 'POST',
       url: '/v1/transactions',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload,
     });
 
@@ -676,7 +740,7 @@ describe('server', () => {
     await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Main ledger',
       },
@@ -685,7 +749,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(200);
@@ -704,7 +768,7 @@ describe('server', () => {
     const createdResponse = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Main ledger',
       },
@@ -715,7 +779,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${created.id}`,
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(200);
@@ -730,7 +794,7 @@ describe('server', () => {
     const createdResponse = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Main ledger',
       },
@@ -741,7 +805,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${created.id}`,
-      headers: { 'x-api-key': OTHER_TENANT_ADMIN_API_KEY },
+      headers: await authHeaders(server, OTHER_TENANT_ADMIN_API_KEY),
     });
 
     expect(response.statusCode).toBe(404);
@@ -757,7 +821,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/ledgers',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Main ledger',
         extra: 'nope',
@@ -777,7 +841,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/not-a-uuid',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(400);
@@ -793,7 +857,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/accounts',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(200);
@@ -816,7 +880,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/transactions?cursor=next-transactions&limit=1',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(200);
@@ -837,7 +901,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/entries?cursor=next-entries&limit=1',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(200);
@@ -891,7 +955,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/entries',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(400);
@@ -907,7 +971,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/accounts?limit=201',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(400);
@@ -917,7 +981,7 @@ describe('server', () => {
     await server.close();
   });
 
-  it('GET /v1/accounts requires x-api-key header', async () => {
+  it('GET /v1/accounts requires bearer token header', async () => {
     const server = createServer();
 
     const response = await server.inject({
@@ -938,7 +1002,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/00000000-0000-4000-8000-000000000001/trial-balance',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(200);
@@ -972,7 +1036,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/not-a-uuid/trial-balance',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(400);
@@ -988,7 +1052,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: `/v1/ledgers/${UNKNOWN_LEDGER_ID}/trial-balance`,
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(response.statusCode).toBe(404);
@@ -1007,7 +1071,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/ledgers/00000000-0000-4000-8000-000000000001/trial-balance',
-      headers: { 'x-api-key': OTHER_TENANT_ADMIN_API_KEY },
+      headers: await authHeaders(server, OTHER_TENANT_ADMIN_API_KEY),
     });
 
     expect(response.statusCode).toBe(404);
@@ -1023,7 +1087,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'GET',
       url: '/v1/admin/api-keys',
-      headers: { 'x-api-key': VALID_SERVICE_API_KEY },
+      headers: await authHeaders(server, VALID_SERVICE_API_KEY),
     });
 
     expect(response.statusCode).toBe(403);
@@ -1038,7 +1102,7 @@ describe('server', () => {
     const response = await server.inject({
       method: 'POST',
       url: '/v1/admin/api-keys',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'New service key',
         role: ApiKeyRole.SERVICE,
@@ -1062,7 +1126,7 @@ describe('server', () => {
     const created = await server.inject({
       method: 'POST',
       url: '/v1/admin/api-keys',
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
       payload: {
         name: 'Revoke me',
         role: ApiKeyRole.SERVICE,
@@ -1073,7 +1137,7 @@ describe('server', () => {
     const revokeResponse = await server.inject({
       method: 'POST',
       url: `/v1/admin/api-keys/${createdPayload.key.id}/revoke`,
-      headers: ADMIN_AUTH_HEADERS,
+      headers: await authHeaders(server),
     });
 
     expect(revokeResponse.statusCode).toBe(204);
