@@ -1,4 +1,5 @@
 import { DomainError } from './domain-error';
+import { isNonEmptyString } from './string';
 
 class CurrencyMismatchError extends DomainError {
   public constructor() {
@@ -17,7 +18,7 @@ export class Money {
   public readonly currency: string;
 
   private constructor(amountMinor: bigint, currency: string) {
-    if (currency.trim().length === 0) {
+    if (!isNonEmptyString(currency)) {
       throw new EmptyCurrencyError();
     }
 

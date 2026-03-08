@@ -1,3 +1,5 @@
+import { validateAccountSide } from './validators';
+
 export const AccountSide = {
   DEBIT: 'DEBIT',
   CREDIT: 'CREDIT',
@@ -25,6 +27,8 @@ export class AccountEntity {
     balanceMinor: bigint;
     createdAt: Date;
   }) {
+    validateAccountSide(input.side);
+
     this.id = input.id;
     this.tenantId = input.tenantId;
     this.ledgerId = input.ledgerId;

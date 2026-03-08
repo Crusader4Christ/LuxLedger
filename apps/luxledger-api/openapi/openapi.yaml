@@ -459,7 +459,7 @@ components:
           type: array
           items:
             type: object
-            required: [account_id, code, name, normal_balance, balance]
+            required: [account_id, code, name, normal_balance, balance, is_contra]
             properties:
               account_id:
                 type: string
@@ -473,6 +473,8 @@ components:
                 enum: [DEBIT, CREDIT]
               balance:
                 type: string
+              is_contra:
+                type: boolean
         total_debits:
           type: string
         total_credits:

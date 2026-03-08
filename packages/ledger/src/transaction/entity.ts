@@ -1,11 +1,11 @@
 import type { LedgerId, TransactionId } from '../base/id';
 import type { EntryEntity } from '../entry/entity';
 import {
-  CurrencyMismatchError,
-  MissingReferenceError,
-  NotEnoughEntriesError,
-  UnbalancedTransactionError,
-} from './errors';
+  validateDoubleEntry,
+  validateEntryAmounts,
+  validateEntryCurrencies,
+  validateReference,
+} from './validators';
 
 export class TransactionEntity {
   public readonly id: TransactionId;
@@ -37,22 +37,9 @@ export class TransactionEntity {
   }
 
   private assertInvariants(): void {
-    if (this.reference.trim().length === 0) {
-      throw new MissingReferenceError();
-    }
-
-    if (this.entries.length < 2) {
-      throw new NotEnoughEntriesError();
-    }
-
-    if (this.entries.some((entry) => entry.money.currency !== this.currency)) {
-      throw new CurrencyMismatchError();
-    }
-
-    const total = this.entries.reduce((sum, entry) => sum + entry.signedAmountMinor(), 0n);
-
-    if (total !== 0n) {
-      throw new UnbalancedTransactionError();
-    }
+    validateReference(this.reference);
+    validateEntryCurrencies(this.entries, this.currency);
+    validateEntryAmounts(this.entries);
+    validateDoubleEntry(this.entries);
   }
 }

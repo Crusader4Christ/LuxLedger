@@ -1,6 +1,6 @@
 import type { AccountId } from '../base/id';
 import type { Money } from '../base/money';
-import { InvalidAmountError, InvalidDirectionError } from '../transaction/errors';
+import { validateEntryAmount, validateEntryDirection } from './validators';
 
 export const EntryDirection = {
   DEBIT: 'DEBIT',
@@ -25,13 +25,8 @@ export class EntryEntity {
     money: Money;
     createdAt?: Date | null;
   }) {
-    if (input.direction !== EntryDirection.DEBIT && input.direction !== EntryDirection.CREDIT) {
-      throw new InvalidDirectionError();
-    }
-
-    if (input.money.amountMinor <= 0n) {
-      throw new InvalidAmountError('amount must be positive');
-    }
+    validateEntryDirection(input.direction);
+    validateEntryAmount(input.money.amountMinor);
 
     this.id = input.id ?? null;
     this.transactionId = input.transactionId ?? null;

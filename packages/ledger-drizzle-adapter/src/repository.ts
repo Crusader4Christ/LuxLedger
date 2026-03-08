@@ -720,13 +720,15 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
 
         const accounts: TrialBalanceAccount[] = accountRows.map((row) => {
           const side = parseAccountSide(row.side);
-          const isDebit = side === AccountSide.DEBIT;
-          const absoluteBalance = row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor;
+          const isDebit = row.balanceMinor < 0n;
+          const isContra =
+            row.balanceMinor !== 0n &&
+            (side === AccountSide.DEBIT ? !isDebit : isDebit);
 
           if (isDebit) {
-            totalDebitsMinor += absoluteBalance;
-          } else {
-            totalCreditsMinor += absoluteBalance;
+            totalDebitsMinor += -row.balanceMinor;
+          } else if (row.balanceMinor > 0n) {
+            totalCreditsMinor += row.balanceMinor;
           }
 
           return {
@@ -734,7 +736,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             code: row.id,
             name: row.name,
             normalBalance: side,
-            balanceMinor: absoluteBalance,
+            balanceMinor: isDebit ? -row.balanceMinor : row.balanceMinor,
+            isContra,
           };
         });
 

@@ -222,6 +222,7 @@ class InMemoryLedgerReadRepository {
           name: 'Cash',
           normalBalance: EntryDirection.DEBIT,
           balanceMinor: 100n,
+          isContra: false,
         },
         {
           accountId: '00000000-0000-4000-8000-000000000102',
@@ -229,6 +230,7 @@ class InMemoryLedgerReadRepository {
           name: 'Revenue',
           normalBalance: EntryDirection.CREDIT,
           balanceMinor: 100n,
+          isContra: false,
         },
       ],
       totalDebitsMinor: 100n,
@@ -948,6 +950,7 @@ describe('server', () => {
         name: string;
         normal_balance: EntryDirection;
         balance: string;
+        is_contra: boolean;
       }>;
       total_debits: string;
       total_credits: string;
@@ -956,6 +959,7 @@ describe('server', () => {
     expect(payload.ledger_id).toBe('00000000-0000-4000-8000-000000000001');
     expect(payload.accounts.length).toBe(2);
     expect(payload.accounts[0]?.balance).toBe('100');
+    expect(payload.accounts[0]?.is_contra).toBeFalse();
     expect(payload.total_debits).toBe('100');
     expect(payload.total_credits).toBe('100');
 

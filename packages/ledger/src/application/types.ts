@@ -40,6 +40,7 @@ export interface TrialBalanceAccount {
   name: string;
   normalBalance: AccountSide;
   balanceMinor: bigint;
+  isContra: boolean;
 }
 
 export interface TrialBalance {
