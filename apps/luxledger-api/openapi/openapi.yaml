@@ -65,6 +65,7 @@ paths:
   /v1/auth/token:
     post:
       summary: Exchange API key for short-lived access token
+      description: Requires a non-revoked API key. Access tokens default to 900 seconds, must stay within 300-900 seconds, and are rejected on the next authenticated request after the backing API key is revoked.
       security:
         - ApiKeyAuth: []
       responses:
@@ -411,7 +412,9 @@ components:
           enum: [Bearer]
         expires_in:
           type: integer
-          minimum: 1
+          minimum: 300
+          maximum: 900
+          description: Access token TTL in seconds. Default is 900.
     Ledger:
       type: object
       required: [id, tenantId, name, createdAt, updatedAt]

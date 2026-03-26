@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 
+import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth-policy';
 import { createServerCore, registerApplication } from '@api/server';
 import type { AccountEntity, ApiKeyEntity } from '@lux/ledger';
 import {
@@ -398,7 +399,7 @@ const OTHER_TENANT_ADMIN_API_KEY = 'llk_admin_other_tenant';
 const INVALID_API_KEY = 'llk_invalid';
 const JWT_SIGNING_KEY = 'test-signing-key-1234567890';
 const JWT_ISSUER = 'luxledger-api-test';
-const JWT_TTL_SECONDS = 900;
+const JWT_TTL_SECONDS = DEFAULT_JWT_ACCESS_TTL_SECONDS;
 
 const issueToken = async (
   server: ReturnType<typeof createServer>,
@@ -1180,7 +1181,43 @@ describe('server', () => {
     await server.close();
   });
 
-  it('rejects already-issued token after api key revocation', async () => {
+  it('POST /v1/auth/token rejects revoked api key', async () => {
+    const server = createServer();
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/v1/admin/api-keys',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Short lived service',
+        role: ApiKeyRole.SERVICE,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const createdPayload = parsePayload<{ api_key: string; key: { id: string } }>(created.body);
+
+    const revokeResponse = await server.inject({
+      method: 'POST',
+      url: `/v1/admin/api-keys/${createdPayload.key.id}/revoke`,
+      headers: await authHeaders(server),
+    });
+    expect(revokeResponse.statusCode).toBe(204);
+
+    const tokenResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/auth/token',
+      headers: {
+        'x-api-key': createdPayload.api_key,
+      },
+    });
+
+    expect(tokenResponse.statusCode).toBe(401);
+    expect(parsePayload<{ error: string }>(tokenResponse.body).error).toBe('UNAUTHORIZED');
+
+    await server.close();
+  });
+
+  it('issued token works before revocation and is rejected after revocation', async () => {
     const server = createServer();
 
     const created = await server.inject({
@@ -1196,6 +1233,16 @@ describe('server', () => {
     const createdPayload = parsePayload<{ api_key: string; key: { id: string } }>(created.body);
 
     const token = await issueToken(server, createdPayload.api_key);
+
+    const preRevokeResponse = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(preRevokeResponse.statusCode).toBe(200);
 
     const revokeResponse = await server.inject({
       method: 'POST',

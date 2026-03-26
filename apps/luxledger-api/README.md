@@ -21,13 +21,15 @@ Reference REST API built on top of `@lux/ledger`.
 - `POST /v1/auth/token` accepts `x-api-key` and returns a short-lived JWT access token.
 - All other `/v1/*` endpoints require `Authorization: Bearer <access_token>`.
 - Admin endpoints (`/v1/admin/*`) require a token issued from an API key with `ADMIN` role.
+- Revoked API keys cannot mint new access tokens, and any already-issued token is rejected on the next authenticated request.
 
 ## Auth environment variables
 
 - `JWT_SIGNING_KEY` (required) — HMAC secret used to sign access tokens.
 - `JWT_ISSUER` (optional, default `luxledger-api`) — JWT issuer claim.
 - `JWT_ACCESS_TTL_SECONDS` (optional, default `900`) — access token TTL in seconds, must be between `300` and `900`.
-- Revocation model: short-lived access token + request-time API key status check. A token is rejected immediately after the underlying API key is revoked.
+- TTL policy: default to `900` seconds (15 minutes) to stay within the short-lived window while avoiding unnecessary token churn.
+- Revocation model: every bearer-authenticated request revalidates the underlying API key. A revoked key cannot mint new tokens, and any previously issued token is rejected immediately after revocation.
 
 ## OpenAPI
 
