@@ -1,3 +1,4 @@
+import { parseJwtAccessTtlSeconds } from '@api/auth-policy';
 import { createServerCore, registerApplication } from '@api/server';
 import { createDbClient, DrizzleLedgerRepository } from '@lux/ledger-drizzle-adapter';
 import { ApiKeyService } from '@services/api-key-service';
@@ -39,22 +40,6 @@ const requireEnv = (name: string): string => {
   }
 
   return value;
-};
-
-const parseJwtAccessTtlSeconds = (value: string | undefined): number => {
-  const minTtlSeconds = 300;
-  const maxTtlSeconds = 900;
-
-  if (value === undefined) {
-    return maxTtlSeconds;
-  }
-
-  const ttl = Number(value);
-  if (!Number.isInteger(ttl) || ttl < minTtlSeconds || ttl > maxTtlSeconds) {
-    throw new Error('JWT_ACCESS_TTL_SECONDS must be an integer between 300 and 900');
-  }
-
-  return ttl;
 };
 
 export const run = async (): Promise<void> => {
