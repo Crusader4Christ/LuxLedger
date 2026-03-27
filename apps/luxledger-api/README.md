@@ -25,11 +25,16 @@ Reference REST API built on top of `@lux/ledger`.
 
 ## Auth environment variables
 
-- `JWT_SIGNING_KEY` (required) — HMAC secret used to sign access tokens.
+- `JWT_SIGNING_KEY` (required) — current HMAC signing key. Must be an unpadded base64url string representing at least 32 random bytes.
+- `JWT_PREVIOUS_SIGNING_KEYS` (optional) — comma-separated previous HMAC keys accepted for verification only during a rotation grace window. Same format and minimum length as `JWT_SIGNING_KEY`.
 - `JWT_ISSUER` (optional, default `luxledger-api`) — JWT issuer claim.
 - `JWT_ACCESS_TTL_SECONDS` (optional, default `900`) — access token TTL in seconds, must be between `300` and `900`.
+- `JWT_CLOCK_SKEW_SECONDS` (optional, default `5`) — allowed clock skew in seconds for `iat` and `exp`, must be between `0` and `60`.
 - TTL policy: default to `900` seconds (15 minutes) to stay within the short-lived window while avoiding unnecessary token churn.
+- Rotation policy: the API signs with `JWT_SIGNING_KEY` only and verifies with the current key first, then any keys listed in `JWT_PREVIOUS_SIGNING_KEYS`.
+- Clock skew policy: a token is accepted only when `iat <= now + JWT_CLOCK_SKEW_SECONDS` and `exp > now - JWT_CLOCK_SKEW_SECONDS`.
 - Revocation model: every bearer-authenticated request revalidates the underlying API key. A revoked key cannot mint new tokens, and any previously issued token is rejected immediately after revocation.
+- Runbook: `docs/runbooks/jwt-key-rotation.md`.
 
 ## OpenAPI
 

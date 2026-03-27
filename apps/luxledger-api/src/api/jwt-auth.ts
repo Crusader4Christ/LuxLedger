@@ -19,8 +19,15 @@ interface JwtPayload {
 
 export interface JwtAuthConfig {
   signingKey: string;
+  previousSigningKeys: string[];
   issuer: string;
   accessTokenTtlSeconds: number;
+  clockSkewSeconds: number;
+}
+
+export interface VerifyAccessTokenOptions {
+  now?: Date;
+  onPreviousSigningKeyUsed?: (details: { previousSigningKeyIndex: number }) => void;
 }
 
 const encodeBase64Url = (value: string): string => Buffer.from(value, 'utf8').toString('base64url');
@@ -29,6 +36,21 @@ const decodeBase64Url = (value: string): string => Buffer.from(value, 'base64url
 
 const sign = (input: string, signingKey: string): string =>
   createHmac('sha256', signingKey).update(input, 'utf8').digest('base64url');
+
+const hasValidSignature = (
+  encodedSignature: string,
+  signingInput: string,
+  verificationKey: string,
+): boolean => {
+  const expectedSignature = sign(signingInput, verificationKey);
+  const actualBuffer = Buffer.from(encodedSignature, 'utf8');
+  const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+};
 
 const assertPayload = (value: unknown, expectedIssuer: string): JwtPayload => {
   if (typeof value !== 'object' || value === null) {
@@ -44,7 +66,8 @@ const assertPayload = (value: unknown, expectedIssuer: string): JwtPayload => {
     typeof payload.tenant_id !== 'string' ||
     !validRole ||
     typeof payload.iat !== 'number' ||
-    typeof payload.exp !== 'number'
+    typeof payload.exp !== 'number' ||
+    payload.exp <= payload.iat
   ) {
     throw new UnauthorizedError('Invalid access token');
   }
@@ -80,8 +103,9 @@ export const issueAccessToken = (
 export const verifyAccessToken = (
   token: string,
   config: JwtAuthConfig,
-  now: Date = new Date(),
+  options: VerifyAccessTokenOptions = {},
 ): AuthContext => {
+  const now = options.now ?? new Date();
   const parts = token.split('.');
   if (parts.length !== 3) {
     throw new UnauthorizedError('Invalid access token');
@@ -112,19 +136,27 @@ export const verifyAccessToken = (
 
   const payload = assertPayload(payloadValue, config.issuer);
   const signingInput = `${encodedHeader}.${encodedPayload}`;
-  const expectedSignature = sign(signingInput, config.signingKey);
-  const actualBuffer = Buffer.from(encodedSignature, 'utf8');
-  const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+  const verificationKeys = [config.signingKey, ...config.previousSigningKeys];
+  const verificationKeyIndex = verificationKeys.findIndex((verificationKey) =>
+    hasValidSignature(encodedSignature, signingInput, verificationKey),
+  );
 
-  if (
-    actualBuffer.length !== expectedBuffer.length ||
-    !timingSafeEqual(actualBuffer, expectedBuffer)
-  ) {
+  if (verificationKeyIndex === -1) {
     throw new UnauthorizedError('Invalid access token');
   }
 
+  if (verificationKeyIndex > 0) {
+    options.onPreviousSigningKeyUsed?.({
+      previousSigningKeyIndex: verificationKeyIndex - 1,
+    });
+  }
+
   const nowUnix = Math.floor(now.getTime() / 1000);
-  if (payload.exp <= nowUnix) {
+  if (payload.iat > nowUnix + config.clockSkewSeconds) {
+    throw new UnauthorizedError('Invalid access token');
+  }
+
+  if (payload.exp <= nowUnix - config.clockSkewSeconds) {
     throw new UnauthorizedError('Access token expired');
   }
 
