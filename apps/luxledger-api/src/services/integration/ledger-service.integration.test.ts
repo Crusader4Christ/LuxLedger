@@ -1,13 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { AccountSide, type EntryDirection } from '@lux/ledger';
-import { createDbClient, DrizzleLedgerRepository } from '@lux/ledger-drizzle-adapter';
+import {
+  createDbClient,
+  DrizzleLedgerRepository,
+  type RepositoryLogger,
+} from '@lux/ledger-drizzle-adapter';
 import { accounts, transactions } from '@lux/ledger-drizzle-adapter/schema';
 import { InvariantViolationError, RepositoryError } from '@services/errors';
 import { LedgerService } from '@services/ledger-service';
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import type { Logger } from 'pino';
 
 const databaseUrl =
   process.env.DATABASE_URL_TEST ?? 'postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test';
@@ -39,7 +42,7 @@ const client = createDbClient({
 
 const repository = new DrizzleLedgerRepository(client.db, {
   info: () => {},
-} as unknown as Logger);
+} as unknown as RepositoryLogger);
 const service = new LedgerService(repository);
 
 const createAccount = async (input: {
@@ -82,17 +85,8 @@ const getAccountBalance = async (accountId: string): Promise<bigint> => {
 describe('LedgerService integration (service + repository + real DB)', () => {
   beforeAll(async () => {
     await client.db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
-    await client.db.execute(sql`
-      DO $$
-      DECLARE table_record RECORD;
-      BEGIN
-        FOR table_record IN
-          SELECT tablename FROM pg_tables WHERE schemaname = 'public'
-        LOOP
-          EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(table_record.tablename) || ' CASCADE';
-        END LOOP;
-      END $$;
-    `);
+    await client.db.execute(sql`DROP SCHEMA IF EXISTS public CASCADE`);
+    await client.db.execute(sql`CREATE SCHEMA public`);
     await migrate(client.db, { migrationsFolder: 'drizzle' });
   });
 

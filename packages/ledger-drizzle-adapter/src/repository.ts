@@ -32,9 +32,12 @@ import {
 } from '@lux/ledger/application';
 import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { Logger } from 'pino';
 import type { CursorValue, DatabaseErrorLike } from './repository-types';
 import * as schema from './schema';
+
+export interface RepositoryLogger {
+  info(context: Record<string, unknown>, message: string): void;
+}
 
 const CONSTRAINT_VIOLATION_CODES = new Set([
   '22001', // string_data_right_truncation
@@ -136,9 +139,9 @@ const parseAccountSide = (side: string): AccountSide => {
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
-  private readonly logger: Logger;
+  private readonly logger: RepositoryLogger;
 
-  public constructor(db: PostgresJsDatabase<typeof schema>, logger: Logger) {
+  public constructor(db: PostgresJsDatabase<typeof schema>, logger: RepositoryLogger) {
     this.db = db;
     this.logger = logger;
   }
