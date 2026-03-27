@@ -160,7 +160,25 @@ export const registerApplication = (
     }
 
     const token = authorizationHeader.slice(BEARER_PREFIX.length).trim();
-    const auth = verifyAccessToken(token, dependencies.jwtAuth);
+    let previousSigningKeyIndex: number | null = null;
+    const auth = verifyAccessToken(token, dependencies.jwtAuth, {
+      onPreviousSigningKeyUsed: (details) => {
+        previousSigningKeyIndex = details.previousSigningKeyIndex;
+      },
+    });
+
+    if (previousSigningKeyIndex !== null) {
+      request.log.warn(
+        {
+          apiKeyId: auth.apiKeyId,
+          previousSigningKeyIndex,
+          route: request.url,
+          tenantId: auth.tenantId,
+        },
+        'JWT verified with previous signing key',
+      );
+    }
+
     await dependencies.apiKeyService.assertAccessTokenIsActive(auth);
     request.tenantId = auth.tenantId;
     request.apiKeyId = auth.apiKeyId;

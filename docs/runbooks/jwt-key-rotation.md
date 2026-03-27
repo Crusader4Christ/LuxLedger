@@ -18,6 +18,7 @@ This runbook covers HS256 access-token signing keys used by `apps/luxledger-api`
 - Rotation grace is explicit. There is no automatic expiry for entries in `JWT_PREVIOUS_SIGNING_KEYS`.
 - Keep an old key in `JWT_PREVIOUS_SIGNING_KEYS` for at least `JWT_ACCESS_TTL_SECONDS + JWT_CLOCK_SKEW_SECONDS` after the last instance that could sign with that old key has been drained.
 - Removing a previous key immediately invalidates every token still signed by that key.
+- Every request that verifies through `JWT_PREVIOUS_SIGNING_KEYS` emits a warning log with `previousSigningKeyIndex`, `tenantId`, `apiKeyId`, and `route`. Watch for those warnings during the grace window and remove old keys only after the traffic you expect has drained.
 
 ## Key generation
 

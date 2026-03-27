@@ -25,6 +25,11 @@ export interface JwtAuthConfig {
   clockSkewSeconds: number;
 }
 
+export interface VerifyAccessTokenOptions {
+  now?: Date;
+  onPreviousSigningKeyUsed?: (details: { previousSigningKeyIndex: number }) => void;
+}
+
 const encodeBase64Url = (value: string): string => Buffer.from(value, 'utf8').toString('base64url');
 
 const decodeBase64Url = (value: string): string => Buffer.from(value, 'base64url').toString('utf8');
@@ -98,8 +103,9 @@ export const issueAccessToken = (
 export const verifyAccessToken = (
   token: string,
   config: JwtAuthConfig,
-  now: Date = new Date(),
+  options: VerifyAccessTokenOptions = {},
 ): AuthContext => {
+  const now = options.now ?? new Date();
   const parts = token.split('.');
   if (parts.length !== 3) {
     throw new UnauthorizedError('Invalid access token');
@@ -131,13 +137,18 @@ export const verifyAccessToken = (
   const payload = assertPayload(payloadValue, config.issuer);
   const signingInput = `${encodedHeader}.${encodedPayload}`;
   const verificationKeys = [config.signingKey, ...config.previousSigningKeys];
+  const verificationKeyIndex = verificationKeys.findIndex((verificationKey) =>
+    hasValidSignature(encodedSignature, signingInput, verificationKey),
+  );
 
-  if (
-    !verificationKeys.some((verificationKey) =>
-      hasValidSignature(encodedSignature, signingInput, verificationKey),
-    )
-  ) {
+  if (verificationKeyIndex === -1) {
     throw new UnauthorizedError('Invalid access token');
+  }
+
+  if (verificationKeyIndex > 0) {
+    options.onPreviousSigningKeyUsed?.({
+      previousSigningKeyIndex: verificationKeyIndex - 1,
+    });
   }
 
   const nowUnix = Math.floor(now.getTime() / 1000);
