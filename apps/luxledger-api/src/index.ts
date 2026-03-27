@@ -1,9 +1,12 @@
 import { parseJwtAccessTtlSeconds } from '@api/auth-policy';
 import { createServerCore, registerApplication } from '@api/server';
-import { createDbClient, DrizzleLedgerRepository } from '@lux/ledger-drizzle-adapter';
+import {
+  createDbClient,
+  DrizzleLedgerRepository,
+  type RepositoryLogger,
+} from '@lux/ledger-drizzle-adapter';
 import { ApiKeyService } from '@services/api-key-service';
 import { LedgerService } from '@services/ledger-service';
-import type { Logger } from 'pino';
 
 const parsePort = (value: string | undefined): number => {
   if (value === undefined) {
@@ -52,7 +55,7 @@ export const run = async (): Promise<void> => {
   });
   const ledgerRepository = new DrizzleLedgerRepository(
     dbClient.db,
-    server.log as unknown as Logger,
+    server.log as unknown as RepositoryLogger,
   );
   const apiKeyService = new ApiKeyService(ledgerRepository);
   const ledgerService = new LedgerService(ledgerRepository);

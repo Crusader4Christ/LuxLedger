@@ -1,7 +1,9 @@
 import { createDbClient } from '@lux/ledger-drizzle-adapter/client';
-import { DrizzleLedgerRepository } from '@lux/ledger-drizzle-adapter/repository';
+import {
+  DrizzleLedgerRepository,
+  type RepositoryLogger,
+} from '@lux/ledger-drizzle-adapter/repository';
 import { ApiKeyService } from '@services/api-key-service';
-import type { Logger } from 'pino';
 
 const requireEnv = (name: string): string => {
   const value = process.env[name];
@@ -13,7 +15,10 @@ const requireEnv = (name: string): string => {
 
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
-  const repository = new DrizzleLedgerRepository(dbClient.db, console as unknown as Logger);
+  const repository = new DrizzleLedgerRepository(
+    dbClient.db,
+    console as unknown as RepositoryLogger,
+  );
   const apiKeyService = new ApiKeyService(repository);
 
   try {

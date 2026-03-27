@@ -10,14 +10,20 @@
   "scripts": {
     "dev": "bun run --watch apps/luxledger-api/src/index.ts",
     "start": "bun run apps/luxledger-api/src/index.ts",
-    "test": "bun test",
-    "test:integration": "bun test apps/luxledger-api/src/services/integration",
+    "test": "bun run test:ci",
+    "test:unit": "bash ./scripts/run-unit-tests.sh",
+    "test:integration": "bun run db:check:test && bun run db:reset:test && bun run db:migrate:test && bun run test:integration:files",
+    "test:integration:files": "bash ./scripts/run-integration-test-files.sh",
+    "test:ci": "bun run test:unit && bun run test:integration",
     "lint": "bunx @biomejs/biome check apps/ packages/",
     "lint:fix": "bunx @biomejs/biome check --write apps/ packages/",
     "typecheck": "tsc --noEmit",
     "db:generate": "bash ./scripts/db-generate-named.sh",
     "db:generate:raw": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
+    "db:check:test": "DATABASE_URL=${DATABASE_URL_TEST:-postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test} bun run ./scripts/check-postgres.ts",
+    "db:reset:test": "DATABASE_URL=${DATABASE_URL_TEST:-postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test} bun run ./scripts/reset-test-database.ts",
+    "db:migrate:test": "DATABASE_URL=${DATABASE_URL_TEST:-postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test} bunx drizzle-kit migrate",
     "bootstrap:admin-key": "bun run apps/luxledger-api/src/bootstrap-admin-key.ts"
   },
   "dependencies": {

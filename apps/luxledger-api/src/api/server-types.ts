@@ -1,7 +1,7 @@
 import type { JwtAuthConfig } from '@api/jwt-auth';
 import type { ApiKeyService } from '@services/api-key-service';
 import type { LedgerService } from '@services/ledger-service';
-import type { Logger } from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 
 export interface ApplicationDependencies {
   apiKeyService: ApiKeyService;
@@ -11,5 +11,5 @@ export interface ApplicationDependencies {
 
 export interface CreateServerCoreOptions {
   readinessCheck: () => Promise<void>;
-  logger: Logger | boolean;
+  logger: FastifyBaseLogger | boolean;
 }

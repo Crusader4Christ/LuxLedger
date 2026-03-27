@@ -8,10 +8,9 @@ import {
 } from '@lux/ledger/application';
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import type { Logger } from 'pino';
-import { createDbClient } from './client';
-import { DrizzleLedgerRepository } from './repository';
-import { accounts, entries, ledgers, tenants, transactions } from './schema';
+import { createDbClient } from '../client';
+import { DrizzleLedgerRepository, type RepositoryLogger } from '../repository';
+import { accounts, entries, ledgers, tenants, transactions } from '../schema';
 
 const databaseUrl =
   process.env.DATABASE_URL_TEST ?? 'postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test';
@@ -43,7 +42,7 @@ const client = createDbClient({
 
 const repository = new DrizzleLedgerRepository(client.db, {
   info: () => {},
-} as unknown as Logger);
+} as unknown as RepositoryLogger);
 
 const createTenant = async (name: string): Promise<string> => {
   const [tenant] = await client.db.insert(tenants).values({ name }).returning({ id: tenants.id });
@@ -131,17 +130,8 @@ const createEntry = async (input: {
 describe('DrizzleLedgerRepository', () => {
   beforeAll(async () => {
     await client.db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
-    await client.db.execute(sql`
-      DO $$
-      DECLARE table_record RECORD;
-      BEGIN
-        FOR table_record IN
-          SELECT tablename FROM pg_tables WHERE schemaname = 'public'
-        LOOP
-          EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(table_record.tablename) || ' CASCADE';
-        END LOOP;
-      END $$;
-    `);
+    await client.db.execute(sql`DROP SCHEMA IF EXISTS public CASCADE`);
+    await client.db.execute(sql`CREATE SCHEMA public`);
     await migrate(client.db, { migrationsFolder: 'drizzle' });
   });
 
@@ -629,7 +619,7 @@ describe('DrizzleLedgerRepository', () => {
       info: (object: Record<string, unknown>, message: string) => {
         logs.push({ object, message });
       },
-    } as unknown as Logger);
+    } as unknown as RepositoryLogger);
 
     const result = await repositoryWithLogger.createTransaction({
       tenantId,
