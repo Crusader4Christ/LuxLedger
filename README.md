@@ -40,4 +40,6 @@ financial core infrastructure
 
 - Exchange long-lived API key for JWT: `POST /v1/auth/token` with `x-api-key`.
 - Use access token for API calls: `Authorization: Bearer <jwt>`.
+- JWT signing uses one active key plus optional previous verification keys during rotation. See `apps/luxledger-api/README.md` for env details.
+- JWT rotation and rollback steps live in `docs/runbooks/jwt-key-rotation.md`.
 - See API contract: `apps/luxledger-api/openapi/openapi.yaml`.

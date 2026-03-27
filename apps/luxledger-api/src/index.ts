@@ -1,4 +1,4 @@
-import { parseJwtAccessTtlSeconds } from '@api/auth-policy';
+import { parseJwtAuthConfig } from '@api/auth-policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
   createDbClient,
@@ -36,15 +36,6 @@ const parseShutdownTimeout = (value: string | undefined): number => {
   return timeout;
 };
 
-const requireEnv = (name: string): string => {
-  const value = process.env[name];
-  if (!value || value.trim().length === 0) {
-    throw new Error(`${name} is required`);
-  }
-
-  return value;
-};
-
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
   const server = createServerCore({
@@ -62,11 +53,7 @@ export const run = async (): Promise<void> => {
   registerApplication(server, {
     apiKeyService,
     ledgerService,
-    jwtAuth: {
-      signingKey: requireEnv('JWT_SIGNING_KEY'),
-      issuer: process.env.JWT_ISSUER ?? 'luxledger-api',
-      accessTokenTtlSeconds: parseJwtAccessTtlSeconds(process.env.JWT_ACCESS_TTL_SECONDS),
-    },
+    jwtAuth: parseJwtAuthConfig(process.env),
   });
   const port = parsePort(process.env.PORT);
   const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 
 import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth-policy';
+import type { JwtAuthConfig } from '@api/jwt-auth';
 import { createServerCore, registerApplication } from '@api/server';
 import type { AccountEntity, ApiKeyEntity } from '@lux/ledger';
 import {
@@ -354,6 +355,7 @@ interface ReadRepositoryPort {
 const createServer = (
   readinessCheck: () => Promise<void> = async () => {},
   readRepository: ReadRepositoryPort = new InMemoryLedgerReadRepository(),
+  jwtAuth: JwtAuthConfig = createJwtAuthConfig(),
 ) => {
   const writeRepository = new InMemoryLedgerRepository();
   const repository: LedgerRepository = {
@@ -378,11 +380,7 @@ const createServer = (
   registerApplication(server, {
     apiKeyService,
     ledgerService,
-    jwtAuth: {
-      signingKey: JWT_SIGNING_KEY,
-      issuer: JWT_ISSUER,
-      accessTokenTtlSeconds: JWT_TTL_SECONDS,
-    },
+    jwtAuth,
   });
 
   return server;
@@ -397,9 +395,20 @@ const VALID_ADMIN_API_KEY = 'llk_admin_test_key';
 const VALID_SERVICE_API_KEY = 'llk_service_test_key';
 const OTHER_TENANT_ADMIN_API_KEY = 'llk_admin_other_tenant';
 const INVALID_API_KEY = 'llk_invalid';
-const JWT_SIGNING_KEY = 'test-signing-key-1234567890';
+const JWT_SIGNING_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
+const PREVIOUS_JWT_SIGNING_KEY = 'YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk';
 const JWT_ISSUER = 'luxledger-api-test';
 const JWT_TTL_SECONDS = DEFAULT_JWT_ACCESS_TTL_SECONDS;
+const JWT_CLOCK_SKEW_SECONDS = 5;
+
+const createJwtAuthConfig = (overrides: Partial<JwtAuthConfig> = {}): JwtAuthConfig => ({
+  signingKey: JWT_SIGNING_KEY,
+  previousSigningKeys: [],
+  issuer: JWT_ISSUER,
+  accessTokenTtlSeconds: JWT_TTL_SECONDS,
+  clockSkewSeconds: JWT_CLOCK_SKEW_SECONDS,
+  ...overrides,
+});
 
 const issueToken = async (
   server: ReturnType<typeof createServer>,
@@ -621,6 +630,71 @@ describe('server', () => {
     expect(payload.error).toBe('UNAUTHORIZED');
 
     await server.close();
+  });
+
+  it('GET /v1/ledgers accepts token signed with previous verification key during rotation grace window', async () => {
+    const oldServer = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig({
+        signingKey: PREVIOUS_JWT_SIGNING_KEY,
+        previousSigningKeys: [],
+      }),
+    );
+    const token = await issueToken(oldServer, VALID_ADMIN_API_KEY);
+
+    await oldServer.close();
+
+    const rotatedServer = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig({
+        previousSigningKeys: [PREVIOUS_JWT_SIGNING_KEY],
+      }),
+    );
+
+    const response = await rotatedServer.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    await rotatedServer.close();
+  });
+
+  it('GET /v1/ledgers rejects token after previous verification key is removed', async () => {
+    const oldServer = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig({
+        signingKey: PREVIOUS_JWT_SIGNING_KEY,
+        previousSigningKeys: [],
+      }),
+    );
+    const token = await issueToken(oldServer, VALID_ADMIN_API_KEY);
+
+    await oldServer.close();
+
+    const rotatedServer = createServer();
+
+    const response = await rotatedServer.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(parsePayload<{ error: string; message: string }>(response.body).error).toBe(
+      'UNAUTHORIZED',
+    );
+
+    await rotatedServer.close();
   });
 
   it('POST /v1/ledgers maps repository failures to 500', async () => {
