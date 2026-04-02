@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { sendDomainError } from '@api/errors';
 import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
+import type { EndpointRateLimitConfig } from '@api/rate-limit-policy';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
@@ -15,6 +16,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 const API_KEY_HEADER = 'x-api-key';
 const BEARER_PREFIX = 'Bearer ';
 const TOKEN_ENDPOINT = '/v1/auth/token';
+const V1_ROUTE_PREFIX = '/v1/';
+const RATE_LIMIT_ERROR_CODE = 'RATE_LIMIT_EXCEEDED';
+const RATE_LIMIT_ERROR_MESSAGE = 'Rate limit exceeded';
 const OPENAPI_SPEC_PATH = fileURLToPath(new URL('../../openapi/openapi.yaml', import.meta.url));
 const OPENAPI_SPEC_CONTENT = readFileSync(OPENAPI_SPEC_PATH, 'utf8');
 const SWAGGER_UI_HTML = `<!doctype html>
@@ -47,6 +51,97 @@ const isValidationError = (error: unknown): error is { validation: unknown; mess
   'validation' in error &&
   'message' in error &&
   typeof (error as { message: unknown }).message === 'string';
+
+interface FixedWindowBucket {
+  windowStartMs: number;
+  count: number;
+}
+
+interface RateLimitDecision {
+  allowed: boolean;
+  retryAfterSeconds: number;
+}
+
+class RateLimitExceededError extends Error {
+  public readonly code = RATE_LIMIT_ERROR_CODE;
+  public readonly retryAfterSeconds: number;
+
+  public constructor(retryAfterSeconds: number) {
+    super(RATE_LIMIT_ERROR_MESSAGE);
+    this.name = 'RateLimitExceededError';
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+class InMemoryFixedWindowRateLimiter {
+  private readonly buckets = new Map<string, FixedWindowBucket>();
+
+  public consume(key: string, policy: EndpointRateLimitConfig, nowMs = Date.now()): RateLimitDecision {
+    const windowMs = policy.windowSeconds * 1000;
+    const current = this.buckets.get(key);
+    const activeBucket =
+      current === undefined || nowMs >= current.windowStartMs + windowMs
+        ? { windowStartMs: nowMs, count: 0 }
+        : current;
+
+    if (activeBucket.count >= policy.maxRequests) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((activeBucket.windowStartMs + windowMs - nowMs) / 1000),
+      );
+
+      return {
+        allowed: false,
+        retryAfterSeconds,
+      };
+    }
+
+    activeBucket.count += 1;
+    this.buckets.set(key, activeBucket);
+
+    return {
+      allowed: true,
+      retryAfterSeconds: 0,
+    };
+  }
+}
+
+interface RateLimitTarget {
+  keyPrefix: 'auth_token' | 'write';
+  policy: EndpointRateLimitConfig;
+}
+
+const routePath = (url: string): string => {
+  const querySeparatorIndex = url.indexOf('?');
+  if (querySeparatorIndex === -1) {
+    return url;
+  }
+
+  return url.slice(0, querySeparatorIndex);
+};
+
+const resolveRateLimitTarget = (
+  method: string,
+  path: string,
+  authTokenPolicy: EndpointRateLimitConfig,
+  writePolicy: EndpointRateLimitConfig,
+): RateLimitTarget | null => {
+  if (method !== 'POST' || !path.startsWith(V1_ROUTE_PREFIX)) {
+    return null;
+  }
+
+  if (path === TOKEN_ENDPOINT) {
+    return {
+      keyPrefix: 'auth_token',
+      policy: authTokenPolicy,
+    };
+  }
+
+  return {
+    keyPrefix: 'write',
+    policy: writePolicy,
+  };
+};
 
 export const createServerCore = (options: CreateServerCoreOptions): FastifyInstance => {
   const server = Fastify({
@@ -104,6 +199,15 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
   });
 
   server.setErrorHandler((error, request, reply) => {
+    if (error instanceof RateLimitExceededError) {
+      reply.header('retry-after', String(error.retryAfterSeconds));
+      return reply.status(429).send({
+        error: error.code,
+        message: error.message,
+        retry_after_seconds: error.retryAfterSeconds,
+      });
+    }
+
     try {
       return sendDomainError(reply, error);
     } catch {
@@ -132,16 +236,59 @@ export const registerApplication = (
   server: FastifyInstance,
   dependencies: ApplicationDependencies,
 ): void => {
+  const rateLimiter = new InMemoryFixedWindowRateLimiter();
+
   server.decorateRequest('tenantId');
   server.decorateRequest('apiKeyId');
   server.decorateRequest('apiKeyRole');
+  server.decorateRequest('apiPath');
 
   server.addHook('onRequest', async (request) => {
-    if (!request.url.startsWith('/v1/')) {
+    const path = routePath(request.url);
+    request.apiPath = path;
+
+    const target = resolveRateLimitTarget(
+      request.method,
+      path,
+      dependencies.rateLimit.authToken,
+      dependencies.rateLimit.write,
+    );
+    if (target === null) {
       return;
     }
 
-    if (request.url === TOKEN_ENDPOINT) {
+    const decision = rateLimiter.consume(`${target.keyPrefix}:${request.ip}`, target.policy);
+    if (decision.allowed) {
+      return;
+    }
+
+    request.log.warn(
+      {
+        endpoint: path,
+        limit: target.policy.maxRequests,
+        method: request.method,
+        scope: target.keyPrefix,
+        windowSeconds: target.policy.windowSeconds,
+        clientIp: request.ip,
+        retryAfterSeconds: decision.retryAfterSeconds,
+      },
+      'Request rate limited',
+    );
+    throw new RateLimitExceededError(decision.retryAfterSeconds);
+  });
+
+  server.addHook('onRequest', async (request, reply) => {
+    if (reply.sent) {
+      return;
+    }
+
+    const path = request.apiPath ?? routePath(request.url);
+
+    if (!path.startsWith(V1_ROUTE_PREFIX)) {
+      return;
+    }
+
+    if (path === TOKEN_ENDPOINT) {
       const apiKeyHeader = request.headers[API_KEY_HEADER];
       if (typeof apiKeyHeader !== 'string') {
         throw new UnauthorizedError('API key is required');
@@ -184,7 +331,7 @@ export const registerApplication = (
     request.apiKeyId = auth.apiKeyId;
     request.apiKeyRole = auth.role;
 
-    if (request.url.startsWith('/v1/admin/') && auth.role !== ApiKeyRole.ADMIN) {
+    if (path.startsWith('/v1/admin/') && auth.role !== ApiKeyRole.ADMIN) {
       throw new ForbiddenError('Admin API key is required');
     }
   });

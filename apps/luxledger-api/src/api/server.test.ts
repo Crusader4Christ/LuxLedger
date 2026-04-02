@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 
 import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth-policy';
 import type { JwtAuthConfig } from '@api/jwt-auth';
+import type { RateLimitConfig } from '@api/rate-limit-policy';
 import { createServerCore, registerApplication } from '@api/server';
 import type { AccountEntity, ApiKeyEntity } from '@lux/ledger';
 import {
@@ -356,6 +357,7 @@ const createServer = (
   readinessCheck: () => Promise<void> = async () => {},
   readRepository: ReadRepositoryPort = new InMemoryLedgerReadRepository(),
   jwtAuth: JwtAuthConfig = createJwtAuthConfig(),
+  rateLimit: RateLimitConfig = createRateLimitConfig(),
 ) => {
   const writeRepository = new InMemoryLedgerRepository();
   const repository: LedgerRepository = {
@@ -381,6 +383,7 @@ const createServer = (
     apiKeyService,
     ledgerService,
     jwtAuth,
+    rateLimit,
   });
 
   return server;
@@ -408,6 +411,19 @@ const createJwtAuthConfig = (overrides: Partial<JwtAuthConfig> = {}): JwtAuthCon
   accessTokenTtlSeconds: JWT_TTL_SECONDS,
   clockSkewSeconds: JWT_CLOCK_SKEW_SECONDS,
   ...overrides,
+});
+
+const createRateLimitConfig = (overrides: Partial<RateLimitConfig> = {}): RateLimitConfig => ({
+  authToken: {
+    maxRequests: 20,
+    windowSeconds: 60,
+    ...overrides.authToken,
+  },
+  write: {
+    maxRequests: 120,
+    windowSeconds: 60,
+    ...overrides.write,
+  },
 });
 
 const issueToken = async (
@@ -599,6 +615,80 @@ describe('server', () => {
     await server.close();
   });
 
+  it('POST /v1/auth/token allows requests up to configured limit', async () => {
+    const server = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig(),
+      createRateLimitConfig({
+        authToken: {
+          maxRequests: 2,
+          windowSeconds: 60,
+        },
+      }),
+    );
+
+    const first = await server.inject({
+      method: 'POST',
+      url: '/v1/auth/token',
+      headers: {
+        'x-api-key': VALID_ADMIN_API_KEY,
+      },
+    });
+    const second = await server.inject({
+      method: 'POST',
+      url: '/v1/auth/token',
+      headers: {
+        'x-api-key': VALID_ADMIN_API_KEY,
+      },
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+
+    await server.close();
+  });
+
+  it('POST /v1/auth/token rejects requests above configured limit with deterministic payload', async () => {
+    const server = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig(),
+      createRateLimitConfig({
+        authToken: {
+          maxRequests: 1,
+          windowSeconds: 120,
+        },
+      }),
+    );
+
+    const first = await server.inject({
+      method: 'POST',
+      url: '/v1/auth/token',
+      headers: {
+        'x-api-key': VALID_ADMIN_API_KEY,
+      },
+    });
+    const second = await server.inject({
+      method: 'POST',
+      url: '/v1/auth/token',
+      headers: {
+        'x-api-key': VALID_ADMIN_API_KEY,
+      },
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(429);
+    expect(parsePayload<{ error: string; message: string; retry_after_seconds: number }>(second.body)).toEqual({
+      error: 'RATE_LIMIT_EXCEEDED',
+      message: 'Rate limit exceeded',
+      retry_after_seconds: 120,
+    });
+    expect(second.headers['retry-after']).toBe('120');
+
+    await server.close();
+  });
+
   it('GET /v1/ledgers requires bearer token header', async () => {
     const server = createServer();
 
@@ -736,6 +826,84 @@ describe('server', () => {
 
     expect(payload.tenantId).toBe(VALID_TENANT_ID);
     expect(payload.name).toBe('Main ledger');
+
+    await server.close();
+  });
+
+  it('POST /v1/* write endpoints reject requests above configured baseline limit', async () => {
+    const server = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig(),
+      createRateLimitConfig({
+        write: {
+          maxRequests: 1,
+          windowSeconds: 90,
+        },
+      }),
+    );
+    const headers = await authHeaders(server);
+
+    const first = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers,
+      payload: {
+        name: 'Main ledger',
+      },
+    });
+    const second = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers,
+      payload: {
+        name: 'Another ledger',
+      },
+    });
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(429);
+    expect(parsePayload<{ error: string; message: string; retry_after_seconds: number }>(second.body)).toEqual({
+      error: 'RATE_LIMIT_EXCEEDED',
+      message: 'Rate limit exceeded',
+      retry_after_seconds: 90,
+    });
+    expect(second.headers['retry-after']).toBe('90');
+
+    await server.close();
+  });
+
+  it('GET /v1/* endpoints are not rate limited by POST write baseline', async () => {
+    const server = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig(),
+      createRateLimitConfig({
+        write: {
+          maxRequests: 1,
+          windowSeconds: 90,
+        },
+      }),
+    );
+    const headers = await authHeaders(server);
+
+    const writeResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers,
+      payload: {
+        name: 'Main ledger',
+      },
+    });
+    const readResponse = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+      headers,
+    });
+
+    expect(writeResponse.statusCode).toBe(201);
+    expect(readResponse.statusCode).toBe(200);
+    expect(readResponse.headers['retry-after']).toBeUndefined();
 
     await server.close();
   });
