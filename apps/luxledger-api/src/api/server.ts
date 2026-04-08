@@ -2,7 +2,7 @@ import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { sendDomainError } from '@api/errors';
+import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
 import type { EndpointRateLimitConfig } from '@api/rate-limit-policy';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
@@ -17,8 +17,6 @@ const API_KEY_HEADER = 'x-api-key';
 const BEARER_PREFIX = 'Bearer ';
 const TOKEN_ENDPOINT = '/v1/auth/token';
 const V1_ROUTE_PREFIX = '/v1/';
-const RATE_LIMIT_ERROR_CODE = 'RATE_LIMIT_EXCEEDED';
-const RATE_LIMIT_ERROR_MESSAGE = 'Rate limit exceeded';
 const OPENAPI_SPEC_PATH = fileURLToPath(new URL('../../openapi/openapi.yaml', import.meta.url));
 const OPENAPI_SPEC_CONTENT = readFileSync(OPENAPI_SPEC_PATH, 'utf8');
 const SWAGGER_UI_HTML = `<!doctype html>
@@ -60,17 +58,6 @@ interface FixedWindowBucket {
 interface RateLimitDecision {
   allowed: boolean;
   retryAfterSeconds: number;
-}
-
-class RateLimitExceededError extends Error {
-  public readonly code = RATE_LIMIT_ERROR_CODE;
-  public readonly retryAfterSeconds: number;
-
-  public constructor(retryAfterSeconds: number) {
-    super(RATE_LIMIT_ERROR_MESSAGE);
-    this.name = 'RateLimitExceededError';
-    this.retryAfterSeconds = retryAfterSeconds;
-  }
 }
 
 class InMemoryFixedWindowRateLimiter {

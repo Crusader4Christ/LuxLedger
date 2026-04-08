@@ -1,11 +1,12 @@
+import type { FastifyReply } from 'fastify';
+
 import {
   ForbiddenError,
   InvariantViolationError,
   LedgerNotFoundError,
   RepositoryError,
   UnauthorizedError,
-} from '@services/errors';
-import type { FastifyReply } from 'fastify';
+} from './lux-ledger';
 
 export const sendDomainError = (reply: FastifyReply, error: unknown): FastifyReply => {
   if (error instanceof LedgerNotFoundError) {
