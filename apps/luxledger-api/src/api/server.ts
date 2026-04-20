@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
+import { InMemoryFixedWindowRateLimiter } from '@api/rate-limit/in-memory-fixed-window-rate-limiter';
 import type { EndpointRateLimitConfig } from '@api/rate-limit-policy';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
@@ -49,49 +50,6 @@ const isValidationError = (error: unknown): error is { validation: unknown; mess
   'validation' in error &&
   'message' in error &&
   typeof (error as { message: unknown }).message === 'string';
-
-interface FixedWindowBucket {
-  windowStartMs: number;
-  count: number;
-}
-
-interface RateLimitDecision {
-  allowed: boolean;
-  retryAfterSeconds: number;
-}
-
-class InMemoryFixedWindowRateLimiter {
-  private readonly buckets = new Map<string, FixedWindowBucket>();
-
-  public consume(key: string, policy: EndpointRateLimitConfig, nowMs = Date.now()): RateLimitDecision {
-    const windowMs = policy.windowSeconds * 1000;
-    const current = this.buckets.get(key);
-    const activeBucket =
-      current === undefined || nowMs >= current.windowStartMs + windowMs
-        ? { windowStartMs: nowMs, count: 0 }
-        : current;
-
-    if (activeBucket.count >= policy.maxRequests) {
-      const retryAfterSeconds = Math.max(
-        1,
-        Math.ceil((activeBucket.windowStartMs + windowMs - nowMs) / 1000),
-      );
-
-      return {
-        allowed: false,
-        retryAfterSeconds,
-      };
-    }
-
-    activeBucket.count += 1;
-    this.buckets.set(key, activeBucket);
-
-    return {
-      allowed: true,
-      retryAfterSeconds: 0,
-    };
-  }
-}
 
 interface RateLimitTarget {
   keyPrefix: 'auth_token' | 'write';
