@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
-import { InMemoryFixedWindowRateLimiter } from '@api/rate-limit/in-memory-fixed-window-rate-limiter';
+import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
 import type { EndpointRateLimitConfig } from '@api/rate-limit-policy';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
@@ -181,7 +181,7 @@ export const registerApplication = (
   server: FastifyInstance,
   dependencies: ApplicationDependencies,
 ): void => {
-  const rateLimiter = new InMemoryFixedWindowRateLimiter();
+  const rateLimiter = new FixedWindowLimiter();
 
   server.decorateRequest('tenantId');
   server.decorateRequest('apiKeyId');

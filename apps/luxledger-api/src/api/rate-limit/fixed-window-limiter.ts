@@ -10,7 +10,7 @@ export interface RateLimitDecision {
   retryAfterSeconds: number;
 }
 
-export class InMemoryFixedWindowRateLimiter {
+export class FixedWindowLimiter {
   private readonly buckets = new Map<string, FixedWindowBucket>();
 
   public consume(
