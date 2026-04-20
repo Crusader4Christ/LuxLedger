@@ -2,8 +2,10 @@ import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { sendDomainError } from '@api/errors';
-import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
+import { issueAccessToken, verifyAccessToken } from '@api/auth/jwt';
+import { RateLimitExceededError, sendDomainError } from '@api/errors';
+import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
+import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
@@ -15,6 +17,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 const API_KEY_HEADER = 'x-api-key';
 const BEARER_PREFIX = 'Bearer ';
 const TOKEN_ENDPOINT = '/v1/auth/token';
+const V1_ROUTE_PREFIX = '/v1/';
 const OPENAPI_SPEC_PATH = fileURLToPath(new URL('../../openapi/openapi.yaml', import.meta.url));
 const OPENAPI_SPEC_CONTENT = readFileSync(OPENAPI_SPEC_PATH, 'utf8');
 const SWAGGER_UI_HTML = `<!doctype html>
@@ -47,6 +50,43 @@ const isValidationError = (error: unknown): error is { validation: unknown; mess
   'validation' in error &&
   'message' in error &&
   typeof (error as { message: unknown }).message === 'string';
+
+interface RateLimitTarget {
+  keyPrefix: 'auth_token' | 'write';
+  policy: EndpointRateLimitConfig;
+}
+
+const routePath = (url: string): string => {
+  const querySeparatorIndex = url.indexOf('?');
+  if (querySeparatorIndex === -1) {
+    return url;
+  }
+
+  return url.slice(0, querySeparatorIndex);
+};
+
+const resolveRateLimitTarget = (
+  method: string,
+  path: string,
+  authTokenPolicy: EndpointRateLimitConfig,
+  writePolicy: EndpointRateLimitConfig,
+): RateLimitTarget | null => {
+  if (method !== 'POST' || !path.startsWith(V1_ROUTE_PREFIX)) {
+    return null;
+  }
+
+  if (path === TOKEN_ENDPOINT) {
+    return {
+      keyPrefix: 'auth_token',
+      policy: authTokenPolicy,
+    };
+  }
+
+  return {
+    keyPrefix: 'write',
+    policy: writePolicy,
+  };
+};
 
 export const createServerCore = (options: CreateServerCoreOptions): FastifyInstance => {
   const server = Fastify({
@@ -104,10 +144,13 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
   });
 
   server.setErrorHandler((error, request, reply) => {
-    try {
-      return sendDomainError(reply, error);
-    } catch {
-      // Continue with generic error handling below.
+    if (error instanceof RateLimitExceededError) {
+      reply.header('retry-after', String(error.retryAfterSeconds));
+      return reply.status(429).send({
+        error: error.code,
+        message: error.message,
+        retry_after_seconds: error.retryAfterSeconds,
+      });
     }
 
     if (isValidationError(error)) {
@@ -117,12 +160,17 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
       });
     }
 
-    request.log.error({ err: error }, 'Unhandled route error');
+    const hasCode =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof (error as { code: unknown }).code === 'string';
 
-    return reply.status(500).send({
-      error: 'INTERNAL_ERROR',
-      message: 'Internal server error',
-    });
+    if (!hasCode) {
+      request.log.error({ err: error }, 'Unhandled route error');
+    }
+
+    return sendDomainError(reply, error);
   });
 
   return server;
@@ -132,16 +180,59 @@ export const registerApplication = (
   server: FastifyInstance,
   dependencies: ApplicationDependencies,
 ): void => {
+  const rateLimiter = new FixedWindowLimiter();
+
   server.decorateRequest('tenantId');
   server.decorateRequest('apiKeyId');
   server.decorateRequest('apiKeyRole');
+  server.decorateRequest('apiPath');
 
   server.addHook('onRequest', async (request) => {
-    if (!request.url.startsWith('/v1/')) {
+    const path = routePath(request.url);
+    request.apiPath = path;
+
+    const target = resolveRateLimitTarget(
+      request.method,
+      path,
+      dependencies.rateLimit.authToken,
+      dependencies.rateLimit.write,
+    );
+    if (target === null) {
       return;
     }
 
-    if (request.url === TOKEN_ENDPOINT) {
+    const decision = rateLimiter.consume(`${target.keyPrefix}:${request.ip}`, target.policy);
+    if (decision.allowed) {
+      return;
+    }
+
+    request.log.warn(
+      {
+        endpoint: path,
+        limit: target.policy.maxRequests,
+        method: request.method,
+        scope: target.keyPrefix,
+        windowSeconds: target.policy.windowSeconds,
+        clientIp: request.ip,
+        retryAfterSeconds: decision.retryAfterSeconds,
+      },
+      'Request rate limited',
+    );
+    throw new RateLimitExceededError(decision.retryAfterSeconds);
+  });
+
+  server.addHook('onRequest', async (request, reply) => {
+    if (reply.sent) {
+      return;
+    }
+
+    const path = request.apiPath ?? routePath(request.url);
+
+    if (!path.startsWith(V1_ROUTE_PREFIX)) {
+      return;
+    }
+
+    if (path === TOKEN_ENDPOINT) {
       const apiKeyHeader = request.headers[API_KEY_HEADER];
       if (typeof apiKeyHeader !== 'string') {
         throw new UnauthorizedError('API key is required');
@@ -184,7 +275,7 @@ export const registerApplication = (
     request.apiKeyId = auth.apiKeyId;
     request.apiKeyRole = auth.role;
 
-    if (request.url.startsWith('/v1/admin/') && auth.role !== ApiKeyRole.ADMIN) {
+    if (path.startsWith('/v1/admin/') && auth.role !== ApiKeyRole.ADMIN) {
       throw new ForbiddenError('Admin API key is required');
     }
   });

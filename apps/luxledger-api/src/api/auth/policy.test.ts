@@ -10,7 +10,7 @@ import {
   parseJwtAuthConfig,
   parseJwtAccessTtlSeconds,
   parseJwtClockSkewSeconds,
-} from '@api/auth-policy';
+} from '@api/auth/policy';
 
 describe('auth policy', () => {
   const JWT_SIGNING_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';

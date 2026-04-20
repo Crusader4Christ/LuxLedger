@@ -30,10 +30,15 @@ Reference REST API built on top of `@lux/ledger`.
 - `JWT_ISSUER` (optional, default `luxledger-api`) — JWT issuer claim.
 - `JWT_ACCESS_TTL_SECONDS` (optional, default `900`) — access token TTL in seconds, must be between `300` and `900`.
 - `JWT_CLOCK_SKEW_SECONDS` (optional, default `5`) — allowed clock skew in seconds for `iat` and `exp`, must be between `0` and `60`.
+- `RATE_LIMIT_AUTH_TOKEN_MAX_REQUESTS` (optional, default `20`) — max `POST /v1/auth/token` requests per client IP during the auth window.
+- `RATE_LIMIT_AUTH_TOKEN_WINDOW_SECONDS` (optional, default `60`) — fixed window length in seconds for auth token minting.
+- `RATE_LIMIT_WRITE_MAX_REQUESTS` (optional, default `120`) — max `POST /v1/*` write requests per client IP during the write window.
+- `RATE_LIMIT_WRITE_WINDOW_SECONDS` (optional, default `60`) — fixed window length in seconds for state-changing requests.
 - TTL policy: default to `900` seconds (15 minutes) to stay within the short-lived window while avoiding unnecessary token churn.
 - Rotation policy: the API signs with `JWT_SIGNING_KEY` only and verifies with the current key first, then any keys listed in `JWT_PREVIOUS_SIGNING_KEYS`.
 - Clock skew policy: a token is accepted only when `iat <= now + JWT_CLOCK_SKEW_SECONDS` and `exp > now - JWT_CLOCK_SKEW_SECONDS`.
 - Revocation model: every bearer-authenticated request revalidates the underlying API key. A revoked key cannot mint new tokens, and any previously issued token is rejected immediately after revocation.
+- Rate-limiting behavior: when a configured limit is exceeded, API returns `429` with `{ "error": "RATE_LIMIT_EXCEEDED", "message": "Rate limit exceeded", "retry_after_seconds": <int> }`, sets `retry-after`, and logs a structured warning.
 - Runbook: `docs/runbooks/jwt-key-rotation.md`.
 
 ## OpenAPI

@@ -1,4 +1,5 @@
-import type { JwtAuthConfig } from '@api/jwt-auth';
+import type { JwtAuthConfig } from './jwt';
+import { parseIntegerWithinRange } from '../../utils/parse-integer-with-range';
 
 export const MIN_JWT_SIGNING_KEY_BYTES = 32;
 export const DEFAULT_JWT_ISSUER = 'luxledger-api';
@@ -73,41 +74,21 @@ const parseJwtPreviousSigningKeys = (
 };
 
 export const parseJwtAccessTtlSeconds = (value: string | undefined): number => {
-  if (value === undefined) {
-    return DEFAULT_JWT_ACCESS_TTL_SECONDS;
-  }
-
-  const ttl = Number(value);
-  if (
-    !Number.isInteger(ttl) ||
-    ttl < MIN_JWT_ACCESS_TTL_SECONDS ||
-    ttl > MAX_JWT_ACCESS_TTL_SECONDS
-  ) {
-    throw new Error(
-      `JWT_ACCESS_TTL_SECONDS must be an integer between ${MIN_JWT_ACCESS_TTL_SECONDS} and ${MAX_JWT_ACCESS_TTL_SECONDS}`,
-    );
-  }
-
-  return ttl;
+  return parseIntegerWithinRange(value, {
+    defaultValue: DEFAULT_JWT_ACCESS_TTL_SECONDS,
+    min: MIN_JWT_ACCESS_TTL_SECONDS,
+    max: MAX_JWT_ACCESS_TTL_SECONDS,
+    errorMessage: `JWT_ACCESS_TTL_SECONDS must be an integer between ${MIN_JWT_ACCESS_TTL_SECONDS} and ${MAX_JWT_ACCESS_TTL_SECONDS}`,
+  });
 };
 
 export const parseJwtClockSkewSeconds = (value: string | undefined): number => {
-  if (value === undefined) {
-    return DEFAULT_JWT_CLOCK_SKEW_SECONDS;
-  }
-
-  const skew = Number(value);
-  if (
-    !Number.isInteger(skew) ||
-    skew < 0 ||
-    skew > MAX_JWT_CLOCK_SKEW_SECONDS
-  ) {
-    throw new Error(
-      `JWT_CLOCK_SKEW_SECONDS must be an integer between 0 and ${MAX_JWT_CLOCK_SKEW_SECONDS}`,
-    );
-  }
-
-  return skew;
+  return parseIntegerWithinRange(value, {
+    defaultValue: DEFAULT_JWT_CLOCK_SKEW_SECONDS,
+    min: 0,
+    max: MAX_JWT_CLOCK_SKEW_SECONDS,
+    errorMessage: `JWT_CLOCK_SKEW_SECONDS must be an integer between 0 and ${MAX_JWT_CLOCK_SKEW_SECONDS}`,
+  });
 };
 
 export const parseJwtAuthConfig = (env: NodeJS.ProcessEnv): JwtAuthConfig => {

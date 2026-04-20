@@ -1,4 +1,5 @@
-import { parseJwtAuthConfig } from '@api/auth-policy';
+import { parseJwtAuthConfig } from '@api/auth/policy';
+import { parseRateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
   createDbClient,
@@ -54,6 +55,7 @@ export const run = async (): Promise<void> => {
     apiKeyService,
     ledgerService,
     jwtAuth: parseJwtAuthConfig(process.env),
+    rateLimit: parseRateLimitConfig(process.env),
   });
   const port = parsePort(process.env.PORT);
   const shutdownTimeoutMs = parseShutdownTimeout(process.env.SHUTDOWN_TIMEOUT_MS);
