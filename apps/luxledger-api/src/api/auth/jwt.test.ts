@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { JwtAuthConfig } from '@api/jwt-auth';
-import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
+import type { JwtAuthConfig } from '@api/auth/jwt';
+import { issueAccessToken, verifyAccessToken } from '@api/auth/jwt';
 import { ApiKeyRole } from '@lux/ledger';
 
 const JWT_SIGNING_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';

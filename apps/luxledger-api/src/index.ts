@@ -1,5 +1,5 @@
-import { parseJwtAuthConfig } from '@api/auth-policy';
-import { parseRateLimitConfig } from '@api/rate-limit-policy';
+import { parseJwtAuthConfig } from '@api/auth/policy';
+import { parseRateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
   createDbClient,

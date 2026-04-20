@@ -1,3 +1,5 @@
+import { parseIntegerWithinRange } from '../../utils/parse-integer-with-range';
+
 export interface EndpointRateLimitConfig {
   maxRequests: number;
   windowSeconds: number;
@@ -18,16 +20,11 @@ const parsePositiveInteger = (
   name: string,
   defaultValue: number,
 ): number => {
-  if (value === undefined) {
-    return defaultValue;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-
-  return parsed;
+  return parseIntegerWithinRange(value, {
+    defaultValue,
+    min: 1,
+    errorMessage: `${name} must be a positive integer`,
+  });
 };
 
 export const parseRateLimitConfig = (env: NodeJS.ProcessEnv): RateLimitConfig => ({

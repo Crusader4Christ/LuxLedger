@@ -2,10 +2,10 @@ import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { issueAccessToken, verifyAccessToken } from '@api/auth/jwt';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
-import { issueAccessToken, verifyAccessToken } from '@api/jwt-auth';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
-import type { EndpointRateLimitConfig } from '@api/rate-limit-policy';
+import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
 import { registerListingRoutes } from '@api/routes/listings';
@@ -153,12 +153,6 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
       });
     }
 
-    try {
-      return sendDomainError(reply, error);
-    } catch {
-      // Continue with generic error handling below.
-    }
-
     if (isValidationError(error)) {
       return reply.status(400).send({
         error: 'INVALID_INPUT',
@@ -166,12 +160,17 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
       });
     }
 
-    request.log.error({ err: error }, 'Unhandled route error');
+    const hasCode =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof (error as { code: unknown }).code === 'string';
 
-    return reply.status(500).send({
-      error: 'INTERNAL_ERROR',
-      message: 'Internal server error',
-    });
+    if (!hasCode) {
+      request.log.error({ err: error }, 'Unhandled route error');
+    }
+
+    return sendDomainError(reply, error);
   });
 
   return server;

@@ -1,5 +1,5 @@
-import type { JwtAuthConfig } from '@api/jwt-auth';
-import type { RateLimitConfig } from '@api/rate-limit-policy';
+import type { JwtAuthConfig } from '@api/auth/jwt';
+import type { RateLimitConfig } from '@api/rate-limit/policy';
 import type { ApiKeyService } from '@services/api-key-service';
 import type { LedgerService } from '@services/ledger-service';
 import type { FastifyBaseLogger } from 'fastify';

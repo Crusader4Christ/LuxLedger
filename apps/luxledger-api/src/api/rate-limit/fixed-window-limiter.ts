@@ -1,4 +1,4 @@
-import type { EndpointRateLimitConfig } from '@api/rate-limit-policy';
+import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
 
 interface FixedWindowBucket {
   windowStartMs: number;

@@ -6,7 +6,7 @@ import {
   DEFAULT_WRITE_RATE_LIMIT_MAX_REQUESTS,
   DEFAULT_WRITE_RATE_LIMIT_WINDOW_SECONDS,
   parseRateLimitConfig,
-} from '@api/rate-limit-policy';
+} from '@api/rate-limit/policy';
 
 describe('rate limit policy', () => {
   it('uses documented defaults when env vars are not set', () => {

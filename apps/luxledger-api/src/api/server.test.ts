@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth-policy';
-import type { JwtAuthConfig } from '@api/jwt-auth';
-import type { RateLimitConfig } from '@api/rate-limit-policy';
+import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
+import type { JwtAuthConfig } from '@api/auth/jwt';
+import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import type { AccountEntity, ApiKeyEntity } from '@lux/ledger';
 import {
