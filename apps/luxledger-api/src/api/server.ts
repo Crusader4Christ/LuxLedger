@@ -6,9 +6,11 @@ import { issueAccessToken, verifyAccessToken } from '@api/auth/jwt';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
 import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
+import { registerAccountRoutes } from '@api/routes/accounts';
 import { registerAdminApiKeyRoutes } from '@api/routes/admin-api-keys';
+import { registerEntryRoutes } from '@api/routes/entries';
 import { registerLedgerRoutes } from '@api/routes/ledgers';
-import { registerListingRoutes } from '@api/routes/listings';
+import { registerTransactionRoutes } from '@api/routes/transactions';
 import type { ApplicationDependencies, CreateServerCoreOptions } from '@api/server-types';
 import { ApiKeyRole } from '@lux/ledger';
 import { ForbiddenError, UnauthorizedError } from '@services/errors';
@@ -300,7 +302,13 @@ export const registerApplication = (
   registerLedgerRoutes(server, {
     ledgerService: dependencies.ledgerService,
   });
-  registerListingRoutes(server, {
+  registerAccountRoutes(server, {
+    ledgerService: dependencies.ledgerService,
+  });
+  registerTransactionRoutes(server, {
+    ledgerService: dependencies.ledgerService,
+  });
+  registerEntryRoutes(server, {
     ledgerService: dependencies.ledgerService,
   });
   registerAdminApiKeyRoutes(server, {
