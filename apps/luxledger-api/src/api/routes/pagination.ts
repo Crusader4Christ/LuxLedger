@@ -1,9 +1,7 @@
+import { sendDomainError } from '@api/errors';
+import type { PaginationQuery } from '@api/routes/types/pagination-query';
+import type { PaginatedResult } from '@services/types';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-
-export interface PaginationQuery {
-  limit?: number;
-  cursor?: string;
-}
 
 export const paginationQuerySchema = {
   type: 'object',
@@ -24,24 +22,39 @@ export const paginationQuerySchema = {
 
 export const resolveLimit = (value: number | undefined): number => value ?? 50;
 
-type PaginatedRequest = FastifyRequest<{ Querystring: PaginationQuery }>;
-type PaginatedHandler = (
-  request: PaginatedRequest,
-  reply: FastifyReply,
-) => Promise<unknown> | unknown;
+export type PaginatedRequest = FastifyRequest<{ Querystring: PaginationQuery }>;
 
-export const registerPaginatedGetRoute = (
-  server: FastifyInstance,
-  path: string,
-  handler: PaginatedHandler,
-): void => {
-  server.get<{ Querystring: PaginationQuery }>(
-    path,
-    {
-      schema: {
-        querystring: paginationQuerySchema,
+export abstract class BasePaginatedListRoute<Source, Target> {
+  protected abstract readonly path: string;
+
+  protected abstract list(request: PaginatedRequest): Promise<PaginatedResult<Source>>;
+  protected abstract mapItem(item: Source): Target;
+
+  protected resolveLimit(value: number | undefined): number {
+    return resolveLimit(value);
+  }
+
+  public register(server: FastifyInstance): void {
+    server.get<{ Querystring: PaginationQuery }>(
+      this.path,
+      {
+        schema: {
+          querystring: paginationQuerySchema,
+        },
       },
-    },
-    handler,
-  );
-};
+      async (request, reply) => this.handle(request, reply),
+    );
+  }
+
+  private async handle(request: PaginatedRequest, reply: FastifyReply): Promise<unknown> {
+    try {
+      const page = await this.list(request);
+      return reply.status(200).send({
+        data: page.data.map((item) => this.mapItem(item)),
+        next_cursor: page.nextCursor,
+      });
+    } catch (error) {
+      return sendDomainError(reply, error);
+    }
+  }
+}

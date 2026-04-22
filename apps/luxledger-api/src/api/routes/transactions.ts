@@ -1,48 +1,39 @@
-import { sendDomainError } from '@api/errors';
-import { toPageResponse } from '@api/page-response';
-import { registerPaginatedGetRoute, resolveLimit } from '@api/routes/pagination';
+import { BasePaginatedListRoute, type PaginatedRequest } from '@api/routes/pagination';
+import type { TransactionListItemDto } from '@api/routes/types/list-item-dto';
+import type { TransactionEntity } from '@lux/ledger';
 import { InvariantViolationError } from '@services/errors';
 import type { LedgerService } from '@services/ledger-service';
-import type { FastifyInstance } from 'fastify';
 
-interface TransactionsRouteDependencies {
-  ledgerService: LedgerService;
+export class TransactionsListRoute extends BasePaginatedListRoute<
+  TransactionEntity,
+  TransactionListItemDto
+> {
+  protected readonly path = '/v1/transactions';
+
+  public constructor(private readonly ledgerService: LedgerService) {
+    super();
+  }
+
+  protected list(request: PaginatedRequest) {
+    return this.ledgerService.listTransactions({
+      tenantId: request.tenantId as string,
+      limit: this.resolveLimit(request.query.limit),
+      cursor: request.query.cursor,
+    });
+  }
+
+  protected mapItem(transaction: TransactionEntity) {
+    if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
+      throw new InvariantViolationError('transaction must be persisted before listing');
+    }
+
+    return {
+      id: transaction.id.value,
+      tenant_id: transaction.tenantId,
+      ledger_id: transaction.ledgerId.value,
+      reference: transaction.reference,
+      currency: transaction.currency,
+      created_at: transaction.createdAt.toISOString(),
+    };
+  }
 }
-
-export const registerTransactionRoutes = (
-  server: FastifyInstance,
-  dependencies: TransactionsRouteDependencies,
-): void => {
-  registerPaginatedGetRoute(
-    server,
-    '/v1/transactions',
-    async (request, reply) => {
-      try {
-        const page = await dependencies.ledgerService.listTransactions({
-          tenantId: request.tenantId as string,
-          limit: resolveLimit(request.query.limit),
-          cursor: request.query.cursor,
-        });
-
-        return reply.status(200).send(
-          toPageResponse(page, (transaction) => {
-            if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
-              throw new InvariantViolationError('transaction must be persisted before listing');
-            }
-
-            return {
-              id: transaction.id.value,
-              tenant_id: transaction.tenantId,
-              ledger_id: transaction.ledgerId.value,
-              reference: transaction.reference,
-              currency: transaction.currency,
-              created_at: transaction.createdAt.toISOString(),
-            };
-          }),
-        );
-      } catch (error) {
-        return sendDomainError(reply, error);
-      }
-    },
-  );
-};
