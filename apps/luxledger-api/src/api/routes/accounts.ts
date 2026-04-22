@@ -1,6 +1,6 @@
 import { sendDomainError } from '@api/errors';
 import { toPageResponse } from '@api/page-response';
-import { type PaginationQuery, paginationQuerySchema, resolveLimit } from '@api/routes/pagination';
+import { registerPaginatedGetRoute, resolveLimit } from '@api/routes/pagination';
 import type { LedgerService } from '@services/ledger-service';
 import type { FastifyInstance } from 'fastify';
 
@@ -12,13 +12,9 @@ export const registerAccountRoutes = (
   server: FastifyInstance,
   dependencies: AccountsRouteDependencies,
 ): void => {
-  server.get<{ Querystring: PaginationQuery }>(
+  registerPaginatedGetRoute(
+    server,
     '/v1/accounts',
-    {
-      schema: {
-        querystring: paginationQuerySchema,
-      },
-    },
     async (request, reply) => {
       try {
         const page = await dependencies.ledgerService.listAccounts({
