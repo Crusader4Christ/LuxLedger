@@ -2,7 +2,7 @@ import { sendDomainError } from '@api/errors';
 import type { CreateApiKeyBody, RevokeApiKeyParams } from '@api/routes/types/admin-api-key-route';
 import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import { ApiKeyRole } from '@lux/ledger';
-import type { ApiKeyService } from '@services/api-key-service';
+import type { ApiKeyService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
 export class AdminApiKeyRoutes {

@@ -1,9 +1,9 @@
+import { ApiKeyService } from '@lux/ledger/application';
 import { createDbClient } from '@lux/ledger-drizzle-adapter/client';
 import {
   DrizzleLedgerRepository,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter/repository';
-import { ApiKeyService } from '@services/api-key-service';
 
 const requireEnv = (name: string): string => {
   const value = process.env[name];

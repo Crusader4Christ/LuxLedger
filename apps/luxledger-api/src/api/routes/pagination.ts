@@ -1,6 +1,6 @@
 import { sendDomainError } from '@api/errors';
 import type { PaginationQuery } from '@api/routes/types/pagination-query';
-import type { PaginatedResult } from '@services/types';
+import type { PaginatedResult } from '@lux/ledger/application';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 export const paginationQuerySchema = {

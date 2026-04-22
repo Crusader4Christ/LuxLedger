@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   AccountEntity,
   AccountSide,
-  ApiKeyRole,
   ApiKeyEntity,
+  ApiKeyRole,
   CreateTransactionUseCase,
   EntryDirection,
   EntryEntity,
@@ -30,9 +30,10 @@ import {
   type TrialBalanceAccount,
   type TrialBalanceQuery,
 } from '@lux/ledger/application';
-import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { CursorValue, DatabaseErrorLike } from './repository-types';
+import { paginateByCursor } from './paginate-by-cursor';
+import type { DatabaseErrorLike } from './repository-types';
 import * as schema from './schema';
 
 export interface RepositoryLogger {
@@ -48,49 +49,6 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
   '23505', // unique_violation
   '23514', // check_violation
 ]);
-
-const parseCursor = (cursor: string | undefined): CursorValue | null => {
-  if (!cursor) {
-    return null;
-  }
-
-  let decoded: unknown;
-
-  try {
-    const text = Buffer.from(cursor, 'base64url').toString('utf8');
-    decoded = JSON.parse(text);
-  } catch {
-    throw new InvariantViolationError('Invalid cursor');
-  }
-
-  if (!isObjectRecord(decoded)) {
-    throw new InvariantViolationError('Invalid cursor');
-  }
-
-  const createdAtRaw = decoded.created_at;
-  const idRaw = decoded.id;
-
-  if (typeof createdAtRaw !== 'string' || typeof idRaw !== 'string') {
-    throw new InvariantViolationError('Invalid cursor');
-  }
-
-  const createdAt = new Date(createdAtRaw);
-
-  if (Number.isNaN(createdAt.getTime())) {
-    throw new InvariantViolationError('Invalid cursor');
-  }
-
-  return { createdAt, id: idRaw };
-};
-
-const encodeCursor = (createdAt: Date, id: string): string =>
-  Buffer.from(
-    JSON.stringify({
-      created_at: createdAt.toISOString(),
-      id,
-    }),
-    'utf8',
-  ).toString('base64url');
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -136,6 +94,10 @@ const parseAccountSide = (side: string): AccountSide => {
 
   throw new RepositoryError('Unable to parse account side');
 };
+
+type AccountRow = typeof schema.accounts.$inferSelect;
+type TransactionRow = typeof schema.transactions.$inferSelect;
+type EntryRow = typeof schema.entries.$inferSelect;
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
@@ -552,30 +514,35 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
   public async listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountEntity>> {
     try {
       return await this.withTenantContext(query.tenantId, async (tx) => {
-        const cursor = parseCursor(query.cursor);
-        const cursorPredicate = cursor
-          ? or(
-              gt(schema.accounts.createdAt, cursor.createdAt),
-              and(
-                eq(schema.accounts.createdAt, cursor.createdAt),
-                gt(schema.accounts.id, cursor.id),
-              ),
-            )
-          : sql`true`;
-
-        const rows = await tx
-          .select()
-          .from(schema.accounts)
-          .where(and(eq(schema.accounts.tenantId, query.tenantId), cursorPredicate))
-          .orderBy(asc(schema.accounts.createdAt), asc(schema.accounts.id))
-          .limit(query.limit + 1);
-
-        const hasNext = rows.length > query.limit;
-        const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-        const last = pageRows.at(-1);
+        const page = await paginateByCursor<AccountRow>({
+          query,
+          order: [
+            {
+              column: schema.accounts.createdAt,
+              key: 'created_at',
+              type: 'date',
+              direction: 'asc',
+              getValue: (row: AccountRow) => row.createdAt,
+            },
+            {
+              column: schema.accounts.id,
+              key: 'id',
+              type: 'string',
+              direction: 'asc',
+              getValue: (row: AccountRow) => row.id,
+            },
+          ],
+          selectRows: async ({ cursorPredicate, limit, orderBy }) =>
+            tx
+              .select()
+              .from(schema.accounts)
+              .where(and(eq(schema.accounts.tenantId, query.tenantId), cursorPredicate))
+              .orderBy(...orderBy)
+              .limit(limit),
+        });
 
         return {
-          data: pageRows.map(
+          data: page.rows.map(
             (row) =>
               new AccountEntity({
                 id: row.id,
@@ -588,7 +555,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 createdAt: row.createdAt,
               }),
           ),
-          nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+          nextCursor: page.nextCursor,
         };
       });
     } catch (error) {
@@ -601,28 +568,33 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
   ): Promise<PaginatedResult<TransactionEntity>> {
     try {
       return await this.withTenantContext(query.tenantId, async (tx) => {
-        const cursor = parseCursor(query.cursor);
-        const cursorPredicate = cursor
-          ? or(
-              gt(schema.transactions.createdAt, cursor.createdAt),
-              and(
-                eq(schema.transactions.createdAt, cursor.createdAt),
-                gt(schema.transactions.id, cursor.id),
-              ),
-            )
-          : sql`true`;
-
-        const rows = await tx
-          .select()
-          .from(schema.transactions)
-          .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
-          .orderBy(asc(schema.transactions.createdAt), asc(schema.transactions.id))
-          .limit(query.limit + 1);
-
-        const hasNext = rows.length > query.limit;
-        const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-        const last = pageRows.at(-1);
-        const transactionIds = pageRows.map((row) => row.id);
+        const page = await paginateByCursor<TransactionRow>({
+          query,
+          order: [
+            {
+              column: schema.transactions.createdAt,
+              key: 'created_at',
+              type: 'date',
+              direction: 'asc',
+              getValue: (row: TransactionRow) => row.createdAt,
+            },
+            {
+              column: schema.transactions.id,
+              key: 'id',
+              type: 'string',
+              direction: 'asc',
+              getValue: (row: TransactionRow) => row.id,
+            },
+          ],
+          selectRows: async ({ cursorPredicate, limit, orderBy }) =>
+            tx
+              .select()
+              .from(schema.transactions)
+              .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
+              .orderBy(...orderBy)
+              .limit(limit),
+        });
+        const transactionIds = page.rows.map((row) => row.id);
 
         const entryRows =
           transactionIds.length === 0
@@ -656,7 +628,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         }
 
         return {
-          data: pageRows.map(
+          data: page.rows.map(
             (row) =>
               new TransactionEntity({
                 id: new LedgerTransactionId(row.id),
@@ -668,7 +640,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 entries: entriesByTransactionId.get(row.id) ?? [],
               }),
           ),
-          nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+          nextCursor: page.nextCursor,
         };
       });
     } catch (error) {
@@ -679,27 +651,35 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
   public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
     try {
       return await this.withTenantContext(query.tenantId, async (tx) => {
-        const cursor = parseCursor(query.cursor);
-        const cursorPredicate = cursor
-          ? or(
-              gt(schema.entries.createdAt, cursor.createdAt),
-              and(eq(schema.entries.createdAt, cursor.createdAt), gt(schema.entries.id, cursor.id)),
-            )
-          : sql`true`;
-
-        const rows = await tx
-          .select()
-          .from(schema.entries)
-          .where(and(eq(schema.entries.tenantId, query.tenantId), cursorPredicate))
-          .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id))
-          .limit(query.limit + 1);
-
-        const hasNext = rows.length > query.limit;
-        const pageRows = hasNext ? rows.slice(0, query.limit) : rows;
-        const last = pageRows.at(-1);
+        const page = await paginateByCursor<EntryRow>({
+          query,
+          order: [
+            {
+              column: schema.entries.createdAt,
+              key: 'created_at',
+              type: 'date',
+              direction: 'asc',
+              getValue: (row: EntryRow) => row.createdAt,
+            },
+            {
+              column: schema.entries.id,
+              key: 'id',
+              type: 'string',
+              direction: 'asc',
+              getValue: (row: EntryRow) => row.id,
+            },
+          ],
+          selectRows: async ({ cursorPredicate, limit, orderBy }) =>
+            tx
+              .select()
+              .from(schema.entries)
+              .where(and(eq(schema.entries.tenantId, query.tenantId), cursorPredicate))
+              .orderBy(...orderBy)
+              .limit(limit),
+        });
 
         return {
-          data: pageRows.map(
+          data: page.rows.map(
             (row) =>
               new EntryEntity({
                 id: row.id,
@@ -710,7 +690,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 createdAt: row.createdAt,
               }),
           ),
-          nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
+          nextCursor: page.nextCursor,
         };
       });
     } catch (error) {
@@ -751,8 +731,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           const side = parseAccountSide(row.side);
           const isDebit = row.balanceMinor < 0n;
           const isContra =
-            row.balanceMinor !== 0n &&
-            (side === AccountSide.DEBIT ? !isDebit : isDebit);
+            row.balanceMinor !== 0n && (side === AccountSide.DEBIT ? !isDebit : isDebit);
 
           if (isDebit) {
             totalDebitsMinor += -row.balanceMinor;

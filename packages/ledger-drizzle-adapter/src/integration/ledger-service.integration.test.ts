@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { AccountSide, type EntryDirection } from '@lux/ledger';
+import { InvariantViolationError, LedgerService, RepositoryError } from '@lux/ledger/application';
 import {
   createDbClient,
   DrizzleLedgerRepository,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
 import { accounts, transactions } from '@lux/ledger-drizzle-adapter/schema';
-import { InvariantViolationError, RepositoryError } from '@services/errors';
-import { LedgerService } from '@services/ledger-service';
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 

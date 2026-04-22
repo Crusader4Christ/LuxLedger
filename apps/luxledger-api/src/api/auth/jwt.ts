@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ApiKeyRole } from '@lux/ledger';
-import { UnauthorizedError } from '@services/errors';
-import type { AuthContext } from '@services/types';
+import type { AuthContext } from '@lux/ledger/application';
+import { UnauthorizedError } from '@lux/ledger/application';
 
 const JWT_HEADER = {
   alg: 'HS256',
@@ -47,8 +47,7 @@ const hasValidSignature = (
   const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
 
   return (
-    actualBuffer.length === expectedBuffer.length &&
-    timingSafeEqual(actualBuffer, expectedBuffer)
+    actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer)
   );
 };
 

@@ -1,7 +1,7 @@
 import { BasePaginatedListRoute, type PaginatedRequest } from '@api/routes/pagination';
 import type { AccountListItemDto } from '@api/routes/types/list-item-dto';
 import type { AccountEntity } from '@lux/ledger';
-import type { LedgerService } from '@services/ledger-service';
+import type { LedgerService } from '@lux/ledger/application';
 
 export class AccountsListRoute extends BasePaginatedListRoute<AccountEntity, AccountListItemDto> {
   protected readonly path = '/v1/accounts';

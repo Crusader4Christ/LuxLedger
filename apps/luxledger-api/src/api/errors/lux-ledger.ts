@@ -4,4 +4,4 @@ export {
   LedgerNotFoundError,
   RepositoryError,
   UnauthorizedError,
-} from '@services/errors';
+} from '@lux/ledger/application';

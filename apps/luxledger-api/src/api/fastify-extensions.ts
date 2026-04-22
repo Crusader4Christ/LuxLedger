@@ -1,5 +1,5 @@
 import 'fastify';
-import type { ApiKeyRole } from '@services/types';
+import type { ApiKeyRole } from '@lux/ledger/application';
 
 declare module 'fastify' {
   interface FastifyRequest {

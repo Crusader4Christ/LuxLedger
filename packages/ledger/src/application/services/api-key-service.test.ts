@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { ApiKeyEntity, ApiKeyRole } from '@lux/ledger';
-import { ApiKeyService } from '@services/api-key-service';
-import { ForbiddenError, InvariantViolationError, UnauthorizedError } from '@services/errors';
-import type { ApiKeyRepository } from '@services/types';
+import type { ApiKeyRepository } from '@lux/ledger/application';
+import {
+  ApiKeyService,
+  ForbiddenError,
+  InvariantViolationError,
+  UnauthorizedError,
+} from '@lux/ledger/application';
 
 const hash = (value: string): string => new Bun.CryptoHasher('sha256').update(value).digest('hex');
 
