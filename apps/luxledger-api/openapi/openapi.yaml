@@ -30,6 +30,17 @@ paths:
             text/html:
               schema:
                 type: string
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
   /health:
     get:
       summary: Health check

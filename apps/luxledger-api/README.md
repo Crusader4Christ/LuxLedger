@@ -39,7 +39,12 @@ Reference REST API built on top of `@lux/ledger`.
 - Clock skew policy: a token is accepted only when `iat <= now + JWT_CLOCK_SKEW_SECONDS` and `exp > now - JWT_CLOCK_SKEW_SECONDS`.
 - Revocation model: every bearer-authenticated request revalidates the underlying API key. A revoked key cannot mint new tokens, and any previously issued token is rejected immediately after revocation.
 - Rate-limiting behavior: when a configured limit is exceeded, API returns `429` with `{ "error": "RATE_LIMIT_EXCEEDED", "message": "Rate limit exceeded", "retry_after_seconds": <int> }`, sets `retry-after`, and logs a structured warning.
+- Observability:
+  - `GET /metrics` exposes Prometheus metrics.
+  - Request logs include `requestId`, `tenantId`, `apiKeyId`, and `route`.
+  - Fastify auto request logging is disabled to reduce accidental secret/header logging.
 - Runbook: `docs/runbooks/jwt-key-rotation.md`.
+- Observability runbook: `docs/runbooks/observability-mvp.md`.
 
 ## OpenAPI
 
