@@ -1,8 +1,6 @@
 import { BasePaginatedListRoute, type PaginatedRequest } from '@api/routes/pagination';
 import type { TransactionListItemDto } from '@api/routes/types/list-item-dto';
-import type { TransactionEntity } from '@lux/ledger';
-import { InvariantViolationError } from '@services/errors';
-import type { LedgerService } from '@services/ledger-service';
+import { InvariantViolationError, type LedgerService, type TransactionEntity } from '@lux/ledger';
 
 export class TransactionsListRoute extends BasePaginatedListRoute<
   TransactionEntity,

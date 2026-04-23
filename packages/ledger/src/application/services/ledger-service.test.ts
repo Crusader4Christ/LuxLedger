@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { AccountEntity, EntryEntity, TransactionEntity } from '@lux/ledger';
-import { InvariantViolationError, LedgerNotFoundError } from '@services/errors';
-import { LedgerService } from '@services/ledger-service';
 import type {
   CreateLedgerInput,
   CreateTransactionInput,
@@ -13,8 +11,13 @@ import type {
   PaginationQuery,
   TrialBalance,
   TrialBalanceQuery,
-} from '@services/types';
-import { EntryDirection } from '@services/types';
+} from '@lux/ledger/application';
+import {
+  EntryDirection,
+  InvariantViolationError,
+  LedgerNotFoundError,
+  LedgerService,
+} from '@lux/ledger/application';
 
 class InMemoryLedgerRepository implements LedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();

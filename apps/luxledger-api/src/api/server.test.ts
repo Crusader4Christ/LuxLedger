@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-
-import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
 import type { JwtAuthConfig } from '@api/auth/jwt';
+import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import type { AccountEntity, ApiKeyEntity } from '@lux/ledger';
@@ -15,9 +14,6 @@ import {
   TransactionEntity,
   TransactionId,
 } from '@lux/ledger';
-import { ApiKeyService } from '@services/api-key-service';
-import { InvariantViolationError, LedgerNotFoundError, RepositoryError } from '@services/errors';
-import { LedgerService } from '@services/ledger-service';
 import type {
   ApiKeyRepository,
   CreateLedgerInput,
@@ -29,8 +25,15 @@ import type {
   PaginationQuery,
   TrialBalance,
   TrialBalanceQuery,
-} from '@services/types';
-import { EntryDirection } from '@services/types';
+} from '@lux/ledger/application';
+import {
+  ApiKeyService,
+  EntryDirection,
+  InvariantViolationError,
+  LedgerNotFoundError,
+  LedgerService,
+  RepositoryError,
+} from '@lux/ledger/application';
 
 class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
@@ -679,7 +682,9 @@ describe('server', () => {
 
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(429);
-    expect(parsePayload<{ error: string; message: string; retry_after_seconds: number }>(second.body)).toEqual({
+    expect(
+      parsePayload<{ error: string; message: string; retry_after_seconds: number }>(second.body),
+    ).toEqual({
       error: 'RATE_LIMIT_EXCEEDED',
       message: 'Rate limit exceeded',
       retry_after_seconds: 120,
@@ -863,7 +868,9 @@ describe('server', () => {
 
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(429);
-    expect(parsePayload<{ error: string; message: string; retry_after_seconds: number }>(second.body)).toEqual({
+    expect(
+      parsePayload<{ error: string; message: string; retry_after_seconds: number }>(second.body),
+    ).toEqual({
       error: 'RATE_LIMIT_EXCEEDED',
       message: 'Rate limit exceeded',
       retry_after_seconds: 90,

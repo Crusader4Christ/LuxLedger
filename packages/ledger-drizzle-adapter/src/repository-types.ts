@@ -3,7 +3,7 @@ export interface DatabaseErrorLike {
   cause?: unknown;
 }
 
-export interface CursorValue {
-  createdAt: Date;
-  id: string;
+export interface CursorPage<Row> {
+  rows: Row[];
+  nextCursor: string | null;
 }

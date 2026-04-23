@@ -1,13 +1,12 @@
 import { parseJwtAuthConfig } from '@api/auth/policy';
 import { parseRateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
+import { ApiKeyService, LedgerService } from '@lux/ledger/application';
 import {
   createDbClient,
   DrizzleLedgerRepository,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
-import { ApiKeyService } from '@services/api-key-service';
-import { LedgerService } from '@services/ledger-service';
 
 const parsePort = (value: string | undefined): number => {
   if (value === undefined) {

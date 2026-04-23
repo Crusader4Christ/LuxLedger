@@ -1,7 +1,7 @@
 import { sendDomainError } from '@api/errors';
 import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
-import type { LedgerService } from '@services/ledger-service';
-import { EntryDirection } from '@services/types';
+import type { LedgerService } from '@lux/ledger/application';
+import { EntryDirection } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
 interface CreateLedgerBody {

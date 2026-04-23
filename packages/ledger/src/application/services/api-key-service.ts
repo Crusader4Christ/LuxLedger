@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { ApiKeyRole, type ApiKeyEntity } from '@lux/ledger';
-import { assertNonEmpty } from '@lux/ledger/utils';
-import { ForbiddenError, InvariantViolationError, UnauthorizedError } from '@services/errors';
+import type { ApiKeyEntity } from '../../api-key/entity';
+import { ApiKeyRole } from '../../api-key/entity';
+import { assertNonEmpty } from '../../utils';
+import { ForbiddenError, InvariantViolationError, UnauthorizedError } from '../errors';
 import type {
   ApiKeyRepository,
   AuthContext,
@@ -9,7 +10,7 @@ import type {
   BootstrapAdminResult,
   CreateApiKeyInput,
   CreateApiKeyResult,
-} from '@services/types';
+} from '../types';
 
 const API_KEY_PREFIX = 'llk_';
 const API_KEY_BYTES = 32;

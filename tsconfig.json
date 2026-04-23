@@ -15,7 +15,6 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@services/*": ["apps/luxledger-api/src/services/*"],
       "@api/*": ["apps/luxledger-api/src/api/*"],
       "@lux/ledger": ["packages/ledger/src/index.ts"],
       "@lux/ledger/*": ["packages/ledger/src/*"],

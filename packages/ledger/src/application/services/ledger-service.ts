@@ -1,6 +1,8 @@
-import type { AccountEntity, EntryEntity, TransactionEntity } from '@lux/ledger';
-import { assertNonEmpty } from '@lux/ledger/utils';
-import { InvariantViolationError, LedgerNotFoundError } from '@services/errors';
+import type { AccountEntity } from '../../account/entity';
+import type { EntryEntity } from '../../entry/entity';
+import type { TransactionEntity } from '../../transaction/entity';
+import { assertNonEmpty } from '../../utils';
+import { InvariantViolationError, LedgerNotFoundError } from '../errors';
 import type {
   CreateLedgerInput,
   CreateTransactionInput,
@@ -11,7 +13,7 @@ import type {
   PaginationQuery,
   TrialBalance,
   TrialBalanceQuery,
-} from '@services/types';
+} from '../types';
 
 export class LedgerService {
   private readonly repository: LedgerRepository;

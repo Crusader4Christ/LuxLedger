@@ -1,7 +1,6 @@
 import type { JwtAuthConfig } from '@api/auth/jwt';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
-import type { ApiKeyService } from '@services/api-key-service';
-import type { LedgerService } from '@services/ledger-service';
+import type { ApiKeyService, LedgerService } from '@lux/ledger/application';
 import type { FastifyBaseLogger } from 'fastify';
 
 export interface ApplicationDependencies {
