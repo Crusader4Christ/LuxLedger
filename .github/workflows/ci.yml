@@ -7,6 +7,22 @@ on:
       - main
 
 jobs:
+  branch-name:
+    name: Branch Naming
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate branch name format
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
+        run: |
+          if [[ ! "$BRANCH_NAME" =~ ^(codex/)?LL-[0-9]+-[a-z0-9-]+$ ]]; then
+            echo "Invalid branch name: $BRANCH_NAME"
+            echo "Expected format: LL-<number>-short-description or codex/LL-<number>-short-description"
+            exit 1
+          fi
+
   unit:
     name: Unit and Typecheck
     runs-on: ubuntu-latest

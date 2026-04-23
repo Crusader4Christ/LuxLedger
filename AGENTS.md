@@ -51,7 +51,7 @@ bun run dev
 - `NODE_ENV` — `development` | `production` | `test`
 
 ## Git Workflow
-- Branch name: `<ISSUE_ID>-short-description`
+- Branch name: `LL-<number>-short-description` (or `codex/LL-<number>-short-description`)
 - PR title: `<ISSUE_ID> Short description`
 - PR must include:
   - What
