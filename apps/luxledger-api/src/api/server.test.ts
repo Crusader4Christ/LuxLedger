@@ -34,6 +34,7 @@ import {
   LedgerService,
   RepositoryError,
 } from '@lux/ledger/application';
+import type { FastifyServerOptions } from 'fastify';
 
 class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
@@ -361,6 +362,7 @@ const createServer = (
   readRepository: ReadRepositoryPort = new InMemoryLedgerReadRepository(),
   jwtAuth: JwtAuthConfig = createJwtAuthConfig(),
   rateLimit: RateLimitConfig = createRateLimitConfig(),
+  logger: FastifyServerOptions['logger'] = false,
 ) => {
   const writeRepository = new InMemoryLedgerRepository();
   const repository: LedgerRepository = {
@@ -379,7 +381,7 @@ const createServer = (
 
   const server = createServerCore({
     readinessCheck,
-    logger: false,
+    logger,
   });
 
   registerApplication(server, {
@@ -459,6 +461,30 @@ const authHeaders = async (
   authorization: `Bearer ${await issueToken(server, apiKey)}`,
 });
 
+const parseMetricValue = (
+  body: string,
+  metricName: string,
+  labels: Record<string, string>,
+): string => {
+  const labelsText = Object.entries(labels)
+    .map(([name, value]) => `${name}="${value}"`)
+    .join(',');
+  const expression = new RegExp(`^${metricName}\\{${labelsText}\\} (.+)$`, 'm');
+  const match = body.match(expression);
+
+  if (!match) {
+    throw new Error(`Metric ${metricName}{${labelsText}} not found`);
+  }
+
+  return match[1];
+};
+
+const parseJsonLogs = (lines: string[]): Record<string, unknown>[] =>
+  lines
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
 describe('server', () => {
   it('returns health response', async () => {
     const server = createServer();
@@ -535,6 +561,115 @@ describe('server', () => {
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.body).toContain('SwaggerUIBundle');
     expect(response.body).toContain("url: '/openapi.yaml'");
+
+    await server.close();
+  });
+
+  it('GET /metrics exposes request, latency, auth and token issuance failure metrics', async () => {
+    const server = createServer();
+
+    const healthResponse = await server.inject({
+      method: 'GET',
+      url: '/health',
+    });
+    expect(healthResponse.statusCode).toBe(200);
+
+    const tokenFailure = await server.inject({
+      method: 'POST',
+      url: '/v1/auth/token',
+    });
+    expect(tokenFailure.statusCode).toBe(401);
+
+    const authFailure = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+    });
+    expect(authFailure.statusCode).toBe(401);
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/metrics',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/plain');
+    expect(
+      parseMetricValue(response.body, 'luxledger_http_requests_total', {
+        route: '/health',
+        status: '200',
+      }),
+    ).toBe('1');
+    expect(
+      parseMetricValue(response.body, 'luxledger_http_request_duration_seconds_count', {
+        route: '/health',
+        status: '200',
+      }),
+    ).toBe('1');
+    expect(
+      parseMetricValue(response.body, 'luxledger_auth_failures_total', {
+        route: '/v1/auth/token',
+        status: '401',
+      }),
+    ).toBe('1');
+    expect(
+      parseMetricValue(response.body, 'luxledger_auth_failures_total', {
+        route: '/v1/ledgers',
+        status: '401',
+      }),
+    ).toBe('1');
+    expect(
+      parseMetricValue(response.body, 'luxledger_token_issuance_failures_total', {
+        status: '401',
+      }),
+    ).toBe('1');
+
+    await server.close();
+  });
+
+  it('request logs include required context fields and do not leak API keys or bearer tokens', async () => {
+    const logLines: string[] = [];
+    const server = createServer(
+      async () => {},
+      new InMemoryLedgerReadRepository(),
+      createJwtAuthConfig(),
+      createRateLimitConfig(),
+      {
+        level: 'info',
+        stream: {
+          write: (chunk: string) => {
+            logLines.push(chunk);
+          },
+        },
+      },
+    );
+
+    const issuedToken = await issueToken(server, VALID_ADMIN_API_KEY);
+    const ledgersResponse = await server.inject({
+      method: 'GET',
+      url: '/v1/ledgers',
+      headers: {
+        authorization: `Bearer ${issuedToken}`,
+      },
+    });
+    expect(ledgersResponse.statusCode).toBe(200);
+
+    const parsedLogs = parseJsonLogs(logLines);
+    const completedLog = parsedLogs.find(
+      (entry) =>
+        entry.msg === 'Request completed' &&
+        entry.route === '/v1/ledgers' &&
+        entry.statusCode === 200,
+    );
+
+    expect(completedLog).toBeDefined();
+    expect(completedLog?.requestId).toBeString();
+    expect(completedLog?.tenantId).toBe(VALID_TENANT_ID);
+    expect(completedLog?.apiKeyId).toBeString();
+    expect(completedLog?.route).toBe('/v1/ledgers');
+
+    const fullLogText = logLines.join('\n');
+    expect(fullLogText.includes(VALID_ADMIN_API_KEY)).toBeFalse();
+    expect(fullLogText.includes(issuedToken)).toBeFalse();
 
     await server.close();
   });

@@ -43,4 +43,5 @@ financial core infrastructure
 - JWT signing uses one active key plus optional previous verification keys during rotation. See `apps/luxledger-api/README.md` for env details.
 - Auth and state-changing (`POST /v1/*`) endpoints have configurable fixed-window rate limits with deterministic `429 RATE_LIMIT_EXCEEDED` responses.
 - JWT rotation and rollback steps live in `docs/runbooks/jwt-key-rotation.md`.
+- Observability baseline (metrics, structured logs, alerts) lives in `docs/runbooks/observability-mvp.md`.
 - See API contract: `apps/luxledger-api/openapi/openapi.yaml`.

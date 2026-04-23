@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { issueAccessToken, verifyAccessToken } from '@api/auth/jwt';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
+import { ApiMetrics } from '@api/observability/metrics';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
 import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
 import { AccountsListRoute } from '@api/routes/accounts';
@@ -66,6 +67,36 @@ const routePath = (url: string): string => {
   return url.slice(0, querySeparatorIndex);
 };
 
+const resolveRouteLabel = (request: {
+  apiPath?: string;
+  routeOptions?: { url?: string };
+  url: string;
+}): string => {
+  const routeTemplate = request.routeOptions?.url;
+  if (typeof routeTemplate === 'string' && routeTemplate.length > 0) {
+    return routeTemplate;
+  }
+
+  return request.apiPath ?? routePath(request.url);
+};
+
+interface RequestLogContext {
+  requestId: string;
+  tenantId: string | null;
+  apiKeyId: string | null;
+  route: string;
+}
+
+const buildRequestLogContext = (
+  request: { id: string; tenantId?: string; apiKeyId?: string },
+  route: string,
+): RequestLogContext => ({
+  requestId: request.id,
+  tenantId: request.tenantId ?? null,
+  apiKeyId: request.apiKeyId ?? null,
+  route,
+});
+
 const resolveRateLimitTarget = (
   method: string,
   path: string,
@@ -92,6 +123,7 @@ const resolveRateLimitTarget = (
 export const createServerCore = (options: CreateServerCoreOptions): FastifyInstance => {
   const server = Fastify({
     logger: options.logger,
+    disableRequestLogging: true,
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
     genReqId: (request) => {
@@ -110,6 +142,7 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
   });
 
   server.addHook('onRequest', async (request, reply) => {
+    request.requestStartedAt = process.hrtime.bigint();
     reply.header('x-request-id', request.id);
   });
 
@@ -122,7 +155,13 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
       await options.readinessCheck();
       return reply.status(200).send({ ok: true });
     } catch (error) {
-      request.log.error({ err: error }, 'Readiness check failed');
+      request.log.error(
+        {
+          ...buildRequestLogContext(request, '/ready'),
+          err: error,
+        },
+        'Readiness check failed',
+      );
       return reply.status(503).send({
         error: 'NOT_READY',
         message: 'Service not ready',
@@ -168,7 +207,13 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
       typeof (error as { code: unknown }).code === 'string';
 
     if (!hasCode) {
-      request.log.error({ err: error }, 'Unhandled route error');
+      request.log.error(
+        {
+          ...buildRequestLogContext(request, resolveRouteLabel(request)),
+          err: error,
+        },
+        'Unhandled route error',
+      );
     }
 
     return sendDomainError(reply, error);
@@ -182,11 +227,20 @@ export const registerApplication = (
   dependencies: ApplicationDependencies,
 ): void => {
   const rateLimiter = new FixedWindowLimiter();
+  const metrics = new ApiMetrics();
 
   server.decorateRequest('tenantId');
   server.decorateRequest('apiKeyId');
   server.decorateRequest('apiKeyRole');
   server.decorateRequest('apiPath');
+  server.decorateRequest('requestStartedAt');
+
+  server.get('/metrics', async (_request, reply) =>
+    reply
+      .header('content-type', 'text/plain; version=0.0.4; charset=utf-8')
+      .status(200)
+      .send(metrics.renderPrometheus()),
+  );
 
   server.addHook('onRequest', async (request) => {
     const path = routePath(request.url);
@@ -209,6 +263,7 @@ export const registerApplication = (
 
     request.log.warn(
       {
+        ...buildRequestLogContext(request, path),
         endpoint: path,
         limit: target.policy.maxRequests,
         method: request.method,
@@ -262,9 +317,9 @@ export const registerApplication = (
     if (previousSigningKeyIndex !== null) {
       request.log.warn(
         {
+          ...buildRequestLogContext(request, path),
           apiKeyId: auth.apiKeyId,
           previousSigningKeyIndex,
-          route: request.url,
           tenantId: auth.tenantId,
         },
         'JWT verified with previous signing key',
@@ -279,6 +334,36 @@ export const registerApplication = (
     if (path.startsWith('/v1/admin/') && auth.role !== ApiKeyRole.ADMIN) {
       throw new ForbiddenError('Admin API key is required');
     }
+  });
+
+  server.addHook('onResponse', async (request, reply) => {
+    const route = resolveRouteLabel(request);
+    const statusCode = reply.statusCode;
+
+    const requestStartedAt = request.requestStartedAt ?? process.hrtime.bigint();
+    const elapsedNanoseconds = process.hrtime.bigint() - requestStartedAt;
+    const durationSeconds = Number(elapsedNanoseconds) / 1_000_000_000;
+    const durationMs = durationSeconds * 1000;
+
+    metrics.observeRequest(route, statusCode, durationSeconds);
+
+    if (statusCode >= 400 && route === TOKEN_ENDPOINT) {
+      metrics.incrementTokenIssuanceFailure(statusCode);
+    }
+
+    if ((statusCode === 401 || statusCode === 403) && route.startsWith(V1_ROUTE_PREFIX)) {
+      metrics.incrementAuthFailure(route, statusCode);
+    }
+
+    request.log.info(
+      {
+        ...buildRequestLogContext(request, route),
+        method: request.method,
+        statusCode,
+        durationMs,
+      },
+      'Request completed',
+    );
   });
 
   server.post(TOKEN_ENDPOINT, async (request, reply) => {
