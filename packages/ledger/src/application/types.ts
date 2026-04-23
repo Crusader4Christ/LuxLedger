@@ -1,4 +1,5 @@
 import type { AccountEntity, AccountSide } from '../account/entity';
+import type { CreateAccountInput as PersistAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput as PersistApiKeyInput } from '../api-key/input.interface';
 import type { EntryDirection, EntryEntity } from '../entry/entity';
@@ -28,6 +29,12 @@ export interface PaginationQuery {
   limit: number;
   cursor?: string;
 }
+
+export interface AccountPaginationQuery extends PaginationQuery {
+  ledgerId?: string;
+}
+
+export type CreateAccountInput = PersistAccountInput;
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -81,8 +88,10 @@ export interface BootstrapAdminResult {
 }
 
 export interface LedgerRepository extends BaseLedgerRepository {
+  createAccount(input: CreateAccountInput): Promise<AccountEntity>;
+  findAccountByIdForTenant(tenantId: string, accountId: string): Promise<AccountEntity | null>;
   createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult>;
-  listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountEntity>>;
+  listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
   listTransactions(query: PaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
   getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import type { AccountEntity, EntryEntity, TransactionEntity } from '../../../index';
+import { AccountSide, type AccountEntity, type EntryEntity, type TransactionEntity } from '../../../index';
 import { EntryDirection } from '../../index';
 import type {
+  AccountPaginationQuery,
+  CreateAccountInput,
   CreateLedgerInput,
   CreateTransactionInput,
   CreateTransactionResult,
@@ -16,6 +18,7 @@ import { LedgerService } from '../ledger-service';
 
 class InMemoryLedgerRepository implements LedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
+  private readonly accounts = new Map<string, AccountEntity>();
   private readonly transactions: CreateTransactionInput[] = [];
 
   public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
@@ -50,7 +53,38 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async listAccounts(_query: PaginationQuery): Promise<PaginatedResult<AccountEntity>> {
+  public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {
+    const ledger = this.ledgers.get(input.ledgerId);
+    if (!ledger || ledger.tenantId !== input.tenantId) {
+      throw new Error(`Ledger not found: ${input.ledgerId}`);
+    }
+
+    const id = `account-${this.accounts.size + 1}`;
+    const account: AccountEntity = {
+      id,
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      name: input.name,
+      side: input.side,
+      currency: input.currency,
+      balanceMinor: 0n,
+      createdAt: new Date(),
+    };
+    this.accounts.set(id, account);
+    return account;
+  }
+
+  public async findAccountByIdForTenant(
+    tenantId: string,
+    accountId: string,
+  ): Promise<AccountEntity | null> {
+    const account = this.accounts.get(accountId);
+    return account && account.tenantId === tenantId ? account : null;
+  }
+
+  public async listAccounts(
+    _query: AccountPaginationQuery,
+  ): Promise<PaginatedResult<AccountEntity>> {
     return { data: [], nextCursor: null };
   }
 
@@ -115,5 +149,26 @@ describe('LedgerService integration (service + in-memory repository)', () => {
 
     expect(txResult.created).toBeTrue();
     expect(txResult.transactionId).toBe('tx-1');
+  });
+
+  it('creates and reads account in same tenant scope', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const ledger = await service.createLedger({
+      tenantId: 'tenant-a',
+      name: 'Main A',
+    });
+
+    const created = await service.createAccount({
+      tenantId: 'tenant-a',
+      ledgerId: ledger.id,
+      name: 'Cash',
+      side: AccountSide.DEBIT,
+      currency: 'USD',
+    });
+    const found = await service.getAccountById('tenant-a', created.id);
+
+    expect(found.id).toBe(created.id);
+    expect(found.ledgerId).toBe(ledger.id);
   });
 });

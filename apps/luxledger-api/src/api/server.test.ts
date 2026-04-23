@@ -7,6 +7,7 @@ import { createServerCore, registerApplication } from '@api/server';
 import type { AccountEntity, ApiKeyEntity } from '@lux/ledger';
 import {
   AccountId,
+  AccountSide,
   ApiKeyRole,
   EntryEntity,
   LedgerId,
@@ -15,7 +16,9 @@ import {
   TransactionId,
 } from '@lux/ledger';
 import type {
+  AccountPaginationQuery,
   ApiKeyRepository,
+  CreateAccountInput,
   CreateLedgerInput,
   CreateTransactionInput,
   CreateTransactionResult,
@@ -38,6 +41,7 @@ import type { FastifyServerOptions } from 'fastify';
 
 class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
+  private readonly accounts = new Map<string, AccountEntity>();
   private readonly transactionsByReference = new Map<string, string>();
 
   public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
@@ -95,10 +99,76 @@ class InMemoryLedgerRepository {
       created: true,
     };
   }
+
+  public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {
+    const ledger = this.ledgers.get(input.ledgerId);
+    if (!ledger || ledger.tenantId !== input.tenantId) {
+      throw new LedgerNotFoundError(input.ledgerId);
+    }
+
+    const id = `00000000-0000-4000-8000-${String(this.accounts.size + 101).padStart(12, '0')}`;
+    const account: AccountEntity = {
+      id,
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      name: input.name,
+      side: input.side,
+      currency: input.currency,
+      balanceMinor: 0n,
+      createdAt: new Date(),
+    };
+
+    this.accounts.set(id, account);
+    return account;
+  }
 }
 
 class InMemoryLedgerReadRepository {
-  public async listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountEntity>> {
+  public async findAccountByIdForTenant(
+    tenantId: string,
+    accountId: string,
+  ): Promise<AccountEntity | null> {
+    if (tenantId !== VALID_TENANT_ID) {
+      return null;
+    }
+
+    const accounts: AccountEntity[] = [
+      {
+        id: '00000000-0000-4000-8000-000000000101',
+        tenantId: VALID_TENANT_ID,
+        ledgerId: '00000000-0000-4000-8000-000000000001',
+        name: 'Cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+        balanceMinor: 100n,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000102',
+        tenantId: VALID_TENANT_ID,
+        ledgerId: '00000000-0000-4000-8000-000000000001',
+        name: 'Revenue',
+        side: EntryDirection.CREDIT,
+        currency: 'USD',
+        balanceMinor: 200n,
+        createdAt: new Date('2026-01-01T00:00:01.000Z'),
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000103',
+        tenantId: VALID_TENANT_ID,
+        ledgerId: '00000000-0000-4000-8000-000000000002',
+        name: 'Bank',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+        balanceMinor: 300n,
+        createdAt: new Date('2026-01-01T00:00:02.000Z'),
+      },
+    ];
+
+    return accounts.find((account) => account.id === accountId) ?? null;
+  }
+
+  public async listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>> {
     const account1: AccountEntity = {
       id: '00000000-0000-4000-8000-000000000101',
       tenantId: VALID_TENANT_ID,
@@ -119,8 +189,34 @@ class InMemoryLedgerReadRepository {
       balanceMinor: 200n,
       createdAt: new Date('2026-01-01T00:00:01.000Z'),
     };
+    const account3: AccountEntity = {
+      id: '00000000-0000-4000-8000-000000000103',
+      tenantId: VALID_TENANT_ID,
+      ledgerId: '00000000-0000-4000-8000-000000000002',
+      name: 'Bank',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+      balanceMinor: 300n,
+      createdAt: new Date('2026-01-01T00:00:02.000Z'),
+    };
 
     if (query.tenantId !== VALID_TENANT_ID) {
+      return { data: [], nextCursor: null };
+    }
+
+    if (query.ledgerId === '00000000-0000-4000-8000-000000000001') {
+      if (query.cursor === 'next-accounts') {
+        return { data: [account2], nextCursor: null };
+      }
+
+      return { data: [account1], nextCursor: 'next-accounts' };
+    }
+
+    if (query.ledgerId === '00000000-0000-4000-8000-000000000002') {
+      return { data: [account3], nextCursor: null };
+    }
+
+    if (query.ledgerId !== undefined) {
       return { data: [], nextCursor: null };
     }
 
@@ -351,7 +447,8 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
 }
 
 interface ReadRepositoryPort {
-  listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountEntity>>;
+  findAccountByIdForTenant(tenantId: string, accountId: string): Promise<AccountEntity | null>;
+  listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
   listTransactions(query: PaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
   getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
@@ -369,6 +466,8 @@ const createServer = (
     createLedger: writeRepository.createLedger.bind(writeRepository),
     findLedgerByIdForTenant: writeRepository.findLedgerByIdForTenant.bind(writeRepository),
     findLedgersByTenant: writeRepository.findLedgersByTenant.bind(writeRepository),
+    createAccount: writeRepository.createAccount.bind(writeRepository),
+    findAccountByIdForTenant: readRepository.findAccountByIdForTenant.bind(readRepository),
     createTransaction: writeRepository.createTransaction.bind(writeRepository),
     listAccounts: readRepository.listAccounts.bind(readRepository),
     listTransactions: readRepository.listTransactions.bind(readRepository),
@@ -1294,6 +1393,209 @@ describe('server', () => {
     await server.close();
   });
 
+  it('GET /v1/accounts supports tenant-scoped ledger filter', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/accounts?ledger_id=00000000-0000-4000-8000-000000000002',
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      data: Array<{ id: string; ledger_id: string }>;
+      next_cursor: string | null;
+    }>(response.body);
+    expect(payload.data.length).toBe(1);
+    expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000103');
+    expect(payload.data[0]?.ledger_id).toBe('00000000-0000-4000-8000-000000000002');
+    expect(payload.next_cursor).toBeNull();
+
+    await server.close();
+  });
+
+  it('POST /v1/accounts creates account', async () => {
+    const server = createServer();
+
+    const createLedgerResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Main',
+      },
+    });
+    expect(createLedgerResponse.statusCode).toBe(201);
+    const createdLedger = parsePayload<Ledger>(createLedgerResponse.body);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/accounts',
+      headers: await authHeaders(server),
+      payload: {
+        ledger_id: createdLedger.id,
+        name: 'Cash',
+        side: AccountSide.DEBIT,
+        currency: 'USD',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const payload = parsePayload<{
+      id: string;
+      tenant_id: string;
+      ledger_id: string;
+      name: string;
+      side: AccountSide;
+      currency: string;
+      balance_minor: string;
+      created_at: string;
+    }>(response.body);
+    expect(payload.id).toBeString();
+    expect(payload.tenant_id).toBe(VALID_TENANT_ID);
+    expect(payload.ledger_id).toBe(createdLedger.id);
+    expect(payload.name).toBe('Cash');
+    expect(payload.side).toBe(AccountSide.DEBIT);
+    expect(payload.currency).toBe('USD');
+    expect(payload.balance_minor).toBe('0');
+
+    await server.close();
+  });
+
+  it('POST /v1/accounts returns 404 when ledger is missing for tenant', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/accounts',
+      headers: await authHeaders(server),
+      payload: {
+        ledger_id: UNKNOWN_LEDGER_ID,
+        name: 'Cash',
+        side: AccountSide.DEBIT,
+        currency: 'USD',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('LEDGER_NOT_FOUND');
+
+    await server.close();
+  });
+
+  it('POST /v1/accounts validates required fields', async () => {
+    const server = createServer();
+
+    const createLedgerResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Main',
+      },
+    });
+    expect(createLedgerResponse.statusCode).toBe(201);
+    const createdLedger = parsePayload<Ledger>(createLedgerResponse.body);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/accounts',
+      headers: await authHeaders(server),
+      payload: {
+        ledger_id: createdLedger.id,
+        name: ' ',
+        side: AccountSide.DEBIT,
+        currency: '',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
+
+    await server.close();
+  });
+
+  it('POST /v1/accounts validates side through package service', async () => {
+    const server = createServer();
+
+    const createLedgerResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Main',
+      },
+    });
+    expect(createLedgerResponse.statusCode).toBe(201);
+    const createdLedger = parsePayload<Ledger>(createLedgerResponse.body);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/accounts',
+      headers: await authHeaders(server),
+      payload: {
+        ledger_id: createdLedger.id,
+        name: 'Cash',
+        side: 'INVALID',
+        currency: 'USD',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVARIANT_VIOLATION');
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id returns account when found', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/accounts/00000000-0000-4000-8000-000000000101',
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      id: string;
+      tenant_id: string;
+      ledger_id: string;
+    }>(response.body);
+    expect(payload.id).toBe('00000000-0000-4000-8000-000000000101');
+    expect(payload.tenant_id).toBe(VALID_TENANT_ID);
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id returns 404 for missing/cross-tenant account', async () => {
+    const server = createServer();
+
+    const missingResponse = await server.inject({
+      method: 'GET',
+      url: '/v1/accounts/00000000-0000-4000-8000-999999999999',
+      headers: await authHeaders(server),
+    });
+    expect(missingResponse.statusCode).toBe(404);
+    const missingPayload = parsePayload<{ error: string }>(missingResponse.body);
+    expect(missingPayload.error).toBe('ACCOUNT_NOT_FOUND');
+
+    const crossTenantResponse = await server.inject({
+      method: 'GET',
+      url: '/v1/accounts/00000000-0000-4000-8000-000000000101',
+      headers: await authHeaders(server, OTHER_TENANT_ADMIN_API_KEY),
+    });
+    expect(crossTenantResponse.statusCode).toBe(404);
+    const crossTenantPayload = parsePayload<{ error: string }>(crossTenantResponse.body);
+    expect(crossTenantPayload.error).toBe('ACCOUNT_NOT_FOUND');
+
+    await server.close();
+  });
+
   it('GET /v1/transactions supports cursor pagination', async () => {
     const server = createServer();
 
@@ -1339,7 +1641,13 @@ describe('server', () => {
 
   it('GET /v1/entries returns 400 when read model contains non-persisted entry fields', async () => {
     const invalidReadRepository = {
-      listAccounts: async (_query: PaginationQuery): Promise<PaginatedResult<AccountEntity>> => ({
+      findAccountByIdForTenant: async (
+        _tenantId: string,
+        _accountId: string,
+      ): Promise<AccountEntity | null> => null,
+      listAccounts: async (
+        _query: AccountPaginationQuery,
+      ): Promise<PaginatedResult<AccountEntity>> => ({
         data: [],
         nextCursor: null,
       }),

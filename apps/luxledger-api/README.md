@@ -58,6 +58,6 @@ API contract lives in:
 
 - `GET /health`, `GET /ready`
 - `POST/GET /v1/ledgers`, `GET /v1/ledgers/:id`
-- `POST/GET /v1/transactions`, `GET /v1/accounts`, `GET /v1/entries`
+- `POST/GET /v1/transactions`, `POST/GET /v1/accounts`, `GET /v1/accounts/{id}`, `GET /v1/entries`
 - `GET /v1/ledgers/:ledger_id/trial-balance`
 - `GET/POST /v1/admin/api-keys`, `POST /v1/admin/api-keys/:id/revoke`

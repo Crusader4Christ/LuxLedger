@@ -227,11 +227,33 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
   /v1/accounts:
+    post:
+      summary: Create account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
     get:
       summary: List accounts
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/LedgerIdQuery'
       responses:
         '200':
           description: Account page
@@ -243,6 +265,29 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+  /v1/accounts/{id}:
+    get:
+      summary: Get account by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   /v1/entries:
     get:
       summary: List entries
@@ -372,6 +417,13 @@ components:
         type: string
         minLength: 1
       required: false
+    LedgerIdQuery:
+      name: ledger_id
+      in: query
+      schema:
+        type: string
+        format: uuid
+      required: false
   responses:
     BadRequestError:
       description: Invalid input
@@ -453,6 +505,62 @@ components:
           format: uuid
         created:
           type: boolean
+    CreateAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, name, side, currency]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+        side:
+          type: string
+          pattern: '^(?=.*\S).+$'
+        currency:
+          type: string
+          minLength: 1
+      example:
+        ledger_id: 00000000-0000-4000-8000-000000000001
+        name: Cash
+        side: DEBIT
+        currency: USD
+    Account:
+      type: object
+      required: [id, tenant_id, ledger_id, name, side, currency, balance_minor, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        side:
+          type: string
+          enum: [DEBIT, CREDIT]
+        currency:
+          type: string
+        balance_minor:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      example:
+        id: 00000000-0000-4000-8000-000000000101
+        tenant_id: 11111111-1111-4111-8111-111111111111
+        ledger_id: 00000000-0000-4000-8000-000000000001
+        name: Cash
+        side: DEBIT
+        currency: USD
+        balance_minor: '100'
+        created_at: '2026-01-01T00:00:00.000Z'
     AccountsPage:
       type: object
       required: [data, next_cursor]
@@ -460,30 +568,7 @@ components:
         data:
           type: array
           items:
-            type: object
-            required: [id, tenant_id, ledger_id, name, side, currency, balance_minor, created_at]
-            properties:
-              id:
-                type: string
-                format: uuid
-              tenant_id:
-                type: string
-                format: uuid
-              ledger_id:
-                type: string
-                format: uuid
-              name:
-                type: string
-              side:
-                type: string
-                enum: [DEBIT, CREDIT]
-              currency:
-                type: string
-              balance_minor:
-                type: string
-              created_at:
-                type: string
-                format: date-time
+            $ref: '#/components/schemas/Account'
         next_cursor:
           type: string
           nullable: true

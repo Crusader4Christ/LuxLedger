@@ -1,9 +1,11 @@
-import type { AccountEntity } from '../../account/entity';
+import { AccountSide, type AccountEntity } from '../../account/entity';
 import type { EntryEntity } from '../../entry/entity';
 import type { TransactionEntity } from '../../transaction/entity';
 import { assertNonEmpty } from '../../utils';
-import { InvariantViolationError, LedgerNotFoundError } from '../errors';
+import { AccountNotFoundError, InvariantViolationError, LedgerNotFoundError } from '../errors';
 import type {
+  AccountPaginationQuery,
+  CreateAccountInput,
   CreateLedgerInput,
   CreateTransactionInput,
   CreateTransactionResult,
@@ -60,8 +62,37 @@ export class LedgerService {
     return this.repository.createTransaction(input);
   }
 
-  public async listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountEntity>> {
+  public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.ledgerId, 'ledgerId is required');
+    assertNonEmpty(input.name, 'name is required');
+    assertNonEmpty(input.currency, 'currency is required');
+    this.assertAccountSide(input.side);
+
+    return this.repository.createAccount(input);
+  }
+
+  public async getAccountById(tenantId: string, accountId: string): Promise<AccountEntity> {
+    assertNonEmpty(tenantId, 'tenantId is required');
+    assertNonEmpty(accountId, 'account id is required');
+
+    const account = await this.repository.findAccountByIdForTenant(tenantId, accountId);
+    if (!account) {
+      throw new AccountNotFoundError(accountId);
+    }
+
+    return account;
+  }
+
+  public async listAccounts(
+    query: AccountPaginationQuery,
+  ): Promise<PaginatedResult<AccountEntity>> {
     this.validateQuery(query);
+
+    if (query.ledgerId !== undefined) {
+      assertNonEmpty(query.ledgerId, 'ledgerId must be a non-empty string');
+    }
+
     return this.repository.listAccounts(query);
   }
 
@@ -93,6 +124,12 @@ export class LedgerService {
 
     if (query.cursor !== undefined && query.cursor.trim().length === 0) {
       throw new InvariantViolationError('cursor must be a non-empty string');
+    }
+  }
+
+  private assertAccountSide(side: string): void {
+    if (!(Object.values(AccountSide) as string[]).includes(side)) {
+      throw new InvariantViolationError('account side must be DEBIT or CREDIT');
     }
   }
 }

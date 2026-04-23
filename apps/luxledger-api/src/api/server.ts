@@ -7,7 +7,7 @@ import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { ApiMetrics } from '@api/observability/metrics';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
 import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
-import { AccountsListRoute } from '@api/routes/accounts';
+import { AccountsRoutes } from '@api/routes/accounts';
 import { AdminApiKeyRoutes } from '@api/routes/admin-api-keys';
 import { EntriesListRoute } from '@api/routes/entries';
 import { LedgerRoutes } from '@api/routes/ledgers';
@@ -384,7 +384,7 @@ export const registerApplication = (
   });
 
   new LedgerRoutes(dependencies.ledgerService).register(server);
-  new AccountsListRoute(dependencies.ledgerService).register(server);
+  new AccountsRoutes(dependencies.ledgerService).register(server);
   new TransactionsListRoute(dependencies.ledgerService).register(server);
   new EntriesListRoute(dependencies.ledgerService).register(server);
   new AdminApiKeyRoutes(dependencies.apiKeyService).register(server);
