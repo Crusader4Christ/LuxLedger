@@ -1,10 +1,8 @@
 import { sendDomainError } from '@api/errors';
 import { paginationQuerySchema, resolveLimit } from '@api/routes/pagination';
 import type { AccountListItemDto } from '@api/routes/types/list-item-dto';
-import type { AccountSide } from '@lux/ledger';
 import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
-import type { AccountEntity } from '@lux/ledger';
-import type { LedgerService } from '@lux/ledger/application';
+import type { AccountEntity, AccountSide, LedgerService } from '@lux/ledger';
 import type { FastifyInstance } from 'fastify';
 
 interface CreateAccountBody {

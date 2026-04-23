@@ -1,9 +1,8 @@
 import type { AccountEntity, AccountSide } from '../account/entity';
-import type { CreateAccountInput as PersistAccountInput } from '../account/input.interface';
+import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
-import type { CreateApiKeyInput as PersistApiKeyInput } from '../api-key/input.interface';
+import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { EntryDirection, EntryEntity } from '../entry/entity';
-import type { TransactionEntryInput } from '../entry/input.interface';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type { LedgerRepository as BaseLedgerRepository } from '../ledger/repository.interface';
 import type { TenantEntity } from '../tenant/entity';
@@ -14,8 +13,6 @@ import type { CreateTransactionCommand } from '../transaction/use-cases/create-t
 export type Tenant = TenantEntity;
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection };
 export type Ledger = Awaited<ReturnType<BaseLedgerRepository['createLedger']>>;
-
-export type EntryInput = TransactionEntryInput;
 
 export type CreateTransactionInput = Omit<CreateTransactionCommand, 'id'>;
 
@@ -34,7 +31,7 @@ export interface AccountPaginationQuery extends PaginationQuery {
   ledgerId?: string;
 }
 
-export type CreateAccountInput = PersistAccountInput;
+export type { CreateAccountInput };
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -68,7 +65,7 @@ export interface AuthContext {
   role: ApiKeyRole;
 }
 
-export type CreateApiKeyInput = Omit<PersistApiKeyInput, 'keyHash'>;
+export type CreateApiKeyRequestInput = Omit<CreateApiKeyInput, 'keyHash'>;
 
 export interface CreateApiKeyResult {
   apiKey: string;
@@ -102,7 +99,7 @@ export interface ApiKeyRepository {
   createTenant(input: CreateTenantInput): Promise<Tenant>;
   findActiveApiKeyByHash(keyHash: string): Promise<ApiKeyEntity | null>;
   findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null>;
-  createApiKey(input: PersistApiKeyInput): Promise<ApiKeyEntity>;
+  createApiKey(input: CreateApiKeyInput): Promise<ApiKeyEntity>;
   listApiKeys(tenantId: string): Promise<ApiKeyEntity[]>;
   revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean>;
 }
