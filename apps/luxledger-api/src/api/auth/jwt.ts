@@ -1,7 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { ApiKeyRole } from '@lux/ledger';
-import type { AuthContext } from '@lux/ledger/application';
-import { UnauthorizedError } from '@lux/ledger/application';
+import { ApiKeyRole, type AuthContext, UnauthorizedError } from '@lux/ledger/application';
 
 const JWT_HEADER = {
   alg: 'HS256',

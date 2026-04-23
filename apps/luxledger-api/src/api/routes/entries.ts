@@ -1,8 +1,6 @@
 import { BasePaginatedListRoute, type PaginatedRequest } from '@api/routes/pagination';
 import type { EntryListItemDto } from '@api/routes/types/list-item-dto';
-import type { EntryEntity } from '@lux/ledger';
-import type { LedgerService } from '@lux/ledger/application';
-import { InvariantViolationError } from '@lux/ledger/application';
+import { InvariantViolationError, type EntryEntity, type LedgerService } from '@lux/ledger';
 
 export class EntriesListRoute extends BasePaginatedListRoute<EntryEntity, EntryListItemDto> {
   protected readonly path = '/v1/entries';

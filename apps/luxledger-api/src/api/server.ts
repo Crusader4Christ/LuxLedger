@@ -12,8 +12,7 @@ import { EntriesListRoute } from '@api/routes/entries';
 import { LedgerRoutes } from '@api/routes/ledgers';
 import { TransactionsListRoute } from '@api/routes/transactions';
 import type { ApplicationDependencies, CreateServerCoreOptions } from '@api/server-types';
-import { ApiKeyRole } from '@lux/ledger';
-import { ForbiddenError, UnauthorizedError } from '@lux/ledger/application';
+import { ApiKeyRole, ForbiddenError, UnauthorizedError } from '@lux/ledger/application';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 const API_KEY_HEADER = 'x-api-key';
