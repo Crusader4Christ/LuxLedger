@@ -202,6 +202,60 @@ describe('DrizzleLedgerRepository', () => {
     expect(tenantLedgers.every((ledger) => ledger.tenantId === tenantA)).toBeTrue();
   });
 
+  it('createAccount persists account row', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    const created = await repository.createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+
+    const [row] = await client.db.select().from(accounts).where(eq(accounts.id, created.id)).limit(1);
+
+    expect(row).toBeDefined();
+    expect(row?.tenantId).toBe(tenantId);
+    expect(row?.ledgerId).toBe(ledgerId);
+    expect(row?.name).toBe('Cash');
+    expect(row?.side).toBe(EntryDirection.DEBIT);
+    expect(row?.currency).toBe('USD');
+  });
+
+  it('createAccount throws LedgerNotFoundError when ledger is missing for tenant', async () => {
+    const tenantId = await createTenant('Tenant A');
+
+    await expect(
+      repository.createAccount({
+        tenantId,
+        ledgerId: '00000000-0000-4000-8000-999999999999',
+        name: 'Cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+    ).rejects.toBeInstanceOf(LedgerNotFoundError);
+  });
+
+  it('findAccountByIdForTenant enforces tenant scope', async () => {
+    const tenantA = await createTenant('Tenant A');
+    const tenantB = await createTenant('Tenant B');
+    const ledgerA = await createLedger(tenantA, 'Main A');
+    const accountA = await createAccount({
+      tenantId: tenantA,
+      ledgerId: ledgerA,
+      name: 'Cash A',
+      currency: 'USD',
+    });
+
+    const ownAccount = await repository.findAccountByIdForTenant(tenantA, accountA);
+    const crossTenant = await repository.findAccountByIdForTenant(tenantB, accountA);
+
+    expect(ownAccount?.id).toBe(accountA);
+    expect(crossTenant).toBeNull();
+  });
+
   it('createTransaction persists transaction, entries, and balances on successful transaction creation', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
@@ -697,6 +751,47 @@ describe('DrizzleLedgerRepository', () => {
     expect(
       [...firstPage.data, ...secondPage.data].every((account) => account.tenantId === tenantId),
     ).toBeTrue();
+  });
+
+  it('listAccounts filters by ledgerId within tenant scope', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerMain = await createLedger(tenantId, 'Main');
+    const ledgerSecondary = await createLedger(tenantId, 'Secondary');
+    const tenantB = await createTenant('Tenant B');
+    const tenantBLedger = await createLedger(tenantB, 'B Main');
+
+    await createAccount({
+      tenantId,
+      ledgerId: ledgerMain,
+      name: 'Main Cash',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    await createAccount({
+      tenantId,
+      ledgerId: ledgerSecondary,
+      name: 'Secondary Revenue',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:00:01.000Z'),
+    });
+    await createAccount({
+      tenantId: tenantB,
+      ledgerId: tenantBLedger,
+      name: 'Other Tenant',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:00:02.000Z'),
+    });
+
+    const filtered = await repository.listAccounts({
+      tenantId,
+      ledgerId: ledgerMain,
+      limit: 10,
+    });
+
+    expect(filtered.data.length).toBe(1);
+    expect(filtered.data[0]?.name).toBe('Main Cash');
+    expect(filtered.data[0]?.ledgerId).toBe(ledgerMain);
+    expect(filtered.nextCursor).toBeNull();
   });
 
   it('listTransactions paginates by created_at and id cursor', async () => {

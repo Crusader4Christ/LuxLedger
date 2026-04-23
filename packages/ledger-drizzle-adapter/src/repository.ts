@@ -16,7 +16,9 @@ import {
   TransactionEntity,
 } from '@lux/ledger';
 import {
+  type AccountPaginationQuery,
   type ApiKeyRepository,
+  type CreateAccountInput,
   type CreateLedgerInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
@@ -347,6 +349,80 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
+  public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {
+    try {
+      return await this.withTenantContext(input.tenantId, async (tx) => {
+        const [ledger] = await tx
+          .select({ id: schema.ledgers.id })
+          .from(schema.ledgers)
+          .where(
+            and(eq(schema.ledgers.id, input.ledgerId), eq(schema.ledgers.tenantId, input.tenantId)),
+          )
+          .limit(1);
+
+        if (!ledger) {
+          throw new LedgerNotFoundError(input.ledgerId);
+        }
+
+        const [created] = await tx
+          .insert(schema.accounts)
+          .values({
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            name: input.name,
+            side: input.side,
+            currency: input.currency,
+          })
+          .returning();
+
+        return new AccountEntity({
+          id: created.id,
+          tenantId: created.tenantId,
+          ledgerId: created.ledgerId,
+          name: created.name,
+          side: parseAccountSide(created.side),
+          currency: created.currency,
+          balanceMinor: created.balanceMinor,
+          createdAt: created.createdAt,
+        });
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'create account');
+    }
+  }
+
+  public async findAccountByIdForTenant(
+    tenantId: string,
+    accountId: string,
+  ): Promise<AccountEntity | null> {
+    try {
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(schema.accounts)
+          .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
+          .limit(1);
+
+        if (!row) {
+          return null;
+        }
+
+        return new AccountEntity({
+          id: row.id,
+          tenantId: row.tenantId,
+          ledgerId: row.ledgerId,
+          name: row.name,
+          side: parseAccountSide(row.side),
+          currency: row.currency,
+          balanceMinor: row.balanceMinor,
+          createdAt: row.createdAt,
+        });
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'find account by id for tenant');
+    }
+  }
+
   public async createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult> {
     try {
       const result = await this.db.transaction(async (tx) => {
@@ -511,9 +587,16 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async listAccounts(query: PaginationQuery): Promise<PaginatedResult<AccountEntity>> {
+  public async listAccounts(
+    query: AccountPaginationQuery,
+  ): Promise<PaginatedResult<AccountEntity>> {
     try {
       return await this.withTenantContext(query.tenantId, async (tx) => {
+        const predicates = [eq(schema.accounts.tenantId, query.tenantId)];
+        if (query.ledgerId !== undefined) {
+          predicates.push(eq(schema.accounts.ledgerId, query.ledgerId));
+        }
+
         const page = await paginateByCursor<AccountRow>({
           query,
           order: [
@@ -536,7 +619,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             tx
               .select()
               .from(schema.accounts)
-              .where(and(eq(schema.accounts.tenantId, query.tenantId), cursorPredicate))
+              .where(and(...predicates, cursorPredicate))
               .orderBy(...orderBy)
               .limit(limit),
         });

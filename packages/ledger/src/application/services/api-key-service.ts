@@ -8,7 +8,7 @@ import type {
   AuthContext,
   BootstrapAdminInput,
   BootstrapAdminResult,
-  CreateApiKeyInput,
+  CreateApiKeyRequestInput,
   CreateApiKeyResult,
 } from '../types';
 
@@ -46,7 +46,7 @@ export class ApiKeyService {
 
   public async createApiKey(
     actor: AuthContext,
-    input: CreateApiKeyInput,
+    input: CreateApiKeyRequestInput,
   ): Promise<CreateApiKeyResult> {
     this.assertAdmin(actor);
     this.assertSameTenant(actor.tenantId, input.tenantId);

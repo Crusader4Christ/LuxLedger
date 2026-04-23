@@ -9,6 +9,15 @@ export class LedgerNotFoundError extends DomainError {
   }
 }
 
+export class AccountNotFoundError extends DomainError {
+  public readonly accountId: string;
+
+  public constructor(accountId: string) {
+    super(`Account not found: ${accountId}`, 'ACCOUNT_NOT_FOUND', 404);
+    this.accountId = accountId;
+  }
+}
+
 export class InvariantViolationError extends DomainError {
   public constructor(message: string, options?: ErrorOptions) {
     super(message, 'INVARIANT_VIOLATION', 400, options);
