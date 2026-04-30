@@ -1,8 +1,14 @@
-import { AccountSide, type AccountEntity } from '../../account/entity';
+import { type AccountEntity, AccountSide } from '../../account/entity';
 import type { EntryEntity } from '../../entry/entity';
 import type { TransactionEntity } from '../../transaction/entity';
 import { assertNonEmpty } from '../../utils';
-import { AccountNotFoundError, InvariantViolationError, LedgerNotFoundError } from '../errors';
+import {
+  AccountNotFoundError,
+  InvariantViolationError,
+  LedgerNotFoundError,
+  TransactionNotFoundError,
+} from '../errors';
+import { validatePaginationQuery } from '../pagination-query';
 import type {
   AccountPaginationQuery,
   CreateAccountInput,
@@ -13,6 +19,7 @@ import type {
   LedgerRepository,
   PaginatedResult,
   PaginationQuery,
+  TransactionPaginationQuery,
   TrialBalance,
   TrialBalanceQuery,
 } from '../types';
@@ -87,7 +94,7 @@ export class LedgerService {
   public async listAccounts(
     query: AccountPaginationQuery,
   ): Promise<PaginatedResult<AccountEntity>> {
-    this.validateQuery(query);
+    validatePaginationQuery(query);
 
     if (query.ledgerId !== undefined) {
       assertNonEmpty(query.ledgerId, 'ledgerId must be a non-empty string');
@@ -97,14 +104,32 @@ export class LedgerService {
   }
 
   public async listTransactions(
-    query: PaginationQuery,
+    query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
-    this.validateQuery(query);
+    validatePaginationQuery(query);
+    if (query.ledgerId !== undefined) {
+      assertNonEmpty(query.ledgerId, 'ledgerId must be a non-empty string');
+    }
     return this.repository.listTransactions(query);
   }
 
+  public async getTransactionById(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<TransactionEntity> {
+    assertNonEmpty(tenantId, 'tenantId is required');
+    assertNonEmpty(transactionId, 'transaction id is required');
+
+    const transaction = await this.repository.findTransactionByIdForTenant(tenantId, transactionId);
+    if (!transaction) {
+      throw new TransactionNotFoundError(transactionId);
+    }
+
+    return transaction;
+  }
+
   public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
-    this.validateQuery(query);
+    validatePaginationQuery(query);
     return this.repository.listEntries(query);
   }
 
@@ -113,18 +138,6 @@ export class LedgerService {
     assertNonEmpty(query.ledgerId, 'ledgerId is required');
 
     return this.repository.getTrialBalance(query);
-  }
-
-  private validateQuery(query: PaginationQuery): void {
-    assertNonEmpty(query.tenantId, 'tenantId is required');
-
-    if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 200) {
-      throw new InvariantViolationError('limit must be an integer between 1 and 200');
-    }
-
-    if (query.cursor !== undefined && query.cursor.trim().length === 0) {
-      throw new InvariantViolationError('cursor must be a non-empty string');
-    }
   }
 
   private assertAccountSide(side: string): void {

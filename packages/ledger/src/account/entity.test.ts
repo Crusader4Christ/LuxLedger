@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-
-import { InvalidAccountSideError } from './errors';
 import { AccountEntity, AccountSide } from './entity';
+import { InvalidAccountSideError } from './errors';
 
 describe('AccountEntity', () => {
   it('accepts DEBIT and CREDIT sides', () => {

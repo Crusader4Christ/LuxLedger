@@ -1,8 +1,8 @@
-import { BasePaginatedListRoute, type PaginatedRequest } from '@api/routes/pagination';
+import { BasePaginatedRoute, type PaginatedRequest } from '@api/routes/pagination';
 import type { EntryListItemDto } from '@api/routes/types/list-item-dto';
-import { InvariantViolationError, type EntryEntity, type LedgerService } from '@lux/ledger';
+import { type EntryEntity, InvariantViolationError, type LedgerService } from '@lux/ledger';
 
-export class EntriesListRoute extends BasePaginatedListRoute<EntryEntity, EntryListItemDto> {
+export class EntriesListRoute extends BasePaginatedRoute<EntryEntity, EntryListItemDto> {
   protected readonly path = '/v1/entries';
 
   public constructor(private readonly ledgerService: LedgerService) {
@@ -17,7 +17,7 @@ export class EntriesListRoute extends BasePaginatedListRoute<EntryEntity, EntryL
     });
   }
 
-  protected mapItem(entry: EntryEntity) {
+  protected toDto(entry: EntryEntity): EntryListItemDto {
     if (!entry.id || !entry.transactionId || !entry.createdAt) {
       throw new InvariantViolationError('entry must be persisted before listing');
     }

@@ -5,11 +5,11 @@ import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
+  type AccountEntity,
   AccountId,
   AccountSide,
-  ApiKeyRole,
-  type AccountEntity,
   type ApiKeyEntity,
+  ApiKeyRole,
   EntryEntity,
   LedgerId,
   Money,
@@ -17,22 +17,23 @@ import {
   TransactionId,
 } from '@lux/ledger';
 import {
-  ApiKeyService,
-  EntryDirection,
-  InvariantViolationError,
-  LedgerNotFoundError,
-  LedgerService,
-  RepositoryError,
   type AccountPaginationQuery,
   type ApiKeyRepository,
+  ApiKeyService,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
+  EntryDirection,
+  InvariantViolationError,
   type Ledger,
+  LedgerNotFoundError,
   type LedgerRepository,
+  LedgerService,
   type PaginatedResult,
   type PaginationQuery,
+  RepositoryError,
+  type TransactionPaginationQuery,
   type TrialBalance,
   type TrialBalanceQuery,
 } from '@lux/ledger/application';
@@ -167,7 +168,9 @@ class InMemoryLedgerReadRepository {
     return accounts.find((account) => account.id === accountId) ?? null;
   }
 
-  public async listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>> {
+  public async listAccounts(
+    query: AccountPaginationQuery,
+  ): Promise<PaginatedResult<AccountEntity>> {
     const account1: AccountEntity = {
       id: '00000000-0000-4000-8000-000000000101',
       tenantId: VALID_TENANT_ID,
@@ -227,7 +230,7 @@ class InMemoryLedgerReadRepository {
   }
 
   public async listTransactions(
-    query: PaginationQuery,
+    query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
     const transaction1 = new TransactionEntity({
       id: new TransactionId('00000000-0000-4000-8000-000000000201'),
@@ -274,11 +277,49 @@ class InMemoryLedgerReadRepository {
       return { data: [], nextCursor: null };
     }
 
+    if (query.ledgerId === '00000000-0000-4000-8000-000000000002') {
+      return { data: [], nextCursor: null };
+    }
+
     if (query.cursor === 'next-transactions') {
       return { data: [transaction2], nextCursor: null };
     }
 
     return { data: [transaction1], nextCursor: 'next-transactions' };
+  }
+
+  public async findTransactionByIdForTenant(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<TransactionEntity | null> {
+    if (tenantId !== VALID_TENANT_ID) {
+      return null;
+    }
+
+    if (transactionId !== '00000000-0000-4000-8000-000000000201') {
+      return null;
+    }
+
+    return new TransactionEntity({
+      id: new TransactionId('00000000-0000-4000-8000-000000000201'),
+      tenantId: VALID_TENANT_ID,
+      ledgerId: new LedgerId('00000000-0000-4000-8000-000000000001'),
+      reference: 'tx-ref-1',
+      currency: 'USD',
+      createdAt: new Date('2026-01-01T00:01:00.000Z'),
+      entries: [
+        new EntryEntity({
+          accountId: new AccountId('00000000-0000-4000-8000-000000000101'),
+          direction: EntryDirection.DEBIT,
+          money: Money.of(1n, 'USD'),
+        }),
+        new EntryEntity({
+          accountId: new AccountId('00000000-0000-4000-8000-000000000102'),
+          direction: EntryDirection.CREDIT,
+          money: Money.of(1n, 'USD'),
+        }),
+      ],
+    });
   }
 
   public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
@@ -447,8 +488,12 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
 
 interface ReadRepositoryPort {
   findAccountByIdForTenant(tenantId: string, accountId: string): Promise<AccountEntity | null>;
+  findTransactionByIdForTenant(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<TransactionEntity | null>;
   listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
-  listTransactions(query: PaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
+  listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
   getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
 }
@@ -467,6 +512,7 @@ const createServer = (
     findLedgersByTenant: writeRepository.findLedgersByTenant.bind(writeRepository),
     createAccount: writeRepository.createAccount.bind(writeRepository),
     findAccountByIdForTenant: readRepository.findAccountByIdForTenant.bind(readRepository),
+    findTransactionByIdForTenant: readRepository.findTransactionByIdForTenant.bind(readRepository),
     createTransaction: writeRepository.createTransaction.bind(writeRepository),
     listAccounts: readRepository.listAccounts.bind(readRepository),
     listTransactions: readRepository.listTransactions.bind(readRepository),
@@ -1595,6 +1641,88 @@ describe('server', () => {
     await server.close();
   });
 
+  it('GET /v1/transactions/:id returns transaction when found', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/transactions/00000000-0000-4000-8000-000000000201',
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      id: string;
+      tenant_id: string;
+      ledger_id: string;
+      reference: string;
+    }>(response.body);
+    expect(payload.id).toBe('00000000-0000-4000-8000-000000000201');
+    expect(payload.tenant_id).toBe(VALID_TENANT_ID);
+    expect(payload.reference).toBe('tx-ref-1');
+
+    await server.close();
+  });
+
+  it('GET /v1/transactions/:id returns 404 for missing/cross-tenant transaction', async () => {
+    const server = createServer();
+
+    const missingResponse = await server.inject({
+      method: 'GET',
+      url: '/v1/transactions/00000000-0000-4000-8000-999999999999',
+      headers: await authHeaders(server),
+    });
+    expect(missingResponse.statusCode).toBe(404);
+    const missingPayload = parsePayload<{ error: string }>(missingResponse.body);
+    expect(missingPayload.error).toBe('TRANSACTION_NOT_FOUND');
+
+    const crossTenantResponse = await server.inject({
+      method: 'GET',
+      url: '/v1/transactions/00000000-0000-4000-8000-000000000201',
+      headers: await authHeaders(server, OTHER_TENANT_ADMIN_API_KEY),
+    });
+    expect(crossTenantResponse.statusCode).toBe(404);
+    const crossTenantPayload = parsePayload<{ error: string }>(crossTenantResponse.body);
+    expect(crossTenantPayload.error).toBe('TRANSACTION_NOT_FOUND');
+
+    await server.close();
+  });
+
+  it('GET /v1/transactions supports tenant-scoped ledger filter', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/transactions?ledger_id=00000000-0000-4000-8000-000000000002',
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{ data: Array<{ id: string }>; next_cursor: string | null }>(
+      response.body,
+    );
+    expect(payload.data).toEqual([]);
+    expect(payload.next_cursor).toBeNull();
+
+    await server.close();
+  });
+
+  it('GET /v1/transactions validates ledger_id format', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: '/v1/transactions?ledger_id=invalid-ledger-id',
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(400);
+    const payload = parsePayload<{ error: string; message: string }>(response.body);
+    expect(payload.error).toBe('INVALID_INPUT');
+
+    await server.close();
+  });
+
   it('GET /v1/transactions supports cursor pagination', async () => {
     const server = createServer();
 
@@ -1644,6 +1772,10 @@ describe('server', () => {
         _tenantId: string,
         _accountId: string,
       ): Promise<AccountEntity | null> => null,
+      findTransactionByIdForTenant: async (
+        _tenantId: string,
+        _transactionId: string,
+      ): Promise<TransactionEntity | null> => null,
       listAccounts: async (
         _query: AccountPaginationQuery,
       ): Promise<PaginatedResult<AccountEntity>> => ({
@@ -1651,7 +1783,7 @@ describe('server', () => {
         nextCursor: null,
       }),
       listTransactions: async (
-        _query: PaginationQuery,
+        _query: TransactionPaginationQuery,
       ): Promise<PaginatedResult<TransactionEntity>> => ({
         data: [],
         nextCursor: null,

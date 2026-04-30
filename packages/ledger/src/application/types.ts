@@ -31,6 +31,10 @@ export interface AccountPaginationQuery extends PaginationQuery {
   ledgerId?: string;
 }
 
+export interface TransactionPaginationQuery extends PaginationQuery {
+  ledgerId?: string;
+}
+
 export type { CreateAccountInput };
 
 export interface PaginatedResult<T> {
@@ -87,9 +91,13 @@ export interface BootstrapAdminResult {
 export interface LedgerRepository extends BaseLedgerRepository {
   createAccount(input: CreateAccountInput): Promise<AccountEntity>;
   findAccountByIdForTenant(tenantId: string, accountId: string): Promise<AccountEntity | null>;
+  findTransactionByIdForTenant(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<TransactionEntity | null>;
   createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult>;
   listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
-  listTransactions(query: PaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
+  listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
   getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
 }

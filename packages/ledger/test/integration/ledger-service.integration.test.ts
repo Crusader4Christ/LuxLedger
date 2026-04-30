@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { AccountSide, type AccountEntity, type EntryEntity, type TransactionEntity } from '../../../index';
-import { EntryDirection } from '../../index';
+import {
+  type AccountEntity,
+  AccountSide,
+  EntryDirection,
+  type EntryEntity,
+  type TransactionEntity,
+} from '@lux/ledger';
 import type {
   AccountPaginationQuery,
   CreateAccountInput,
@@ -11,10 +16,11 @@ import type {
   LedgerRepository,
   PaginatedResult,
   PaginationQuery,
+  TransactionPaginationQuery,
   TrialBalance,
   TrialBalanceQuery,
-} from '../../types';
-import { LedgerService } from '../ledger-service';
+} from '@lux/ledger/application';
+import { LedgerService } from '@lux/ledger/application';
 
 class InMemoryLedgerRepository implements LedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
@@ -89,9 +95,16 @@ class InMemoryLedgerRepository implements LedgerRepository {
   }
 
   public async listTransactions(
-    _query: PaginationQuery,
+    _query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
     return { data: [], nextCursor: null };
+  }
+
+  public async findTransactionByIdForTenant(
+    _tenantId: string,
+    _transactionId: string,
+  ): Promise<TransactionEntity | null> {
+    return null;
   }
 
   public async listEntries(_query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {

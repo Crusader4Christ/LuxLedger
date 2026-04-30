@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
-  DEFAULT_JWT_CLOCK_SKEW_SECONDS,
   DEFAULT_JWT_ACCESS_TTL_SECONDS,
+  DEFAULT_JWT_CLOCK_SKEW_SECONDS,
   DEFAULT_JWT_ISSUER,
   MAX_JWT_ACCESS_TTL_SECONDS,
   MAX_JWT_CLOCK_SKEW_SECONDS,
   MIN_JWT_ACCESS_TTL_SECONDS,
-  parseJwtAuthConfig,
   parseJwtAccessTtlSeconds,
+  parseJwtAuthConfig,
   parseJwtClockSkewSeconds,
 } from '@api/auth/policy';
 

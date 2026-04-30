@@ -215,6 +215,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/LedgerIdQuery'
       responses:
         '200':
           description: Transaction page
@@ -222,10 +223,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TransactionsPage'
+              examples:
+                default:
+                  value:
+                    data:
+                      - id: 00000000-0000-4000-8000-000000000201
+                        tenant_id: 11111111-1111-4111-8111-111111111111
+                        ledger_id: 00000000-0000-4000-8000-000000000001
+                        reference: tx-ref-1
+                        currency: USD
+                        created_at: '2026-01-01T00:01:00.000Z'
+                    next_cursor: eyJjcmVhdGVkX2F0IjoiMjAyNi0wMS0wMVQwMDowMTowMC4wMDBaIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAyMDEifQ
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+  /v1/transactions/{id}:
+    get:
+      summary: Get transaction by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+              examples:
+                found:
+                  value:
+                    id: 00000000-0000-4000-8000-000000000201
+                    tenant_id: 11111111-1111-4111-8111-111111111111
+                    ledger_id: 00000000-0000-4000-8000-000000000001
+                    reference: tx-ref-1
+                    currency: USD
+                    created_at: '2026-01-01T00:01:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   /v1/accounts:
     post:
       summary: Create account
@@ -579,28 +623,37 @@ components:
         data:
           type: array
           items:
-            type: object
-            required: [id, tenant_id, ledger_id, reference, currency, created_at]
-            properties:
-              id:
-                type: string
-                format: uuid
-              tenant_id:
-                type: string
-                format: uuid
-              ledger_id:
-                type: string
-                format: uuid
-              reference:
-                type: string
-              currency:
-                type: string
-              created_at:
-                type: string
-                format: date-time
+            $ref: '#/components/schemas/Transaction'
         next_cursor:
           type: string
           nullable: true
+    Transaction:
+      type: object
+      required: [id, tenant_id, ledger_id, reference, currency, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+        currency:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      example:
+        id: 00000000-0000-4000-8000-000000000201
+        tenant_id: 11111111-1111-4111-8111-111111111111
+        ledger_id: 00000000-0000-4000-8000-000000000001
+        reference: tx-ref-1
+        currency: USD
+        created_at: '2026-01-01T00:01:00.000Z'
     EntriesPage:
       type: object
       required: [data, next_cursor]

@@ -18,6 +18,15 @@ export class AccountNotFoundError extends DomainError {
   }
 }
 
+export class TransactionNotFoundError extends DomainError {
+  public readonly transactionId: string;
+
+  public constructor(transactionId: string) {
+    super(`Transaction not found: ${transactionId}`, 'TRANSACTION_NOT_FOUND', 404);
+    this.transactionId = transactionId;
+  }
+}
+
 export class InvariantViolationError extends DomainError {
   public constructor(message: string, options?: ErrorOptions) {
     super(message, 'INVARIANT_VIOLATION', 400, options);
@@ -27,7 +36,8 @@ export class InvariantViolationError extends DomainError {
 export class RepositoryError extends DomainError {
   public constructor(message = 'Persistence operation failed', options?: ErrorOptions) {
     const cause =
-      options?.cause ?? (message === 'Persistence operation failed' ? undefined : new Error(message));
+      options?.cause ??
+      (message === 'Persistence operation failed' ? undefined : new Error(message));
 
     super('Internal server error', 'INTERNAL_ERROR', 500, cause ? { ...options, cause } : options);
   }

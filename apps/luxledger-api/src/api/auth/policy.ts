@@ -1,5 +1,5 @@
-import type { JwtAuthConfig } from './jwt';
 import { parseIntegerWithinRange } from '../../utils/parse-integer-with-range';
+import type { JwtAuthConfig } from './jwt';
 
 export const MIN_JWT_SIGNING_KEY_BYTES = 32;
 export const DEFAULT_JWT_ISSUER = 'luxledger-api';
@@ -41,10 +41,7 @@ const parseJwtSigningKey = (value: string, name: string): string => {
   return value;
 };
 
-const parseJwtPreviousSigningKeys = (
-  value: string | undefined,
-  signingKey: string,
-): string[] => {
+const parseJwtPreviousSigningKeys = (value: string | undefined, signingKey: string): string[] => {
   if (value === undefined || value.trim().length === 0) {
     return [];
   }

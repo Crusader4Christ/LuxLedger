@@ -47,10 +47,7 @@ describe('validateEntryCurrencies', () => {
 describe('validateEntryAmounts', () => {
   it('accepts positive amounts', () => {
     expect(() =>
-      validateEntryAmounts([
-        { money: { amountMinor: 100n } },
-        { money: { amountMinor: 1n } },
-      ]),
+      validateEntryAmounts([{ money: { amountMinor: 100n } }, { money: { amountMinor: 1n } }]),
     ).not.toThrow();
   });
 
