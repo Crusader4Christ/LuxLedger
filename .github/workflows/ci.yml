@@ -90,4 +90,4 @@ jobs:
         run: bun run db:migrate:test
 
       - name: Run integration tests
-        run: bun run test:integration:files
+        run: bun test --max-concurrency=1 $(find apps packages -type f -path '*/test/integration/*.test.ts' | sort)
