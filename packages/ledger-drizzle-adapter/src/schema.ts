@@ -1,5 +1,5 @@
-import { sql } from 'drizzle-orm';
 import { AccountSide, EntryDirection } from '@lux/ledger';
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   check,
@@ -18,7 +18,10 @@ export const tenants = pgTable('tenants', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const accountSideEnum = pgEnum('account_side', Object.values(AccountSide) as [string, ...string[]]);
+export const accountSideEnum = pgEnum(
+  'account_side',
+  Object.values(AccountSide) as [string, ...string[]],
+);
 export const entryDirectionEnum = pgEnum(
   'entry_direction',
   Object.values(EntryDirection) as [string, ...string[]],
@@ -40,10 +43,7 @@ export const apiKeys = pgTable(
   (table) => ({
     apiKeysTenantIdIdx: index('api_keys_tenant_id_idx').on(table.tenantId),
     apiKeysKeyHashUq: uniqueIndex('api_keys_key_hash_uq').on(table.keyHash),
-    apiKeysRoleChk: check(
-      'api_keys_role_chk',
-      sql`${table.role} in ('ADMIN', 'SERVICE')`,
-    ),
+    apiKeysRoleChk: check('api_keys_role_chk', sql`${table.role} in ('ADMIN', 'SERVICE')`),
   }),
 );
 

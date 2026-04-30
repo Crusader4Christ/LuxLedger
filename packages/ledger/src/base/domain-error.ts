@@ -9,8 +9,7 @@ export abstract class DomainError extends Error {
     options?: ErrorOptions,
   ) {
     const httpStatus = typeof statusOrOptions === 'number' ? statusOrOptions : 400;
-    const errorOptions =
-      typeof statusOrOptions === 'number' ? options : statusOrOptions;
+    const errorOptions = typeof statusOrOptions === 'number' ? options : statusOrOptions;
 
     super(message, errorOptions);
     this.name = new.target.name;

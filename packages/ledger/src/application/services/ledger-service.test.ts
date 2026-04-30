@@ -1,21 +1,32 @@
 import { describe, expect, it } from 'bun:test';
 
-import { AccountSide, type AccountEntity, type EntryEntity, type TransactionEntity } from '@lux/ledger';
+import {
+  type AccountEntity,
+  AccountId,
+  AccountSide,
+  EntryEntity,
+  LedgerId,
+  Money,
+  TransactionEntity,
+  TransactionId,
+} from '@lux/ledger';
 import {
   AccountNotFoundError,
-  EntryDirection,
-  InvariantViolationError,
-  LedgerNotFoundError,
-  LedgerService,
   type AccountPaginationQuery,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
+  EntryDirection,
+  InvariantViolationError,
   type Ledger,
+  LedgerNotFoundError,
   type LedgerRepository,
+  LedgerService,
   type PaginatedResult,
   type PaginationQuery,
+  TransactionNotFoundError,
+  type TransactionPaginationQuery,
   type TrialBalance,
   type TrialBalanceQuery,
 } from '@lux/ledger/application';
@@ -23,6 +34,7 @@ import {
 class InMemoryLedgerRepository implements LedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
   private readonly accounts = new Map<string, AccountEntity>();
+  private readonly transactions = new Map<string, TransactionEntity>();
   public createTransactionCalls: CreateTransactionInput[] = [];
 
   public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
@@ -51,8 +63,27 @@ class InMemoryLedgerRepository implements LedgerRepository {
 
   public async createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult> {
     this.createTransactionCalls.push(input);
+    const transactionId = `tx-${this.createTransactionCalls.length}`;
+    const transaction = new TransactionEntity({
+      id: new TransactionId(transactionId),
+      tenantId: input.tenantId,
+      ledgerId: new LedgerId(input.ledgerId),
+      reference: input.reference,
+      currency: input.currency,
+      createdAt: new Date(),
+      entries: input.entries.map(
+        (entry) =>
+          new EntryEntity({
+            accountId: new AccountId(entry.accountId),
+            direction: entry.direction,
+            money: Money.of(entry.amountMinor, entry.currency),
+          }),
+      ),
+    });
+    this.transactions.set(transactionId, transaction);
+
     return {
-      transactionId: 'tx-1',
+      transactionId,
       created: true,
     };
   }
@@ -104,10 +135,30 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { data, nextCursor: null };
   }
 
+  public async findTransactionByIdForTenant(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<TransactionEntity | null> {
+    const transaction = this.transactions.get(transactionId);
+    return transaction && transaction.tenantId === tenantId ? transaction : null;
+  }
+
   public async listTransactions(
-    _query: PaginationQuery,
+    query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
-    return { data: [], nextCursor: null };
+    const data = [...this.transactions.values()].filter((transaction) => {
+      if (transaction.tenantId !== query.tenantId) {
+        return false;
+      }
+
+      if (query.ledgerId !== undefined && transaction.ledgerId.value !== query.ledgerId) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return { data, nextCursor: null };
   }
 
   public async listEntries(_query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
@@ -369,5 +420,151 @@ describe('LedgerService', () => {
 
     expect(filtered.data.length).toBe(1);
     expect(filtered.data[0]?.name).toBe('Cash');
+  });
+
+  it('getTransactionById returns transaction for tenant', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const ledger = await service.createLedger({
+      tenantId: 'tenant-1',
+      name: 'Main',
+    });
+
+    const created = await service.createTransaction({
+      tenantId: 'tenant-1',
+      ledgerId: ledger.id,
+      reference: 'ref-1',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: 'account-1',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-2',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    const found = await service.getTransactionById('tenant-1', created.transactionId);
+    expect(found.id.value).toBe(created.transactionId);
+  });
+
+  it('getTransactionById throws TransactionNotFoundError for missing/cross-tenant transaction', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const ledger = await service.createLedger({
+      tenantId: 'tenant-a',
+      name: 'Main',
+    });
+
+    const created = await service.createTransaction({
+      tenantId: 'tenant-a',
+      ledgerId: ledger.id,
+      reference: 'ref-1',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: 'account-1',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 50n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-2',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 50n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    await expect(
+      service.getTransactionById('tenant-b', created.transactionId),
+    ).rejects.toBeInstanceOf(TransactionNotFoundError);
+    await expect(service.getTransactionById('tenant-a', 'missing')).rejects.toBeInstanceOf(
+      TransactionNotFoundError,
+    );
+  });
+
+  it('listTransactions supports tenant-scoped ledger filter', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const mainLedger = await service.createLedger({
+      tenantId: 'tenant-1',
+      name: 'Main',
+    });
+    const secondaryLedger = await service.createLedger({
+      tenantId: 'tenant-1',
+      name: 'Secondary',
+    });
+
+    await service.createTransaction({
+      tenantId: 'tenant-1',
+      ledgerId: mainLedger.id,
+      reference: 'main-ref',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: 'account-1',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-2',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+    await service.createTransaction({
+      tenantId: 'tenant-1',
+      ledgerId: secondaryLedger.id,
+      reference: 'secondary-ref',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: 'account-3',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 200n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-4',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 200n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    const filtered = await service.listTransactions({
+      tenantId: 'tenant-1',
+      limit: 50,
+      ledgerId: mainLedger.id,
+    });
+
+    expect(filtered.data.length).toBe(1);
+    expect(filtered.data[0]?.reference).toBe('main-ref');
+  });
+
+  it('listTransactions validates ledgerId when provided', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.listTransactions({
+        tenantId: 'tenant-1',
+        limit: 10,
+        ledgerId: '   ',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 });

@@ -1,4 +1,4 @@
-import { sendDomainError } from '@api/errors';
+import { BaseRoute } from '@api/routes/base-route';
 import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import type { LedgerService } from '@lux/ledger/application';
 import { EntryDirection } from '@lux/ledger/application';
@@ -28,8 +28,10 @@ interface TrialBalanceParams {
   ledger_id: string;
 }
 
-export class LedgerRoutes {
-  public constructor(private readonly ledgerService: LedgerService) {}
+export class LedgerRoutes extends BaseRoute {
+  public constructor(private readonly ledgerService: LedgerService) {
+    super();
+  }
 
   public register(server: FastifyInstance): void {
     this.registerCreateLedger(server);
@@ -57,16 +59,14 @@ export class LedgerRoutes {
       async (request, reply) => {
         const { name } = request.body;
 
-        try {
+        return this.handle(reply, async () => {
           const ledger = await this.ledgerService.createLedger({
             tenantId: request.tenantId as string,
             name,
           });
 
           return reply.status(201).send(ledger);
-        } catch (error) {
-          return sendDomainError(reply, error);
-        }
+        });
       },
     );
   }
@@ -116,7 +116,7 @@ export class LedgerRoutes {
         },
       },
       async (request, reply) => {
-        try {
+        return this.handle(reply, async () => {
           const result = await this.ledgerService.createTransaction({
             tenantId: request.tenantId as string,
             ledgerId: request.body.ledger_id,
@@ -135,9 +135,7 @@ export class LedgerRoutes {
             transaction_id: result.transactionId,
             created: result.created,
           });
-        } catch (error) {
-          return sendDomainError(reply, error);
-        }
+        });
       },
     );
   }
@@ -161,28 +159,24 @@ export class LedgerRoutes {
         },
       },
       async (request, reply) => {
-        try {
+        return this.handle(reply, async () => {
           const ledger = await this.ledgerService.getLedgerById(
             request.tenantId as string,
             request.params.id,
           );
           return reply.status(200).send(ledger);
-        } catch (error) {
-          return sendDomainError(reply, error);
-        }
+        });
       },
     );
   }
 
   private registerGetLedgers(server: FastifyInstance): void {
-    server.get('/v1/ledgers', async (request, reply) => {
-      try {
+    server.get('/v1/ledgers', async (request, reply) =>
+      this.handle(reply, async () => {
         const ledgers = await this.ledgerService.getLedgersByTenant(request.tenantId as string);
         return reply.status(200).send(ledgers);
-      } catch (error) {
-        return sendDomainError(reply, error);
-      }
-    });
+      }),
+    );
   }
 
   private registerGetTrialBalance(server: FastifyInstance): void {
@@ -204,7 +198,7 @@ export class LedgerRoutes {
         },
       },
       async (request, reply) => {
-        try {
+        return this.handle(reply, async () => {
           const trialBalance = await this.ledgerService.getTrialBalance({
             tenantId: request.tenantId as string,
             ledgerId: request.params.ledger_id,
@@ -222,9 +216,7 @@ export class LedgerRoutes {
             total_debits: trialBalance.totalDebitsMinor.toString(),
             total_credits: trialBalance.totalCreditsMinor.toString(),
           });
-        } catch (error) {
-          return sendDomainError(reply, error);
-        }
+        });
       },
     );
   }

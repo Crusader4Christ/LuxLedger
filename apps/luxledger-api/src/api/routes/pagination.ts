@@ -1,7 +1,7 @@
-import { sendDomainError } from '@api/errors';
+import { BaseEntityRoute } from '@api/routes/base-route';
 import type { PaginationQuery } from '@api/routes/types/pagination-query';
 import type { PaginatedResult } from '@lux/ledger/application';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 export const paginationQuerySchema = {
   type: 'object',
@@ -22,39 +22,70 @@ export const paginationQuerySchema = {
 
 export const resolveLimit = (value: number | undefined): number => value ?? 50;
 
-export type PaginatedRequest = FastifyRequest<{ Querystring: PaginationQuery }>;
+type JsonRecord = Record<string, unknown>;
 
-export abstract class BasePaginatedListRoute<Source, Target> {
+const isObjectRecord = (value: unknown): value is JsonRecord =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const deepMerge = (base: JsonRecord, extra: JsonRecord): JsonRecord => {
+  const merged: JsonRecord = { ...base };
+  if (!extra || Object.entries(extra).length === 0) {
+    return merged;
+  }
+
+  for (const [key, value] of Object.entries(extra)) {
+    const existing = merged[key];
+    if (isObjectRecord(existing) && isObjectRecord(value)) {
+      merged[key] = deepMerge(existing, value);
+      continue;
+    }
+
+    merged[key] = value;
+  }
+
+  return merged;
+};
+
+export const mergePaginationQuerySchema = (extra: JsonRecord = {}) =>
+  deepMerge(paginationQuerySchema, extra);
+
+export type PaginatedRequest<Query extends PaginationQuery = PaginationQuery> = FastifyRequest<{
+  Querystring: Query;
+}>;
+
+export abstract class BasePaginatedRoute<
+  Source,
+  Target,
+  Query extends PaginationQuery = PaginationQuery,
+> extends BaseEntityRoute<Source, Target> {
   protected abstract readonly path: string;
 
-  protected abstract list(request: PaginatedRequest): Promise<PaginatedResult<Source>>;
-  protected abstract mapItem(item: Source): Target;
+  protected abstract list(request: PaginatedRequest<Query>): Promise<PaginatedResult<Source>>;
 
   protected resolveLimit(value: number | undefined): number {
     return resolveLimit(value);
   }
 
+  protected querystringSchema(extra: JsonRecord = {}) {
+    return mergePaginationQuerySchema(extra);
+  }
+
   public register(server: FastifyInstance): void {
-    server.get<{ Querystring: PaginationQuery }>(
+    server.get<{ Querystring: Query }>(
       this.path,
       {
         schema: {
-          querystring: paginationQuerySchema,
+          querystring: this.querystringSchema(),
         },
       },
-      async (request, reply) => this.handle(request, reply),
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const page = await this.list(request);
+          return reply.status(200).send({
+            data: this.dtoList(page.data),
+            next_cursor: page.nextCursor,
+          });
+        }),
     );
-  }
-
-  private async handle(request: PaginatedRequest, reply: FastifyReply): Promise<unknown> {
-    try {
-      const page = await this.list(request);
-      return reply.status(200).send({
-        data: page.data.map((item) => this.mapItem(item)),
-        next_cursor: page.nextCursor,
-      });
-    } catch (error) {
-      return sendDomainError(reply, error);
-    }
   }
 }

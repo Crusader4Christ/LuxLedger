@@ -28,6 +28,7 @@ import {
   type PaginatedResult,
   type PaginationQuery,
   RepositoryError,
+  type TransactionPaginationQuery,
   type TrialBalance,
   type TrialBalanceAccount,
   type TrialBalanceQuery,
@@ -647,10 +648,15 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
   }
 
   public async listTransactions(
-    query: PaginationQuery,
+    query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
     try {
       return await this.withTenantContext(query.tenantId, async (tx) => {
+        const predicates = [eq(schema.transactions.tenantId, query.tenantId)];
+        if (query.ledgerId !== undefined) {
+          predicates.push(eq(schema.transactions.ledgerId, query.ledgerId));
+        }
+
         const page = await paginateByCursor<TransactionRow>({
           query,
           order: [
@@ -673,42 +679,15 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             tx
               .select()
               .from(schema.transactions)
-              .where(and(eq(schema.transactions.tenantId, query.tenantId), cursorPredicate))
+              .where(and(...predicates, cursorPredicate))
               .orderBy(...orderBy)
               .limit(limit),
         });
-        const transactionIds = page.rows.map((row) => row.id);
-
-        const entryRows =
-          transactionIds.length === 0
-            ? []
-            : await tx
-                .select()
-                .from(schema.entries)
-                .where(
-                  and(
-                    eq(schema.entries.tenantId, query.tenantId),
-                    inArray(schema.entries.transactionId, transactionIds),
-                  ),
-                )
-                .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id));
-
-        const entriesByTransactionId = new Map<string, EntryEntity[]>();
-
-        for (const row of entryRows) {
-          const entry = new EntryEntity({
-            id: row.id,
-            transactionId: row.transactionId,
-            accountId: new LedgerAccountId(row.accountId),
-            direction: parseEntryDirection(row.direction),
-            money: Money.of(row.amountMinor, row.currency),
-            createdAt: row.createdAt,
-          });
-
-          const existingEntries = entriesByTransactionId.get(row.transactionId) ?? [];
-          existingEntries.push(entry);
-          entriesByTransactionId.set(row.transactionId, existingEntries);
-        }
+        const entriesByTransactionId = await this.loadEntriesByTransactionIds(
+          tx,
+          query.tenantId,
+          page.rows.map((row) => row.id),
+        );
 
         return {
           data: page.rows.map(
@@ -728,6 +707,46 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       });
     } catch (error) {
       this.handleDatabaseError(error, 'list transactions');
+    }
+  }
+
+  public async findTransactionByIdForTenant(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<TransactionEntity | null> {
+    try {
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(schema.transactions)
+          .where(
+            and(
+              eq(schema.transactions.tenantId, tenantId),
+              eq(schema.transactions.id, transactionId),
+            ),
+          )
+          .limit(1);
+
+        if (!row) {
+          return null;
+        }
+
+        const entriesByTransactionId = await this.loadEntriesByTransactionIds(tx, tenantId, [
+          row.id,
+        ]);
+
+        return new TransactionEntity({
+          id: new LedgerTransactionId(row.id),
+          tenantId: row.tenantId,
+          ledgerId: new LedgerLedgerId(row.ledgerId),
+          reference: row.reference,
+          currency: row.currency,
+          createdAt: row.createdAt,
+          entries: entriesByTransactionId.get(row.id) ?? [],
+        });
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'find transaction by id for tenant');
     }
   }
 
@@ -846,6 +865,46 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     } catch (error) {
       this.handleDatabaseError(error, 'get trial balance');
     }
+  }
+
+  private async loadEntriesByTransactionIds(
+    tx: PostgresJsDatabase<typeof schema>,
+    tenantId: string,
+    transactionIds: string[],
+  ): Promise<Map<string, EntryEntity[]>> {
+    if (transactionIds.length === 0) {
+      return new Map();
+    }
+
+    const entryRows = await tx
+      .select()
+      .from(schema.entries)
+      .where(
+        and(
+          eq(schema.entries.tenantId, tenantId),
+          inArray(schema.entries.transactionId, transactionIds),
+        ),
+      )
+      .orderBy(asc(schema.entries.createdAt), asc(schema.entries.id));
+
+    const entriesByTransactionId = new Map<string, EntryEntity[]>();
+
+    for (const row of entryRows) {
+      const entry = new EntryEntity({
+        id: row.id,
+        transactionId: row.transactionId,
+        accountId: new LedgerAccountId(row.accountId),
+        direction: parseEntryDirection(row.direction),
+        money: Money.of(row.amountMinor, row.currency),
+        createdAt: row.createdAt,
+      });
+
+      const existingEntries = entriesByTransactionId.get(row.transactionId) ?? [];
+      existingEntries.push(entry);
+      entriesByTransactionId.set(row.transactionId, existingEntries);
+    }
+
+    return entriesByTransactionId;
   }
 
   private async withTenantContext<T>(
