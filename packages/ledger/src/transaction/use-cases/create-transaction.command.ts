@@ -6,5 +6,6 @@ export interface CreateTransactionCommand {
   ledgerId: string;
   reference: string;
   currency: string;
+  description?: string | null;
   entries: TransactionEntryInput[];
 }

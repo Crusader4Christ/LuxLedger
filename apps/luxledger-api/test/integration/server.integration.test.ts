@@ -238,6 +238,7 @@ class InMemoryLedgerReadRepository {
       ledgerId: new LedgerId('00000000-0000-4000-8000-000000000001'),
       reference: 'tx-ref-1',
       currency: 'USD',
+      description: 'Payment settlement',
       createdAt: new Date('2026-01-01T00:01:00.000Z'),
       entries: [
         new EntryEntity({
@@ -258,6 +259,7 @@ class InMemoryLedgerReadRepository {
       ledgerId: new LedgerId('00000000-0000-4000-8000-000000000001'),
       reference: 'tx-ref-2',
       currency: 'USD',
+      description: null,
       createdAt: new Date('2026-01-01T00:01:01.000Z'),
       entries: [
         new EntryEntity({
@@ -306,6 +308,7 @@ class InMemoryLedgerReadRepository {
       ledgerId: new LedgerId('00000000-0000-4000-8000-000000000001'),
       reference: 'tx-ref-1',
       currency: 'USD',
+      description: 'Payment settlement',
       createdAt: new Date('2026-01-01T00:01:00.000Z'),
       entries: [
         new EntryEntity({
@@ -1215,6 +1218,7 @@ describe('server', () => {
         ledger_id: ledger.id,
         reference: 'txn-ref-1',
         currency: 'USD',
+        description: 'Invoice #1001',
         entries: [
           {
             account_id: '00000000-0000-4000-8000-000000000101',
@@ -1294,6 +1298,76 @@ describe('server', () => {
     const secondBody = parsePayload<{ transaction_id: string; created: boolean }>(second.body);
     expect(firstBody.transaction_id).toBe(secondBody.transaction_id);
     expect(secondBody.created).toBeFalse();
+
+    await server.close();
+  });
+
+  it('POST /v1/transactions accepts omitted description and validates non-empty trimmed description', async () => {
+    const server = createServer();
+
+    const ledgerResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Main ledger',
+      },
+    });
+    const ledger = parsePayload<Ledger>(ledgerResponse.body);
+
+    const withoutDescription = await server.inject({
+      method: 'POST',
+      url: '/v1/transactions',
+      headers: await authHeaders(server),
+      payload: {
+        ledger_id: ledger.id,
+        reference: 'txn-ref-no-description',
+        currency: 'USD',
+        entries: [
+          {
+            account_id: '00000000-0000-4000-8000-000000000101',
+            direction: EntryDirection.DEBIT,
+            amount_minor: '100',
+            currency: 'USD',
+          },
+          {
+            account_id: '00000000-0000-4000-8000-000000000102',
+            direction: EntryDirection.CREDIT,
+            amount_minor: '100',
+            currency: 'USD',
+          },
+        ],
+      },
+    });
+
+    const invalidDescription = await server.inject({
+      method: 'POST',
+      url: '/v1/transactions',
+      headers: await authHeaders(server),
+      payload: {
+        ledger_id: ledger.id,
+        reference: 'txn-ref-invalid-description',
+        currency: 'USD',
+        description: '   ',
+        entries: [
+          {
+            account_id: '00000000-0000-4000-8000-000000000101',
+            direction: EntryDirection.DEBIT,
+            amount_minor: '100',
+            currency: 'USD',
+          },
+          {
+            account_id: '00000000-0000-4000-8000-000000000102',
+            direction: EntryDirection.CREDIT,
+            amount_minor: '100',
+            currency: 'USD',
+          },
+        ],
+      },
+    });
+
+    expect(withoutDescription.statusCode).toBe(201);
+    expect(invalidDescription.statusCode).toBe(400);
 
     await server.close();
   });
@@ -1656,10 +1730,12 @@ describe('server', () => {
       tenant_id: string;
       ledger_id: string;
       reference: string;
+      description: string | null;
     }>(response.body);
     expect(payload.id).toBe('00000000-0000-4000-8000-000000000201');
     expect(payload.tenant_id).toBe(VALID_TENANT_ID);
     expect(payload.reference).toBe('tx-ref-1');
+    expect(payload.description).toBe('Payment settlement');
 
     await server.close();
   });
@@ -1734,11 +1810,12 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(200);
     const payload = parsePayload<{
-      data: Array<{ id: string; reference: string }>;
+      data: Array<{ id: string; reference: string; description: string | null }>;
       next_cursor: string | null;
     }>(response.body);
     expect(payload.data.length).toBe(1);
     expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000202');
+    expect(payload.data[0]?.description).toBeNull();
     expect(payload.next_cursor).toBeNull();
 
     await server.close();
