@@ -13,6 +13,7 @@
     "test": "bun run test:ci",
     "test:unit": "bun test $(find apps packages -type f -name '*.test.ts' ! -path '*/test/integration/*' | sort)",
     "test:integration": "bun run db:check:test && bun run db:reset:test && bun run db:migrate:test && bun test --max-concurrency=1 $(find apps packages -type f -path '*/test/integration/*.test.ts' | sort)",
+    "test:integration:files": "bun test --max-concurrency=1 $(find apps packages -type f -path '*/test/integration/*.test.ts' | sort)",
     "test:ci": "bun run test:unit && bun run test:integration",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "lint": "bunx @biomejs/biome check apps/ packages/",
