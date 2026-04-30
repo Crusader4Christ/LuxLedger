@@ -65,6 +65,9 @@ export class LedgerService {
     assertNonEmpty(input.ledgerId, 'ledgerId is required');
     assertNonEmpty(input.reference, 'reference is required');
     assertNonEmpty(input.currency, 'currency is required');
+    if (typeof input.description === 'string') {
+      assertNonEmpty(input.description, 'description must be a non-empty string');
+    }
 
     return this.repository.createTransaction(input);
   }

@@ -13,6 +13,7 @@ export class TransactionEntity {
   public readonly ledgerId: LedgerId;
   public readonly reference: string;
   public readonly currency: string;
+  public readonly description: string | null;
   public readonly createdAt: Date | null;
   public readonly entries: EntryEntity[];
 
@@ -22,6 +23,7 @@ export class TransactionEntity {
     ledgerId: LedgerId;
     reference: string;
     currency: string;
+    description?: string | null;
     createdAt?: Date | null;
     entries: EntryEntity[];
   }) {
@@ -30,6 +32,7 @@ export class TransactionEntity {
     this.ledgerId = input.ledgerId;
     this.reference = input.reference;
     this.currency = input.currency;
+    this.description = input.description ?? null;
     this.createdAt = input.createdAt ?? null;
     this.entries = input.entries;
 

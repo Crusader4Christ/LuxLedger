@@ -181,6 +181,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       ledgerId: primaryLedger.id,
       reference: 'integration-happy',
       currency: 'USD',
+      description: 'Original integration description',
       entries: happyPathEntries,
     });
     expect(first.created).toBeTrue();
@@ -195,13 +196,14 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       ledgerId: primaryLedger.id,
       reference: 'integration-happy',
       currency: 'USD',
+      description: 'Changed integration description on retry',
       entries: happyPathEntries,
     });
     expect(retry.created).toBeFalse();
     expect(retry.transactionId).toBe(first.transactionId);
 
     const rowsAfterRetry = await client.db
-      .select({ id: transactions.id })
+      .select({ id: transactions.id, description: transactions.description })
       .from(transactions)
       .where(
         and(
@@ -211,6 +213,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
         ),
       );
     expect(rowsAfterRetry.length).toBe(1);
+    expect(rowsAfterRetry[0]?.description).toBe('Original integration description');
     expect(await getAccountBalance(cashAccountId)).toBe(-100n);
     expect(await getAccountBalance(revenueAccountId)).toBe(100n);
 

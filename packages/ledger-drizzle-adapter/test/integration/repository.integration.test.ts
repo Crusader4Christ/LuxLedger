@@ -86,6 +86,7 @@ const createTransaction = async (input: {
   ledgerId: string;
   reference: string;
   currency: string;
+  description?: string | null;
   createdAt?: Date;
 }): Promise<string> => {
   const [transaction] = await client.db
@@ -95,6 +96,7 @@ const createTransaction = async (input: {
       ledgerId: input.ledgerId,
       reference: input.reference,
       currency: input.currency,
+      description: input.description ?? null,
       createdAt: input.createdAt,
     })
     .returning({ id: transactions.id });
@@ -283,6 +285,7 @@ describe('DrizzleLedgerRepository', () => {
       ledgerId,
       reference: 'success-ref',
       currency: 'USD',
+      description: 'Initial funding',
       entries: [
         {
           accountId: debitAccountId,
@@ -307,6 +310,7 @@ describe('DrizzleLedgerRepository', () => {
       .where(eq(transactions.id, result.transactionId))
       .limit(1);
     expect(transactionRow?.reference).toBe('success-ref');
+    expect(transactionRow?.description).toBe('Initial funding');
 
     const entryRows = await client.db
       .select()
@@ -393,7 +397,7 @@ describe('DrizzleLedgerRepository', () => {
     expect(creditBalance?.balanceMinor).toBe(0n);
   });
 
-  it('createTransaction handles idempotency conflict without duplicate effects', async () => {
+  it('createTransaction handles idempotency conflict without duplicate effects and keeps original description', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
     const debitAccountId = await createAccount({
@@ -414,6 +418,7 @@ describe('DrizzleLedgerRepository', () => {
       ledgerId,
       reference: 'ref-1',
       currency: 'USD',
+      description: 'First description',
       entries: [
         {
           accountId: debitAccountId,
@@ -435,6 +440,7 @@ describe('DrizzleLedgerRepository', () => {
       ledgerId,
       reference: 'ref-1',
       currency: 'USD',
+      description: 'Changed description on retry',
       entries: [
         {
           accountId: debitAccountId,
@@ -466,6 +472,7 @@ describe('DrizzleLedgerRepository', () => {
         ),
       );
     expect(transactionRows.length).toBe(1);
+    expect(transactionRows[0]?.description).toBe('First description');
 
     const entryRows = await client.db
       .select()
@@ -837,6 +844,7 @@ describe('DrizzleLedgerRepository', () => {
       ledgerId,
       reference: 'tx-1',
       currency: 'USD',
+      description: 'Description tx-1',
       createdAt: new Date('2026-01-01T00:10:00.000Z'),
     });
     await createEntry({
@@ -861,6 +869,7 @@ describe('DrizzleLedgerRepository', () => {
       ledgerId,
       reference: 'tx-2',
       currency: 'USD',
+      description: null,
       createdAt: new Date('2026-01-01T00:10:01.000Z'),
     });
     await createEntry({
@@ -944,6 +953,8 @@ describe('DrizzleLedgerRepository', () => {
     expect(secondPage.data.length).toBe(1);
     expect(secondPage.nextCursor).toBeNull();
     expect(secondPage.data[0]?.reference).toBe('tx-3');
+    expect(firstPage.data[0]?.description).toBe('Description tx-1');
+    expect(firstPage.data[1]?.description).toBeNull();
     expect(
       [...firstPage.data, ...secondPage.data].every(
         (transaction) => transaction.tenantId === tenantId,
@@ -986,6 +997,7 @@ describe('DrizzleLedgerRepository', () => {
       ledgerId,
       reference: 'tx-find-1',
       currency: 'USD',
+      description: 'Lookup description',
     });
     await createEntry({
       tenantId,
@@ -1031,6 +1043,7 @@ describe('DrizzleLedgerRepository', () => {
     expect(found).not.toBeNull();
     expect(found?.id.value).toBe(transactionId);
     expect(found?.tenantId).toBe(tenantId);
+    expect(found?.description).toBe('Lookup description');
     expect(found?.entries.length).toBe(2);
 
     const missing = await repository.findTransactionByIdForTenant(

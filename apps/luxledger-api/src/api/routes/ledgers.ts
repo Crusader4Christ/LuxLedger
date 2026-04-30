@@ -12,6 +12,7 @@ interface CreateTransactionBody {
   ledger_id: string;
   reference: string;
   currency: string;
+  description?: string;
   entries: Array<{
     account_id: string;
     direction: EntryDirection;
@@ -87,6 +88,7 @@ export class LedgerRoutes extends BaseRoute {
               },
               reference: NonEmptyTrimmedStringSchema,
               currency: NonEmptyTrimmedStringSchema,
+              description: NonEmptyTrimmedStringSchema,
               entries: {
                 type: 'array',
                 minItems: 2,
@@ -122,6 +124,7 @@ export class LedgerRoutes extends BaseRoute {
             ledgerId: request.body.ledger_id,
             reference: request.body.reference,
             currency: request.body.currency,
+            description: request.body.description,
             entries: request.body.entries.map((entry) => ({
               accountId: entry.account_id,
               direction: entry.direction,

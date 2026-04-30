@@ -61,6 +61,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
       ledger_id: transaction.ledgerId.value,
       reference: transaction.reference,
       currency: transaction.currency,
+      description: transaction.description,
       created_at: transaction.createdAt.toISOString(),
     };
   }

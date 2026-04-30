@@ -98,6 +98,7 @@ export const transactions = pgTable(
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
+    description: text('description'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

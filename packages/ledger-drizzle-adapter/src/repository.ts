@@ -437,6 +437,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             ledgerId: input.ledgerId,
             reference: input.reference,
             currency: input.currency,
+            description: input.description ?? null,
           })
           .onConflictDoNothing({
             target: [schema.transactions.tenantId, schema.transactions.reference],
@@ -577,6 +578,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         ledgerId: input.ledgerId,
         reference: input.reference,
         currency: input.currency,
+        description: input.description ?? null,
         entries: input.entries,
       });
     } catch (error) {
@@ -698,6 +700,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 ledgerId: new LedgerLedgerId(row.ledgerId),
                 reference: row.reference,
                 currency: row.currency,
+                description: row.description,
                 createdAt: row.createdAt,
                 entries: entriesByTransactionId.get(row.id) ?? [],
               }),
@@ -741,6 +744,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           ledgerId: new LedgerLedgerId(row.ledgerId),
           reference: row.reference,
           currency: row.currency,
+          description: row.description,
           createdAt: row.createdAt,
           entries: entriesByTransactionId.get(row.id) ?? [],
         });

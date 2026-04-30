@@ -70,6 +70,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
       ledgerId: new LedgerId(input.ledgerId),
       reference: input.reference,
       currency: input.currency,
+      description: input.description ?? null,
       createdAt: new Date(),
       entries: input.entries.map(
         (entry) =>
@@ -253,6 +254,7 @@ describe('LedgerService', () => {
       ledgerId: 'ledger-1',
       reference: 'ref-1',
       currency: 'USD',
+      description: 'Service-level description',
       entries: [
         {
           accountId: 'account-1',
@@ -271,6 +273,36 @@ describe('LedgerService', () => {
 
     expect(result.transactionId).toBe('tx-1');
     expect(repository.createTransactionCalls).toHaveLength(1);
+    expect(repository.createTransactionCalls[0]?.description).toBe('Service-level description');
+  });
+
+  it('createTransaction validates description when provided', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.createTransaction({
+        tenantId: 'tenant-1',
+        ledgerId: 'ledger-1',
+        reference: 'ref-1',
+        currency: 'USD',
+        description: '   ',
+        entries: [
+          {
+            accountId: 'account-1',
+            direction: EntryDirection.DEBIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+          {
+            accountId: 'account-2',
+            direction: EntryDirection.CREDIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
   it('createTransaction validates required fields', async () => {

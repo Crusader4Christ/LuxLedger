@@ -50,6 +50,7 @@ export class CreateTransactionUseCase {
       ledgerId,
       reference: command.reference,
       currency: command.currency,
+      description: command.description ?? null,
       entries,
     });
 

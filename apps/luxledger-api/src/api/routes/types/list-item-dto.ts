@@ -15,6 +15,7 @@ export type TransactionListItemDto = {
   ledger_id: string;
   reference: string;
   currency: string;
+  description: string | null;
   created_at: string;
 };
 
