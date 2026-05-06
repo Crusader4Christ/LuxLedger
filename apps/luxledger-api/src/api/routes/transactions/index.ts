@@ -1,23 +1,19 @@
+import {
+  type ListTransactionsQueryContract,
+  listTransactionsQuerySchemaExtra,
+  type TransactionByIdParamsContract,
+  type TransactionResponseContract,
+  transactionByIdParamsSchema,
+} from '@api/contracts/transactions';
 import { BasePaginatedRoute, type PaginatedRequest } from '@api/routes/pagination';
-import type { TransactionListItemDto } from '@api/routes/types/list-item-dto';
 import { InvariantViolationError, type TransactionEntity } from '@lux/ledger';
 import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
-interface ListTransactionsQuery {
-  limit?: number;
-  cursor?: string;
-  ledger_id?: string;
-}
-
-interface TransactionByIdParams {
-  id: string;
-}
-
 export class TransactionsRoutes extends BasePaginatedRoute<
   TransactionEntity,
-  TransactionListItemDto,
-  ListTransactionsQuery
+  TransactionResponseContract,
+  ListTransactionsQueryContract
 > {
   protected readonly path = '/v1/transactions';
 
@@ -31,17 +27,10 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   }
 
   protected querystringSchema() {
-    return super.querystringSchema({
-      properties: {
-        ledger_id: {
-          type: 'string',
-          format: 'uuid',
-        },
-      },
-    });
+    return super.querystringSchema(listTransactionsQuerySchemaExtra);
   }
 
-  protected list(request: PaginatedRequest<ListTransactionsQuery>) {
+  protected list(request: PaginatedRequest<ListTransactionsQueryContract>) {
     return this.ledgerService.listTransactions({
       tenantId: request.tenantId as string,
       limit: this.resolveLimit(request.query.limit),
@@ -50,7 +39,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     });
   }
 
-  protected toDto(transaction: TransactionEntity): TransactionListItemDto {
+  protected toDto(transaction: TransactionEntity): TransactionResponseContract {
     if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
       throw new InvariantViolationError('transaction must be persisted before listing');
     }
@@ -67,21 +56,11 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   }
 
   private registerGetTransactionById(server: FastifyInstance): void {
-    server.get<{ Params: TransactionByIdParams }>(
+    server.get<{ Params: TransactionByIdParamsContract }>(
       '/v1/transactions/:id',
       {
         schema: {
-          params: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['id'],
-            properties: {
-              id: {
-                type: 'string',
-                format: 'uuid',
-              },
-            },
-          },
+          params: transactionByIdParamsSchema,
         },
       },
       async (request, reply) =>

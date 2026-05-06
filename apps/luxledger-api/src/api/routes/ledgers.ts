@@ -1,24 +1,15 @@
+import {
+  type CreateTransactionRequestContract,
+  type CreateTransactionResponseContract,
+  createTransactionRequestSchema,
+} from '@api/contracts/transactions';
 import { BaseRoute } from '@api/routes/base-route';
 import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import type { LedgerService } from '@lux/ledger/application';
-import { EntryDirection } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
 interface CreateLedgerBody {
   name: string;
-}
-
-interface CreateTransactionBody {
-  ledger_id: string;
-  reference: string;
-  currency: string;
-  description?: string;
-  entries: Array<{
-    account_id: string;
-    direction: EntryDirection;
-    amount_minor: string;
-    currency: string;
-  }>;
 }
 
 interface LedgerByIdParams {
@@ -73,48 +64,11 @@ export class LedgerRoutes extends BaseRoute {
   }
 
   private registerCreateTransaction(server: FastifyInstance): void {
-    server.post<{ Body: CreateTransactionBody }>(
+    server.post<{ Body: CreateTransactionRequestContract }>(
       '/v1/transactions',
       {
         schema: {
-          body: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['ledger_id', 'reference', 'currency', 'entries'],
-            properties: {
-              ledger_id: {
-                type: 'string',
-                format: 'uuid',
-              },
-              reference: NonEmptyTrimmedStringSchema,
-              currency: NonEmptyTrimmedStringSchema,
-              description: NonEmptyTrimmedStringSchema,
-              entries: {
-                type: 'array',
-                minItems: 2,
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  required: ['account_id', 'direction', 'amount_minor', 'currency'],
-                  properties: {
-                    account_id: {
-                      type: 'string',
-                      format: 'uuid',
-                    },
-                    direction: {
-                      type: 'string',
-                      enum: [...Object.values(EntryDirection)],
-                    },
-                    amount_minor: {
-                      type: 'string',
-                      pattern: '^[1-9][0-9]*$',
-                    },
-                    currency: NonEmptyTrimmedStringSchema,
-                  },
-                },
-              },
-            },
-          },
+          body: createTransactionRequestSchema,
         },
       },
       async (request, reply) => {
@@ -134,10 +88,11 @@ export class LedgerRoutes extends BaseRoute {
           });
 
           const status = result.created ? 201 : 200;
-          return reply.status(status).send({
+          const response: CreateTransactionResponseContract = {
             transaction_id: result.transactionId,
             created: result.created,
-          });
+          };
+          return reply.status(status).send(response);
         });
       },
     );

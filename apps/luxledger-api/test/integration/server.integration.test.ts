@@ -2,6 +2,10 @@ import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import type { JwtAuthConfig } from '@api/auth/jwt';
 import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
+import type {
+  TransactionResponseContract,
+  TransactionsPageContract,
+} from '@api/contracts/transactions';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
@@ -38,6 +42,13 @@ import {
   type TrialBalanceQuery,
 } from '@lux/ledger/application';
 import type { FastifyServerOptions } from 'fastify';
+import {
+  assertCreateTransactionResponseShape,
+  assertOpenApiTransactionContractsSynced,
+  assertTransactionResponseShape,
+  assertTransactionsPageShape,
+  createTransactionRequestFactory,
+} from './transactions-contract.fixtures';
 
 class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
@@ -692,6 +703,7 @@ describe('server', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/yaml');
     expect(response.body).toContain('openapi: 3.1.0');
+    assertOpenApiTransactionContractsSynced(response.body);
 
     await server.close();
   });
@@ -1210,34 +1222,22 @@ describe('server', () => {
     });
     const ledger = parsePayload<Ledger>(ledgerResponse.body);
 
+    const payload = createTransactionRequestFactory(ledger.id);
+    payload.description = 'Invoice #1001';
+
     const response = await server.inject({
       method: 'POST',
       url: '/v1/transactions',
       headers: await authHeaders(server),
-      payload: {
-        ledger_id: ledger.id,
-        reference: 'txn-ref-1',
-        currency: 'USD',
-        description: 'Invoice #1001',
-        entries: [
-          {
-            account_id: '00000000-0000-4000-8000-000000000101',
-            direction: EntryDirection.DEBIT,
-            amount_minor: '100',
-            currency: 'USD',
-          },
-          {
-            account_id: '00000000-0000-4000-8000-000000000102',
-            direction: EntryDirection.CREDIT,
-            amount_minor: '100',
-            currency: 'USD',
-          },
-        ],
-      },
+      payload,
     });
 
     expect(response.statusCode).toBe(201);
-    expect(parsePayload<{ transaction_id: string; created: boolean }>(response.body)).toEqual({
+    const createResponse = parsePayload<{ transaction_id: string; created: boolean }>(
+      response.body,
+    );
+    assertCreateTransactionResponseShape(createResponse);
+    expect(createResponse).toEqual({
       transaction_id: '00000000-0000-4000-8000-000000000300',
       created: true,
     });
@@ -1258,25 +1258,7 @@ describe('server', () => {
     });
     const ledger = parsePayload<Ledger>(ledgerResponse.body);
 
-    const payload = {
-      ledger_id: ledger.id,
-      reference: 'txn-ref-idempotent',
-      currency: 'USD',
-      entries: [
-        {
-          account_id: '00000000-0000-4000-8000-000000000101',
-          direction: EntryDirection.DEBIT,
-          amount_minor: '100',
-          currency: 'USD',
-        },
-        {
-          account_id: '00000000-0000-4000-8000-000000000102',
-          direction: EntryDirection.CREDIT,
-          amount_minor: '100',
-          currency: 'USD',
-        },
-      ],
-    };
+    const payload = createTransactionRequestFactory(ledger.id, 'txn-ref-idempotent');
 
     const first = await server.inject({
       method: 'POST',
@@ -1296,6 +1278,8 @@ describe('server', () => {
 
     const firstBody = parsePayload<{ transaction_id: string; created: boolean }>(first.body);
     const secondBody = parsePayload<{ transaction_id: string; created: boolean }>(second.body);
+    assertCreateTransactionResponseShape(firstBody);
+    assertCreateTransactionResponseShape(secondBody);
     expect(firstBody.transaction_id).toBe(secondBody.transaction_id);
     expect(secondBody.created).toBeFalse();
 
@@ -1725,13 +1709,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{
-      id: string;
-      tenant_id: string;
-      ledger_id: string;
-      reference: string;
-      description: string | null;
-    }>(response.body);
+    const payload = parsePayload<TransactionResponseContract>(response.body);
+    assertTransactionResponseShape(payload);
     expect(payload.id).toBe('00000000-0000-4000-8000-000000000201');
     expect(payload.tenant_id).toBe(VALID_TENANT_ID);
     expect(payload.reference).toBe('tx-ref-1');
@@ -1774,9 +1753,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{ data: Array<{ id: string }>; next_cursor: string | null }>(
-      response.body,
-    );
+    const payload = parsePayload<TransactionsPageContract>(response.body);
+    assertTransactionsPageShape(payload);
     expect(payload.data).toEqual([]);
     expect(payload.next_cursor).toBeNull();
 
@@ -1809,13 +1787,16 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{
-      data: Array<{ id: string; reference: string; description: string | null }>;
-      next_cursor: string | null;
-    }>(response.body);
+    const payload = parsePayload<TransactionsPageContract>(response.body);
+    assertTransactionsPageShape(payload);
     expect(payload.data.length).toBe(1);
-    expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000202');
-    expect(payload.data[0]?.description).toBeNull();
+    const firstTransaction = payload.data[0];
+    if (!firstTransaction) {
+      throw new Error('expected first transaction item in paginated response');
+    }
+    assertTransactionResponseShape(firstTransaction);
+    expect(firstTransaction.id).toBe('00000000-0000-4000-8000-000000000202');
+    expect(firstTransaction.description).toBeNull();
     expect(payload.next_cursor).toBeNull();
 
     await server.close();

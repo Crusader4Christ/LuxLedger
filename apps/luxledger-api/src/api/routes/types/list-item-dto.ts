@@ -1,3 +1,5 @@
+import type { TransactionResponseContract } from '@api/contracts/transactions';
+
 export type AccountListItemDto = {
   id: string;
   tenant_id: string;
@@ -9,15 +11,7 @@ export type AccountListItemDto = {
   created_at: string;
 };
 
-export type TransactionListItemDto = {
-  id: string;
-  tenant_id: string;
-  ledger_id: string;
-  reference: string;
-  currency: string;
-  description: string | null;
-  created_at: string;
-};
+export type TransactionListItemDto = TransactionResponseContract;
 
 export type EntryListItemDto = {
   id: string;
