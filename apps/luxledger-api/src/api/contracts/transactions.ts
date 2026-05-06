@@ -87,6 +87,39 @@ export const createTransactionRequestSchema = {
   },
 } as const;
 
+export const transactionResponseSchema = {
+  type: 'object',
+  required: ['id', 'tenant_id', 'ledger_id', 'reference', 'currency', 'description', 'created_at'],
+  properties: {
+    id: {
+      type: 'string',
+      format: 'uuid',
+    },
+    tenant_id: {
+      type: 'string',
+      format: 'uuid',
+    },
+    ledger_id: {
+      type: 'string',
+      format: 'uuid',
+    },
+    reference: {
+      type: 'string',
+    },
+    currency: {
+      type: 'string',
+    },
+    description: {
+      type: 'string',
+      nullable: true,
+    },
+    created_at: {
+      type: 'string',
+      format: 'date-time',
+    },
+  },
+} as const;
+
 export const transactionByIdParamsSchema = {
   type: 'object',
   additionalProperties: false,
@@ -107,20 +140,3 @@ export const listTransactionsQuerySchemaExtra = {
     },
   },
 } as const;
-
-export const transactionSchemaPropertyNames = [
-  'id',
-  'tenant_id',
-  'ledger_id',
-  'reference',
-  'currency',
-  'description',
-  'created_at',
-] as const;
-
-export const createTransactionRequiredPropertyNames = [
-  'ledger_id',
-  'reference',
-  'currency',
-  'entries',
-] as const;

@@ -2,9 +2,9 @@ import { expect } from 'bun:test';
 import {
   type CreateTransactionRequestContract,
   type CreateTransactionResponseContract,
-  createTransactionRequiredPropertyNames,
+  createTransactionRequestSchema,
   type TransactionResponseContract,
-  transactionSchemaPropertyNames,
+  transactionResponseSchema,
 } from '@api/contracts/transactions';
 import { EntryDirection } from '@lux/ledger/application';
 
@@ -40,7 +40,7 @@ export const assertCreateTransactionResponseShape = (
 
 export const assertTransactionResponseShape = (payload: TransactionResponseContract): void => {
   const keys = Object.keys(payload).sort();
-  expect(keys).toEqual([...transactionSchemaPropertyNames].sort());
+  expect(keys).toEqual(Object.keys(transactionResponseSchema.properties).sort());
 };
 
 export const assertTransactionsPageShape = (payload: {
@@ -53,14 +53,14 @@ export const assertTransactionsPageShape = (payload: {
 
 export const assertOpenApiTransactionContractsSynced = (openapiYaml: string): void => {
   expect(openapiYaml).toContain('required: [ledger_id, reference, currency, entries]');
-  for (const field of createTransactionRequiredPropertyNames) {
+  for (const field of createTransactionRequestSchema.required) {
     expect(openapiYaml).toContain(`${field}`);
   }
 
   expect(openapiYaml).toContain(
     'required: [id, tenant_id, ledger_id, reference, currency, description, created_at]',
   );
-  for (const field of transactionSchemaPropertyNames) {
+  for (const field of Object.keys(transactionResponseSchema.properties)) {
     expect(openapiYaml).toContain(`${field}:`);
   }
 

@@ -1,5 +1,3 @@
-import type { TransactionResponseContract } from '@api/contracts/transactions';
-
 export type AccountListItemDto = {
   id: string;
   tenant_id: string;
@@ -10,8 +8,6 @@ export type AccountListItemDto = {
   balance_minor: string;
   created_at: string;
 };
-
-export type TransactionListItemDto = TransactionResponseContract;
 
 export type EntryListItemDto = {
   id: string;
