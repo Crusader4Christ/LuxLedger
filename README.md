@@ -42,6 +42,8 @@ financial core infrastructure
 - Use access token for API calls: `Authorization: Bearer <jwt>`.
 - JWT signing uses one active key plus optional previous verification keys during rotation. See `apps/luxledger-api/README.md` for env details.
 - Auth and state-changing (`POST /v1/*`) endpoints have configurable fixed-window rate limits with deterministic `429 RATE_LIMIT_EXCEEDED` responses.
+- Operations runbook (bootstrap, API key lifecycle, JWT checks, incidents): `docs/runbooks/operations-auth-mvp.md`.
 - JWT rotation and rollback steps live in `docs/runbooks/jwt-key-rotation.md`.
 - Observability baseline (metrics, structured logs, alerts) lives in `docs/runbooks/observability-mvp.md`.
+- Full docs index: `docs/README.md`.
 - See API contract: `apps/luxledger-api/openapi/openapi.yaml`.
