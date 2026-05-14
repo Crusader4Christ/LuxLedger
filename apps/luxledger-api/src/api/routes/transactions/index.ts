@@ -1,8 +1,8 @@
 import {
-  type ListTransactionsQueryContract,
+  type ListTransactionsQuery,
   listTransactionsQuerySchemaExtra,
-  type TransactionByIdParamsContract,
-  type TransactionResponseContract,
+  type TransactionByIdParams,
+  type TransactionResponse,
   transactionByIdParamsSchema,
 } from '@api/contracts/transactions';
 import { BasePaginatedRoute, type PaginatedRequest } from '@api/routes/pagination';
@@ -12,8 +12,8 @@ import type { FastifyInstance } from 'fastify';
 
 export class TransactionsRoutes extends BasePaginatedRoute<
   TransactionEntity,
-  TransactionResponseContract,
-  ListTransactionsQueryContract
+  TransactionResponse,
+  ListTransactionsQuery
 > {
   protected readonly path = '/v1/transactions';
 
@@ -30,7 +30,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     return super.querystringSchema(listTransactionsQuerySchemaExtra);
   }
 
-  protected list(request: PaginatedRequest<ListTransactionsQueryContract>) {
+  protected list(request: PaginatedRequest<ListTransactionsQuery>) {
     return this.ledgerService.listTransactions({
       tenantId: request.tenantId as string,
       limit: this.resolveLimit(request.query.limit),
@@ -39,7 +39,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     });
   }
 
-  protected toDto(transaction: TransactionEntity): TransactionResponseContract {
+  protected toDto(transaction: TransactionEntity): TransactionResponse {
     if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
       throw new InvariantViolationError('transaction must be persisted before listing');
     }
@@ -56,7 +56,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   }
 
   private registerGetTransactionById(server: FastifyInstance): void {
-    server.get<{ Params: TransactionByIdParamsContract }>(
+    server.get<{ Params: TransactionByIdParams }>(
       '/v1/transactions/:id',
       {
         schema: {

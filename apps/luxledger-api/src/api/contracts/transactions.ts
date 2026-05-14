@@ -1,27 +1,27 @@
 import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import { EntryDirection } from '@lux/ledger/application';
 
-export type TransactionEntryRequestContract = {
+export type TransactionEntryRequest = {
   account_id: string;
   direction: EntryDirection;
   amount_minor: string;
   currency: string;
 };
 
-export type CreateTransactionRequestContract = {
+export type CreateTransactionRequest = {
   ledger_id: string;
   reference: string;
   currency: string;
   description?: string;
-  entries: TransactionEntryRequestContract[];
+  entries: TransactionEntryRequest[];
 };
 
-export type CreateTransactionResponseContract = {
+export type CreateTransactionResponse = {
   transaction_id: string;
   created: boolean;
 };
 
-export type TransactionResponseContract = {
+export type TransactionResponse = {
   id: string;
   tenant_id: string;
   ledger_id: string;
@@ -31,18 +31,18 @@ export type TransactionResponseContract = {
   created_at: string;
 };
 
-export type ListTransactionsQueryContract = {
+export type ListTransactionsQuery = {
   limit?: number;
   cursor?: string;
   ledger_id?: string;
 };
 
-export type TransactionByIdParamsContract = {
+export type TransactionByIdParams = {
   id: string;
 };
 
-export type TransactionsPageContract = {
-  data: TransactionResponseContract[];
+export type TransactionsPage = {
+  data: TransactionResponse[];
   next_cursor: string | null;
 };
 

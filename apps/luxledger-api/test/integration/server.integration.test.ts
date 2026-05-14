@@ -2,10 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import type { JwtAuthConfig } from '@api/auth/jwt';
 import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
-import type {
-  TransactionResponseContract,
-  TransactionsPageContract,
-} from '@api/contracts/transactions';
+import type { TransactionResponse, TransactionsPage } from '@api/contracts/transactions';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
@@ -1709,7 +1706,7 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<TransactionResponseContract>(response.body);
+    const payload = parsePayload<TransactionResponse>(response.body);
     assertTransactionResponseShape(payload);
     expect(payload.id).toBe('00000000-0000-4000-8000-000000000201');
     expect(payload.tenant_id).toBe(VALID_TENANT_ID);
@@ -1753,7 +1750,7 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<TransactionsPageContract>(response.body);
+    const payload = parsePayload<TransactionsPage>(response.body);
     assertTransactionsPageShape(payload);
     expect(payload.data).toEqual([]);
     expect(payload.next_cursor).toBeNull();
@@ -1787,7 +1784,7 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<TransactionsPageContract>(response.body);
+    const payload = parsePayload<TransactionsPage>(response.body);
     assertTransactionsPageShape(payload);
     expect(payload.data.length).toBe(1);
     const firstTransaction = payload.data[0];

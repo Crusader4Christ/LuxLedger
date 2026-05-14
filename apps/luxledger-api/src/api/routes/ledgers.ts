@@ -1,6 +1,6 @@
 import {
-  type CreateTransactionRequestContract,
-  type CreateTransactionResponseContract,
+  type CreateTransactionRequest,
+  type CreateTransactionResponse,
   createTransactionRequestSchema,
 } from '@api/contracts/transactions';
 import { BaseRoute } from '@api/routes/base-route';
@@ -64,7 +64,7 @@ export class LedgerRoutes extends BaseRoute {
   }
 
   private registerCreateTransaction(server: FastifyInstance): void {
-    server.post<{ Body: CreateTransactionRequestContract }>(
+    server.post<{ Body: CreateTransactionRequest }>(
       '/v1/transactions',
       {
         schema: {
@@ -88,7 +88,7 @@ export class LedgerRoutes extends BaseRoute {
           });
 
           const status = result.created ? 201 : 200;
-          const response: CreateTransactionResponseContract = {
+          const response: CreateTransactionResponse = {
             transaction_id: result.transactionId,
             created: result.created,
           };
