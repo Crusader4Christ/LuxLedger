@@ -2,7 +2,8 @@
 
 ## Governance
 
-- [OpenAPI Contract Governance (LL-34 MVP)](./governance/openapi-contract-governance.md)
+- [OpenAPI Contract Governance (LL-35B)](./governance/openapi-contract-governance.md)
+- [OpenAPI Contract Governance Gap Analysis (LL-35A Prep)](./governance/openapi-contract-governance-gap-analysis.md)
 
 ## Runbooks
 

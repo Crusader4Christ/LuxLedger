@@ -1,17 +1,12 @@
-# OpenAPI Contract Governance (LL-34 MVP)
+# OpenAPI Contract Governance (LL-35B)
 
 ## Scope
 
-This policy governs contract drift detection and resolution for:
+This policy governs OpenAPI contract drift detection and remediation for:
 
-- `apps/luxledger-api/openapi/openapi.yaml`
-- HTTP contract-surface implementation files:
-  - `apps/luxledger-api/src/api/routes/**`
-  - `apps/luxledger-api/src/api/schema/**`
-  - `apps/luxledger-api/src/api/errors/**`
-  - `apps/luxledger-api/src/api/server.ts`
-
-Non-goal in LL-34: no reusable framework-agnostic contract-test implementation. That work is tracked in LL-50 (epic LL-46).
+- Contract file: `apps/luxledger-api/openapi/openapi.yaml`
+- Runtime contract source: `apps/luxledger-api/src/api/contracts/transactions.ts`
+- Deterministic verification test: `apps/luxledger-api/test/integration/openapi-contract-governance.integration.test.ts`
 
 ## CI Gating Policy
 
@@ -19,80 +14,50 @@ Non-goal in LL-34: no reusable framework-agnostic contract-test implementation. 
 
 - CI job: `OpenAPI Contract Governance`
 - Trigger: pull requests
-- Rule:
-  - If any contract-surface file changes, `apps/luxledger-api/openapi/openapi.yaml` must also change in the same PR.
+- Command: `.github/scripts/check-openapi-contract-governance.sh`
+- Check command: `bun run contract:verify`
 
 ### Explicit fail conditions
 
-CI fails when all are true:
+CI must fail when deterministic verification detects any mismatch between runtime contract definitions and `apps/luxledger-api/openapi/openapi.yaml` for governed transaction contract surface.
 
-1. PR changes one or more contract-surface files.
-2. PR does not modify `apps/luxledger-api/openapi/openapi.yaml`.
+Examples:
 
-This is treated as contract drift risk. Merge is blocked until resolved.
+1. Runtime contract schema changes but `openapi.yaml` is not aligned.
+2. `openapi.yaml` changes but no longer matches governed runtime contract definitions.
+3. Required OpenAPI contract sections are missing or inconsistent with governed runtime contract fields/statuses.
 
-### Ownership and resolution
+A failed `OpenAPI Contract Governance` check blocks merge until green.
 
-- PR author owns first response and remediation.
-- API reviewers own verification that the remediation is correct.
-- Allowed resolutions:
-  - Update `openapi.yaml` so it matches runtime behavior.
-  - Revert/adjust runtime changes so the contract is unchanged.
+## Local Developer Workflow (Required)
 
-No exceptions for red CI from this check. PR stays blocked until green.
+Before push, authors must run:
 
-## Contributor Workflow
+1. `bun run contract:verify`
+2. If it fails, update runtime contract definitions and/or `apps/luxledger-api/openapi/openapi.yaml` until it passes.
 
-### When OpenAPI must be updated
+No PR is ready for review with a failing `contract:verify` result.
 
-Update `apps/luxledger-api/openapi/openapi.yaml` whenever API behavior changes, including:
+## Contributor and Reviewer Requirements
 
-- endpoint/path changes
-- request payload/params/headers changes
-- response shape/status code changes
-- API error code/body changes exposed to clients
+### Author must
 
-## Pre-merge checks
+1. Determine whether API contract behavior changed.
+2. Update `apps/luxledger-api/openapi/openapi.yaml` when required.
+3. Run `bun run contract:verify` locally and ensure pass.
+4. Keep PR blocked until `OpenAPI Contract Governance` in CI is green.
 
-Before merge, all must be true:
+### Reviewer must
 
-1. `OpenAPI Contract Governance` CI check is green.
-2. Existing required CI checks are green (unit/typecheck/integration).
-3. PR checklist contract items are completed.
-4. Reviewer checklist contract items are completed for contract-impacting PRs.
+1. Verify runtime API behavior in changed code is consistent with `apps/luxledger-api/openapi/openapi.yaml`.
+2. Verify request/response/status/error definitions exposed to clients match the OpenAPI contract.
+3. Require green `OpenAPI Contract Governance` before approval/merge.
 
-## Step-by-step flow
+## Resolution Rules
 
-### Flow A: Contract changed
+If governance fails, only these resolutions are allowed:
 
-1. Implement API/runtime changes.
-2. Update `apps/luxledger-api/openapi/openapi.yaml` in same PR.
-3. Validate locally as needed (`bun run test:unit`, `bun run typecheck`, integration checks when relevant).
-4. Mark contract-change items in PR template.
-5. Request API review; reviewers verify runtime vs OpenAPI consistency.
-6. Merge only after all required CI checks are green.
+1. Update `apps/luxledger-api/openapi/openapi.yaml` to match runtime contract behavior.
+2. Revert/adjust runtime contract behavior to match existing `openapi.yaml`.
 
-### Flow B: Contract unchanged
-
-1. Implement internal-only change.
-2. Do not modify `openapi.yaml`.
-3. Mark PR template item confirming no contract impact.
-4. Reviewers confirm contract surface is unchanged.
-5. Merge only after all required CI checks are green.
-
-## PR and Review Governance
-
-- PR template includes deterministic contract assertions by author.
-- Reviewer checklist is mandatory for API contract-impacting changes.
-- "Looks fine" is not sufficient when contract files or contract-surface files changed.
-
-## Ambiguity Guardrails
-
-The LL-34 guard is intentionally lightweight and may miss drift from changes outside the scoped file list.
-
-To avoid silent drift:
-
-- If behavior visible to API clients changes from any file outside listed contract-surface paths, treat it as contract-impacting and update `openapi.yaml`.
-- If uncertain, classify as contract-impacting.
-
-Future hardening (LL-50) will provide broader automated mismatch detection.
+No override process exists for red `OpenAPI Contract Governance`.
