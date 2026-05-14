@@ -24,8 +24,8 @@ Out of scope for this phase:
 - `.env` is configured from `.env.example` and contains:
   - `DATABASE_URL=postgresql://luxledger:luxledger@127.0.0.1:5432/luxledger`
   - `DATABASE_URL_TEST=postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test`
-- PostgreSQL client tools are available locally:
-  - Not required on host; backup/restore is executed through Docker containers.
+- PostgreSQL client tools are available inside Docker Postgres containers.
+  - They are not required on the host machine.
 - Export database URLs in the same shell before running commands:
 
 ```sh
