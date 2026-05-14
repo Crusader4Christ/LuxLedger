@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { issueAccessToken, verifyAccessToken } from '@api/auth/jwt';
+import {
+  type AuthTokenRequestHeaders,
+  type AuthTokenResponse,
+  authTokenResponseSchema,
+} from '@api/contracts/auth-admin';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { ApiMetrics } from '@api/observability/metrics';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
@@ -366,22 +371,34 @@ export const registerApplication = (
     );
   });
 
-  server.post(TOKEN_ENDPOINT, async (request, reply) => {
-    const accessToken = issueAccessToken(
-      {
-        apiKeyId: request.apiKeyId as string,
-        tenantId: request.tenantId as string,
-        role: request.apiKeyRole as ApiKeyRole,
+  server.post<{ Headers: AuthTokenRequestHeaders }>(
+    TOKEN_ENDPOINT,
+    {
+      schema: {
+        response: {
+          200: authTokenResponseSchema,
+        },
       },
-      dependencies.jwtAuth,
-    );
+    },
+    async (request, reply) => {
+      const accessToken = issueAccessToken(
+        {
+          apiKeyId: request.apiKeyId as string,
+          tenantId: request.tenantId as string,
+          role: request.apiKeyRole as ApiKeyRole,
+        },
+        dependencies.jwtAuth,
+      );
 
-    return reply.status(200).send({
-      access_token: accessToken,
-      token_type: 'Bearer',
-      expires_in: dependencies.jwtAuth.accessTokenTtlSeconds,
-    });
-  });
+      const response: AuthTokenResponse = {
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: dependencies.jwtAuth.accessTokenTtlSeconds,
+      };
+
+      return reply.status(200).send(response);
+    },
+  );
 
   new LedgerRoutes(dependencies.ledgerService).register(server);
   new AccountsRoutes(dependencies.ledgerService).register(server);

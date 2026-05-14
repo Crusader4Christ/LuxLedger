@@ -60,6 +60,8 @@ bun run dev
   - Risks
 - No direct commits to main
 - Small PRs (≤ 400 lines if possible)
+- Always run `git fetch origin main` (or equivalent fetch from `main`) with escalation first, so branch creation is guaranteed from the latest `main` without sandbox retry loops.
+- When passing shell arguments that include prose (for example `gh pr create --body`), never use backticks in the inline argument text because `zsh` treats them as command substitution. Prefer plain text without backticks, single-quoted heredoc (`<<'EOF'`), or file-based body input.
 
 ## Definition of Done
 - All `@lux/ledger` domain invariants covered by tests

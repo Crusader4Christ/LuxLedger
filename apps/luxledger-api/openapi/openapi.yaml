@@ -399,16 +399,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [name, role]
-              properties:
-                name:
-                  type: string
-                  minLength: 1
-                role:
-                  type: string
-                  enum: [ADMIN, SERVICE]
+              $ref: '#/components/schemas/CreateApiKeyRequest'
       responses:
         '201':
           description: API key created
@@ -426,12 +417,7 @@ paths:
     post:
       summary: Revoke API key (admin only)
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/ApiKeyIdPath'
       responses:
         '204':
           description: API key revoked
@@ -474,6 +460,13 @@ components:
         type: string
         format: uuid
       required: false
+    ApiKeyIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
     BadRequestError:
       description: Invalid input
@@ -522,12 +515,24 @@ components:
           type: string
         token_type:
           type: string
-          enum: [Bearer]
+          const: Bearer
         expires_in:
           type: integer
           minimum: 300
           maximum: 900
+          default: 900
           description: Access token TTL in seconds. Default is 900.
+    CreateApiKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [name, role]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        role:
+          type: string
+          enum: [ADMIN, SERVICE]
     Ledger:
       type: object
       required: [id, tenantId, name, createdAt, updatedAt]

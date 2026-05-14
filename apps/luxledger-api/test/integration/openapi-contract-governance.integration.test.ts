@@ -5,6 +5,7 @@ import {
   createTransactionRequestSchema,
   transactionResponseSchema,
 } from '@api/contracts/transactions';
+import { assertOpenApiAuthAdminContractsSynced } from './auth-admin-contract.fixtures';
 import { assertOpenApiTransactionContractsSynced } from './transactions-contract.fixtures';
 
 const OPENAPI_SPEC_PATH = resolve(import.meta.dir, '../../openapi/openapi.yaml');
@@ -57,10 +58,16 @@ describe('openapi contract governance', () => {
 
     assertOpenApiTransactionContractsSynced(openapiYaml);
 
-    const createTransactionSection = extractPathMethodSection(openapiYaml, '/v1/transactions', 'post');
+    const createTransactionSection = extractPathMethodSection(
+      openapiYaml,
+      '/v1/transactions',
+      'post',
+    );
     expect(createTransactionSection).toContain("'201':");
     expect(createTransactionSection).toContain("'200':");
-    expect(createTransactionSection).toContain("$ref: '#/components/schemas/CreateTransactionResponse'");
+    expect(createTransactionSection).toContain(
+      "$ref: '#/components/schemas/CreateTransactionResponse'",
+    );
 
     for (const field of createTransactionRequestSchema.required) {
       expect(createTransactionSection).toContain(field);
@@ -75,12 +82,25 @@ describe('openapi contract governance', () => {
       expect(transactionSchemaSection).toContain(field);
     }
 
-    const createTransactionResponseSection = extractSchemaSection(openapiYaml, 'CreateTransactionResponse');
+    const createTransactionResponseSection = extractSchemaSection(
+      openapiYaml,
+      'CreateTransactionResponse',
+    );
     expect(createTransactionResponseSection).toContain('required: [transaction_id, created]');
     expect(createTransactionResponseSection).toContain('transaction_id:');
     expect(createTransactionResponseSection).toContain('created:');
 
-    const listTransactionsSection = extractPathMethodSection(openapiYaml, '/v1/transactions', 'get');
+    const listTransactionsSection = extractPathMethodSection(
+      openapiYaml,
+      '/v1/transactions',
+      'get',
+    );
     expect(listTransactionsSection).toContain("$ref: '#/components/schemas/TransactionsPage'");
+  });
+
+  it('keeps auth/admin contract schemas synchronized with openapi.yaml', () => {
+    const openapiYaml = readOpenApiSpec();
+
+    assertOpenApiAuthAdminContractsSynced(openapiYaml);
   });
 });
