@@ -47,7 +47,6 @@ export type RevokeApiKeyResponse = undefined;
 
 export const authTokenResponseSchema = {
   type: 'object',
-  additionalProperties: false,
   required: ['access_token', 'token_type', 'expires_in'],
   properties: {
     access_token: {
@@ -68,7 +67,6 @@ export const authTokenResponseSchema = {
 
 export const apiKeyContractSchema = {
   type: 'object',
-  additionalProperties: false,
   required: ['id', 'tenant_id', 'name', 'role', 'created_at', 'revoked_at'],
   properties: {
     id: {
@@ -100,7 +98,6 @@ export const apiKeyContractSchema = {
 
 export const listApiKeysResponseSchema = {
   type: 'object',
-  additionalProperties: false,
   required: ['data'],
   properties: {
     data: {
@@ -125,7 +122,6 @@ export const createApiKeyBodySchema = {
 
 export const createApiKeyResponseSchema = {
   type: 'object',
-  additionalProperties: false,
   required: ['api_key', 'key'],
   properties: {
     api_key: {

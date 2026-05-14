@@ -509,7 +509,6 @@ components:
           type: string
     AuthTokenResponse:
       type: object
-      additionalProperties: false
       required: [access_token, token_type, expires_in]
       properties:
         access_token:
@@ -734,7 +733,6 @@ components:
           type: string
     ApiKey:
       type: object
-      additionalProperties: false
       required: [id, tenant_id, name, role, created_at, revoked_at]
       properties:
         id:

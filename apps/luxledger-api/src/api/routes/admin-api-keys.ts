@@ -100,11 +100,6 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
       {
         schema: {
           params: revokeApiKeyParamsSchema,
-          response: {
-            204: {
-              type: 'null',
-            },
-          },
         },
       },
       async (request, reply) => {
