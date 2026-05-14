@@ -35,7 +35,8 @@ financial core infrastructure
 
 - The unit job runs `bun run test:unit` and `bun run typecheck` without PostgreSQL.
 - The integration job provisions PostgreSQL 16, checks connectivity, resets the ephemeral test database, runs migrations, and then runs `bun run test:integration:files`.
-- Pull requests must pass `OpenAPI Contract Governance`: if API contract-surface files change, `apps/luxledger-api/openapi/openapi.yaml` must change in the same PR.
+- Pull requests must pass `OpenAPI Contract Governance`: deterministic verification fails on runtime/OpenAPI mismatch for governed contract surface.
+- Local pre-push contract check: `bun run contract:verify`.
 
 ## API auth flow
 

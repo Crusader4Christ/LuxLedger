@@ -15,11 +15,11 @@
 
 - [ ] I evaluated whether this PR impacts external API contract behavior.
 - [ ] If API contract behavior changed, I updated `apps/luxledger-api/openapi/openapi.yaml` in this PR.
-- [ ] If API contract behavior did not change, I confirm no contract-surface files introduced behavior drift.
-- [ ] I verified required checks are green (including `OpenAPI Contract Governance`).
+- [ ] I ran `bun run contract:verify` locally; it must pass before push.
+- [ ] I understand merge is blocked until `OpenAPI Contract Governance` is green.
 
 ## Reviewer Checklist (For API Contract-Impacting Changes)
 
 - [ ] Runtime API behavior in changed code is consistent with `apps/luxledger-api/openapi/openapi.yaml`.
 - [ ] Request/response/status/error definitions exposed to clients match the OpenAPI contract.
-- [ ] CI is green, and `OpenAPI Contract Governance` passed without overrides.
+- [ ] CI is green, and `OpenAPI Contract Governance` passed (required, no exceptions).
