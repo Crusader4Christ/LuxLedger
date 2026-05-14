@@ -1,25 +1,23 @@
+import {
+  type ApiKeyContract,
+  type CreateApiKeyRequest,
+  createApiKeyBodySchema,
+  createApiKeyResponseSchema,
+  listApiKeysResponseSchema,
+  type RevokeApiKeyParams,
+  revokeApiKeyParamsSchema,
+} from '@api/contracts/auth-admin';
 import { BaseEntityRoute } from '@api/routes/base-route';
-import type { CreateApiKeyBody, RevokeApiKeyParams } from '@api/routes/types/admin-api-key-route';
-import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import type { ApiKeyEntity } from '@lux/ledger';
-import { ApiKeyRole, type ApiKeyService } from '@lux/ledger/application';
+import type { ApiKeyRole, ApiKeyService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
-interface ApiKeyListItemDto {
-  id: string;
-  tenant_id: string;
-  name: string;
-  role: string;
-  created_at: string;
-  revoked_at: string | null;
-}
-
-export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyListItemDto> {
+export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContract> {
   public constructor(private readonly apiKeyService: ApiKeyService) {
     super();
   }
 
-  protected toDto(key: ApiKeyEntity): ApiKeyListItemDto {
+  protected toDto(key: ApiKeyEntity): ApiKeyContract {
     return {
       id: key.id,
       tenant_id: key.tenantId,
@@ -37,21 +35,13 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyListI
   }
 
   private registerCreateApiKey(server: FastifyInstance): void {
-    server.post<{ Body: CreateApiKeyBody }>(
+    server.post<{ Body: CreateApiKeyRequest }>(
       '/v1/admin/api-keys',
       {
         schema: {
-          body: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['name', 'role'],
-            properties: {
-              name: NonEmptyTrimmedStringSchema,
-              role: {
-                type: 'string',
-                enum: [...Object.values(ApiKeyRole)],
-              },
-            },
+          body: createApiKeyBodySchema,
+          response: {
+            201: createApiKeyResponseSchema,
           },
         },
       },
@@ -80,18 +70,27 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyListI
   }
 
   private registerListApiKeys(server: FastifyInstance): void {
-    server.get('/v1/admin/api-keys', async (request, reply) =>
-      this.handle(reply, async () => {
-        const keys = await this.apiKeyService.listApiKeys({
-          apiKeyId: request.apiKeyId as string,
-          tenantId: request.tenantId as string,
-          role: request.apiKeyRole as ApiKeyRole,
-        });
+    server.get(
+      '/v1/admin/api-keys',
+      {
+        schema: {
+          response: {
+            200: listApiKeysResponseSchema,
+          },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const keys = await this.apiKeyService.listApiKeys({
+            apiKeyId: request.apiKeyId as string,
+            tenantId: request.tenantId as string,
+            role: request.apiKeyRole as ApiKeyRole,
+          });
 
-        return reply.status(200).send({
-          data: this.dtoList(keys),
-        });
-      }),
+          return reply.status(200).send({
+            data: this.dtoList(keys),
+          });
+        }),
     );
   }
 
@@ -100,15 +99,10 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyListI
       '/v1/admin/api-keys/:id/revoke',
       {
         schema: {
-          params: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['id'],
-            properties: {
-              id: {
-                type: 'string',
-                format: 'uuid',
-              },
+          params: revokeApiKeyParamsSchema,
+          response: {
+            204: {
+              type: 'null',
             },
           },
         },

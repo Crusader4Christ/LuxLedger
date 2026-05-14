@@ -2,6 +2,11 @@ import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import type { JwtAuthConfig } from '@api/auth/jwt';
 import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
+import type {
+  AuthTokenResponse,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+} from '@api/contracts/auth-admin';
 import type { TransactionResponse, TransactionsPage } from '@api/contracts/transactions';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
@@ -39,6 +44,12 @@ import {
   type TrialBalanceQuery,
 } from '@lux/ledger/application';
 import type { FastifyServerOptions } from 'fastify';
+import {
+  assertAuthTokenResponseShape,
+  assertCreateApiKeyResponseShape,
+  assertOpenApiAuthAdminContractsSynced,
+  createApiKeyRequestFactory,
+} from './auth-admin-contract.fixtures';
 import {
   assertCreateTransactionResponseShape,
   assertOpenApiTransactionContractsSynced,
@@ -599,12 +610,8 @@ const issueToken = async (
   });
 
   expect(response.statusCode).toBe(200);
-  const payload = parsePayload<{
-    access_token: string;
-    token_type: string;
-    expires_in: number;
-  }>(response.body);
-  expect(payload.token_type).toBe('Bearer');
+  const payload = parsePayload<AuthTokenResponse>(response.body);
+  assertAuthTokenResponseShape(payload);
   expect(payload.expires_in).toBe(JWT_TTL_SECONDS);
   return payload.access_token;
 };
@@ -701,6 +708,7 @@ describe('server', () => {
     expect(response.headers['content-type']).toContain('application/yaml');
     expect(response.body).toContain('openapi: 3.1.0');
     assertOpenApiTransactionContractsSynced(response.body);
+    assertOpenApiAuthAdminContractsSynced(response.body);
 
     await server.close();
   });
@@ -2013,20 +2021,20 @@ describe('server', () => {
   it('POST /v1/admin/api-keys creates key for tenant', async () => {
     const server = createServer();
 
+    const requestPayload: CreateApiKeyRequest = createApiKeyRequestFactory(
+      'New service key',
+      ApiKeyRole.SERVICE,
+    );
     const response = await server.inject({
       method: 'POST',
       url: '/v1/admin/api-keys',
       headers: await authHeaders(server),
-      payload: {
-        name: 'New service key',
-        role: ApiKeyRole.SERVICE,
-      },
+      payload: requestPayload,
     });
 
     expect(response.statusCode).toBe(201);
-    const payload = parsePayload<{ api_key: string; key: { tenant_id: string; role: string } }>(
-      response.body,
-    );
+    const payload = parsePayload<CreateApiKeyResponse>(response.body);
+    assertCreateApiKeyResponseShape(payload);
     expect(payload.api_key.startsWith('llk_')).toBeTrue();
     expect(payload.key.tenant_id).toBe(VALID_TENANT_ID);
     expect(payload.key.role).toBe(ApiKeyRole.SERVICE);
