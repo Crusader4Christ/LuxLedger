@@ -35,6 +35,7 @@ financial core infrastructure
 
 - The unit job runs `bun run test:unit` and `bun run typecheck` without PostgreSQL.
 - The integration job provisions PostgreSQL 16, checks connectivity, resets the ephemeral test database, runs migrations, and then runs `bun run test:integration:files`.
+- Pull requests must pass `OpenAPI Contract Governance`: if API contract-surface files change, `apps/luxledger-api/openapi/openapi.yaml` must change in the same PR.
 
 ## API auth flow
 
@@ -45,5 +46,6 @@ financial core infrastructure
 - Operations runbook (bootstrap, API key lifecycle, JWT checks, incidents): `docs/runbooks/operations-auth-mvp.md`.
 - JWT rotation and rollback steps live in `docs/runbooks/jwt-key-rotation.md`.
 - Observability baseline (metrics, structured logs, alerts) lives in `docs/runbooks/observability-mvp.md`.
+- OpenAPI contract governance policy (CI gating + PR/reviewer process) lives in `docs/governance/openapi-contract-governance.md`.
 - Full docs index: `docs/README.md`.
 - See API contract: `apps/luxledger-api/openapi/openapi.yaml`.
