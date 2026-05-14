@@ -9,16 +9,6 @@ export type AccountListItemDto = {
   created_at: string;
 };
 
-export type TransactionListItemDto = {
-  id: string;
-  tenant_id: string;
-  ledger_id: string;
-  reference: string;
-  currency: string;
-  description: string | null;
-  created_at: string;
-};
-
 export type EntryListItemDto = {
   id: string;
   transaction_id: string;

@@ -1,22 +1,18 @@
+import {
+  type ListTransactionsQuery,
+  listTransactionsQuerySchemaExtra,
+  type TransactionByIdParams,
+  type TransactionResponse,
+  transactionByIdParamsSchema,
+} from '@api/contracts/transactions';
 import { BasePaginatedRoute, type PaginatedRequest } from '@api/routes/pagination';
-import type { TransactionListItemDto } from '@api/routes/types/list-item-dto';
 import { InvariantViolationError, type TransactionEntity } from '@lux/ledger';
 import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
-interface ListTransactionsQuery {
-  limit?: number;
-  cursor?: string;
-  ledger_id?: string;
-}
-
-interface TransactionByIdParams {
-  id: string;
-}
-
 export class TransactionsRoutes extends BasePaginatedRoute<
   TransactionEntity,
-  TransactionListItemDto,
+  TransactionResponse,
   ListTransactionsQuery
 > {
   protected readonly path = '/v1/transactions';
@@ -31,14 +27,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   }
 
   protected querystringSchema() {
-    return super.querystringSchema({
-      properties: {
-        ledger_id: {
-          type: 'string',
-          format: 'uuid',
-        },
-      },
-    });
+    return super.querystringSchema(listTransactionsQuerySchemaExtra);
   }
 
   protected list(request: PaginatedRequest<ListTransactionsQuery>) {
@@ -50,7 +39,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     });
   }
 
-  protected toDto(transaction: TransactionEntity): TransactionListItemDto {
+  protected toDto(transaction: TransactionEntity): TransactionResponse {
     if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
       throw new InvariantViolationError('transaction must be persisted before listing');
     }
@@ -71,17 +60,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
       '/v1/transactions/:id',
       {
         schema: {
-          params: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['id'],
-            properties: {
-              id: {
-                type: 'string',
-                format: 'uuid',
-              },
-            },
-          },
+          params: transactionByIdParamsSchema,
         },
       },
       async (request, reply) =>
