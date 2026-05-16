@@ -1,5 +1,7 @@
 import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 
+// Contracts-first transport schema: this module is the shared source for
+// Fastify route validation, DTO typing, and OpenAPI governance assertions.
 export type CreateAccountRequest = {
   ledger_id: string;
   name: string;
@@ -44,7 +46,8 @@ export const createAccountBodySchema = {
     },
     name: NonEmptyTrimmedStringSchema,
     side: {
-      ...NonEmptyTrimmedStringSchema,
+      type: 'string',
+      enum: ['DEBIT', 'CREDIT'],
     },
     currency: NonEmptyTrimmedStringSchema,
   },

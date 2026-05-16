@@ -1622,7 +1622,7 @@ describe('server', () => {
     await server.close();
   });
 
-  it('POST /v1/accounts validates side through package service', async () => {
+  it('POST /v1/accounts validates side at route contract level', async () => {
     const server = createServer();
 
     const createLedgerResponse = await server.inject({
@@ -1650,7 +1650,7 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(400);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
-    expect(payload.error).toBe('INVARIANT_VIOLATION');
+    expect(payload.error).toBe('INVALID_INPUT');
 
     await server.close();
   });
