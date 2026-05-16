@@ -36,6 +36,12 @@
       "@lux/ledger-drizzle-adapter/*": [
         "packages/ledger-drizzle-adapter/src/*"
       ],
+      "@lux/ledger-express-adapter": [
+        "packages/ledger-express-adapter/src/index.ts"
+      ],
+      "@lux/ledger-express-adapter/*": [
+        "packages/ledger-express-adapter/src/*"
+      ],
       "@lux/ledger-fastify-adapter": [
         "packages/ledger-fastify-adapter/src/index.ts"
       ],
