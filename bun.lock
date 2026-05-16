@@ -34,6 +34,13 @@
         "postgres": "^3.4.8",
       },
     },
+    "packages/ledger-http": {
+      "name": "@lux/ledger-http",
+      "version": "0.1.0",
+      "dependencies": {
+        "@lux/ledger": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@biomejs/biome": ["@biomejs/biome@2.4.4", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.4.4", "@biomejs/cli-darwin-x64": "2.4.4", "@biomejs/cli-linux-arm64": "2.4.4", "@biomejs/cli-linux-arm64-musl": "2.4.4", "@biomejs/cli-linux-x64": "2.4.4", "@biomejs/cli-linux-x64-musl": "2.4.4", "@biomejs/cli-win32-arm64": "2.4.4", "@biomejs/cli-win32-x64": "2.4.4" }, "bin": { "biome": "bin/biome" } }, "sha512-tigwWS5KfJf0cABVd52NVaXyAVv4qpUXOWJ1rxFL8xF1RVoeS2q/LK+FHgYoKMclJCuRoCWAPy1IXaN9/mS61Q=="],
@@ -127,6 +134,8 @@
     "@lux/ledger": ["@lux/ledger@workspace:packages/ledger"],
 
     "@lux/ledger-drizzle-adapter": ["@lux/ledger-drizzle-adapter@workspace:packages/ledger-drizzle-adapter"],
+
+    "@lux/ledger-http": ["@lux/ledger-http@workspace:packages/ledger-http"],
 
     "@pinojs/redact": ["@pinojs/redact@0.4.0", "", {}, "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg=="],
 
