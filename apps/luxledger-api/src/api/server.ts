@@ -12,11 +12,7 @@ import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { ApiMetrics } from '@api/observability/metrics';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
 import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
-import { AccountsRoutes } from '@api/routes/accounts';
-import { AdminApiKeyRoutes } from '@api/routes/admin-api-keys';
-import { EntriesListRoute } from '@api/routes/entries';
-import { LedgerRoutes } from '@api/routes/ledgers';
-import { TransactionsRoutes } from '@api/routes/transactions';
+import { registerLedgerFastifyAdapter } from '@lux/ledger-fastify-adapter';
 import type { ApplicationDependencies, CreateServerCoreOptions } from '@api/server-types';
 import { ApiKeyRole, ForbiddenError, UnauthorizedError } from '@lux/ledger/application';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -400,9 +396,8 @@ export const registerApplication = (
     },
   );
 
-  new LedgerRoutes(dependencies.ledgerService).register(server);
-  new AccountsRoutes(dependencies.ledgerService).register(server);
-  new TransactionsRoutes(dependencies.ledgerService).register(server);
-  new EntriesListRoute(dependencies.ledgerService).register(server);
-  new AdminApiKeyRoutes(dependencies.apiKeyService).register(server);
+  registerLedgerFastifyAdapter(server, {
+    ledgerService: dependencies.ledgerService,
+    apiKeyService: dependencies.apiKeyService,
+  });
 };

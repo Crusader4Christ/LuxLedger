@@ -15,16 +15,44 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@api/*": ["apps/luxledger-api/src/api/*"],
-      "@lux/ledger": ["packages/ledger/src/index.ts"],
-      "@lux/ledger/*": ["packages/ledger/src/*"],
-      "@lux/ledger-http": ["packages/ledger-http/src/index.ts"],
-      "@lux/ledger-http/*": ["packages/ledger-http/src/*"],
-      "@lux/ledger-drizzle-adapter": ["packages/ledger-drizzle-adapter/src/index.ts"],
-      "@lux/ledger-drizzle-adapter/*": ["packages/ledger-drizzle-adapter/src/*"]
+      "@api/*": [
+        "apps/luxledger-api/src/api/*"
+      ],
+      "@lux/ledger": [
+        "packages/ledger/src/index.ts"
+      ],
+      "@lux/ledger/*": [
+        "packages/ledger/src/*"
+      ],
+      "@lux/ledger-http": [
+        "packages/ledger-http/src/index.ts"
+      ],
+      "@lux/ledger-http/*": [
+        "packages/ledger-http/src/*"
+      ],
+      "@lux/ledger-drizzle-adapter": [
+        "packages/ledger-drizzle-adapter/src/index.ts"
+      ],
+      "@lux/ledger-drizzle-adapter/*": [
+        "packages/ledger-drizzle-adapter/src/*"
+      ],
+      "@lux/ledger-fastify-adapter": [
+        "packages/ledger-fastify-adapter/src/index.ts"
+      ],
+      "@lux/ledger-fastify-adapter/*": [
+        "packages/ledger-fastify-adapter/src/*"
+      ]
     },
-    "types": ["bun-types"]
+    "types": [
+      "bun-types"
+    ]
   },
-  "include": ["packages/**/*.ts", "apps/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "packages/**/*.ts",
+    "apps/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }
