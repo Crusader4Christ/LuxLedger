@@ -8,11 +8,12 @@
     ".": "./src/index.ts",
     "./contracts": "./src/contracts.ts",
     "./errors": "./src/errors.ts",
-    "./route-specs": "./src/route-specs.ts",
     "./accounts": "./src/accounts.ts",
     "./auth-admin": "./src/auth-admin.ts",
     "./entries": "./src/entries.ts",
-    "./ledgers": "./src/ledgers.ts"
+    "./ledgers": "./src/ledgers.ts",
+    "./route-specs": "./src/route-specs.ts",
+    "./transactions": "./src/transactions.ts"
   },
   "dependencies": {
     "@lux/ledger": "workspace:*"
