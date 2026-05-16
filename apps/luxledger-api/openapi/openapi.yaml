@@ -96,13 +96,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [name]
-              properties:
-                name:
-                  type: string
-                  minLength: 1
+              $ref: '#/components/schemas/CreateLedgerRequest'
       responses:
         '201':
           description: Ledger created
@@ -122,9 +116,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Ledger'
+                $ref: '#/components/schemas/LedgersListResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
   /v1/ledgers/{id}:
@@ -551,6 +543,18 @@ components:
         updatedAt:
           type: string
           format: date-time
+    LedgersListResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/Ledger'
+    CreateLedgerRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
     CreateTransactionResponse:
       type: object
       required: [transaction_id, created]
@@ -713,7 +717,7 @@ components:
           type: array
           items:
             type: object
-            required: [account_id, code, name, normal_balance, balance]
+            required: [account_id, code, name, normal_balance, balance, is_contra]
             properties:
               account_id:
                 type: string
@@ -727,6 +731,8 @@ components:
                 enum: [DEBIT, CREDIT]
               balance:
                 type: string
+              is_contra:
+                type: boolean
         total_debits:
           type: string
         total_credits:
