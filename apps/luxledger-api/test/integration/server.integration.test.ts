@@ -3,6 +3,11 @@ import { createHash } from 'node:crypto';
 import type { JwtAuthConfig } from '@api/auth/jwt';
 import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
 import type {
+  AccountResponse,
+  AccountsPageResponse,
+  CreateAccountRequest,
+} from '@api/contracts/accounts';
+import type {
   AuthTokenResponse,
   CreateApiKeyRequest,
   CreateApiKeyResponse,
@@ -44,6 +49,12 @@ import {
   type TrialBalanceQuery,
 } from '@lux/ledger/application';
 import type { FastifyServerOptions } from 'fastify';
+import {
+  assertAccountResponseShape,
+  assertAccountsPageShape,
+  assertOpenApiAccountsContractsSynced,
+  createAccountRequestFactory,
+} from './accounts-contract.fixtures';
 import {
   assertAuthTokenResponseShape,
   assertCreateApiKeyResponseShape,
@@ -709,6 +720,7 @@ describe('server', () => {
     expect(response.body).toContain('openapi: 3.1.0');
     assertOpenApiTransactionContractsSynced(response.body);
     assertOpenApiAuthAdminContractsSynced(response.body);
+    assertOpenApiAccountsContractsSynced(response.body);
 
     await server.close();
   });
@@ -1488,10 +1500,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{
-      data: Array<{ id: string; side: EntryDirection; balance_minor: string }>;
-      next_cursor: string | null;
-    }>(response.body);
+    const payload = parsePayload<AccountsPageResponse>(response.body);
+    assertAccountsPageShape(payload);
     expect(payload.data.length).toBe(1);
     expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000101');
     expect(payload.data[0]?.side).toBe(EntryDirection.DEBIT);
@@ -1511,10 +1521,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{
-      data: Array<{ id: string; ledger_id: string }>;
-      next_cursor: string | null;
-    }>(response.body);
+    const payload = parsePayload<AccountsPageResponse>(response.body);
+    assertAccountsPageShape(payload);
     expect(payload.data.length).toBe(1);
     expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000103');
     expect(payload.data[0]?.ledger_id).toBe('00000000-0000-4000-8000-000000000002');
@@ -1537,29 +1545,17 @@ describe('server', () => {
     expect(createLedgerResponse.statusCode).toBe(201);
     const createdLedger = parsePayload<Ledger>(createLedgerResponse.body);
 
+    const requestBody: CreateAccountRequest = createAccountRequestFactory(createdLedger.id);
     const response = await server.inject({
       method: 'POST',
       url: '/v1/accounts',
       headers: await authHeaders(server),
-      payload: {
-        ledger_id: createdLedger.id,
-        name: 'Cash',
-        side: AccountSide.DEBIT,
-        currency: 'USD',
-      },
+      payload: requestBody,
     });
 
     expect(response.statusCode).toBe(201);
-    const payload = parsePayload<{
-      id: string;
-      tenant_id: string;
-      ledger_id: string;
-      name: string;
-      side: AccountSide;
-      currency: string;
-      balance_minor: string;
-      created_at: string;
-    }>(response.body);
+    const payload = parsePayload<AccountResponse>(response.body);
+    assertAccountResponseShape(payload);
     expect(payload.id).toBeString();
     expect(payload.tenant_id).toBe(VALID_TENANT_ID);
     expect(payload.ledger_id).toBe(createdLedger.id);
@@ -1626,7 +1622,7 @@ describe('server', () => {
     await server.close();
   });
 
-  it('POST /v1/accounts validates side through package service', async () => {
+  it('POST /v1/accounts validates side at route contract level', async () => {
     const server = createServer();
 
     const createLedgerResponse = await server.inject({
@@ -1654,7 +1650,7 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(400);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
-    expect(payload.error).toBe('INVARIANT_VIOLATION');
+    expect(payload.error).toBe('INVALID_INPUT');
 
     await server.close();
   });
@@ -1669,11 +1665,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{
-      id: string;
-      tenant_id: string;
-      ledger_id: string;
-    }>(response.body);
+    const payload = parsePayload<AccountResponse>(response.body);
+    assertAccountResponseShape(payload);
     expect(payload.id).toBe('00000000-0000-4000-8000-000000000101');
     expect(payload.tenant_id).toBe(VALID_TENANT_ID);
 

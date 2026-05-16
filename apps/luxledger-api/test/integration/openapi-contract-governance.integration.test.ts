@@ -5,6 +5,7 @@ import {
   createTransactionRequestSchema,
   transactionResponseSchema,
 } from '@api/contracts/transactions';
+import { assertOpenApiAccountsContractsSynced } from './accounts-contract.fixtures';
 import { assertOpenApiAuthAdminContractsSynced } from './auth-admin-contract.fixtures';
 import { assertOpenApiTransactionContractsSynced } from './transactions-contract.fixtures';
 
@@ -102,5 +103,11 @@ describe('openapi contract governance', () => {
     const openapiYaml = readOpenApiSpec();
 
     assertOpenApiAuthAdminContractsSynced(openapiYaml);
+  });
+
+  it('keeps account contract schemas synchronized with openapi.yaml', () => {
+    const openapiYaml = readOpenApiSpec();
+
+    assertOpenApiAccountsContractsSynced(openapiYaml);
   });
 });

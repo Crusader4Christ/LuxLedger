@@ -1,28 +1,21 @@
+import {
+  type AccountByIdParams,
+  type AccountResponse,
+  accountByIdParamsSchema,
+  accountResponseSchema,
+  accountsPageResponseSchema,
+  type CreateAccountRequest,
+  createAccountBodySchema,
+  type ListAccountsQuery,
+  listAccountsQuerySchemaExtra,
+} from '@api/contracts/accounts';
 import { BaseEntityRoute } from '@api/routes/base-route';
 import { mergePaginationQuerySchema, resolveLimit } from '@api/routes/pagination';
 import type { AccountListItemDto } from '@api/routes/types/list-item-dto';
-import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import type { AccountEntity, AccountSide, LedgerService } from '@lux/ledger';
 import type { FastifyInstance } from 'fastify';
 
-interface CreateAccountBody {
-  ledger_id: string;
-  name: string;
-  side: string;
-  currency: string;
-}
-
-interface AccountByIdParams {
-  id: string;
-}
-
-interface ListAccountsQuery {
-  limit?: number;
-  cursor?: string;
-  ledger_id?: string;
-}
-
-export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountListItemDto> {
+export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountResponse> {
   public constructor(private readonly ledgerService: LedgerService) {
     super();
   }
@@ -47,25 +40,13 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountListIt
   }
 
   private registerCreateAccount(server: FastifyInstance): void {
-    server.post<{ Body: CreateAccountBody }>(
+    server.post<{ Body: CreateAccountRequest }>(
       '/v1/accounts',
       {
         schema: {
-          body: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['ledger_id', 'name', 'side', 'currency'],
-            properties: {
-              ledger_id: {
-                type: 'string',
-                format: 'uuid',
-              },
-              name: NonEmptyTrimmedStringSchema,
-              side: {
-                ...NonEmptyTrimmedStringSchema,
-              },
-              currency: NonEmptyTrimmedStringSchema,
-            },
+          body: createAccountBodySchema,
+          response: {
+            201: accountResponseSchema,
           },
         },
       },
@@ -90,16 +71,9 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountListIt
       '/v1/accounts/:id',
       {
         schema: {
-          params: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['id'],
-            properties: {
-              id: {
-                type: 'string',
-                format: 'uuid',
-              },
-            },
+          params: accountByIdParamsSchema,
+          response: {
+            200: accountResponseSchema,
           },
         },
       },
@@ -120,14 +94,10 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountListIt
       '/v1/accounts',
       {
         schema: {
-          querystring: mergePaginationQuerySchema({
-            properties: {
-              ledger_id: {
-                type: 'string',
-                format: 'uuid',
-              },
-            },
-          }),
+          querystring: mergePaginationQuerySchema(listAccountsQuerySchemaExtra),
+          response: {
+            200: accountsPageResponseSchema,
+          },
         },
       },
       async (request, reply) => {
