@@ -1,0 +1,20 @@
+{
+  "name": "@lux/ledger-http",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./contracts": "./src/contracts.ts",
+    "./errors": "./src/errors.ts",
+    "./route-specs": "./src/route-specs.ts"
+  },
+  "dependencies": {
+    "@lux/ledger": "workspace:*"
+  },
+  "scripts": {
+    "test": "bun test src/*.test.ts",
+    "typecheck": "tsc -p ../../tsconfig.json --noEmit"
+  }
+}
