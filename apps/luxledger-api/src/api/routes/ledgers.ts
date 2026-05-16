@@ -13,7 +13,7 @@ import {
   type CreateTransactionRequest,
   type CreateTransactionResponse,
   createTransactionRequestSchema,
-} from '@api/contracts/transactions';
+} from '@lux/ledger-http/transactions';
 import { BaseRoute } from '@api/routes/base-route';
 import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
