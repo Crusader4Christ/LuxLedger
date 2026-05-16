@@ -14,7 +14,7 @@ import type {
 } from '@api/contracts/auth-admin';
 import type { EntriesPageResponse, EntryResponse } from '@api/contracts/entries';
 import type { LedgerResponse, TrialBalanceResponse } from '@api/contracts/ledgers';
-import type { TransactionResponse, TransactionsPage } from '@api/contracts/transactions';
+import type { TransactionResponse, TransactionsPage } from '@lux/ledger-http/transactions';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {

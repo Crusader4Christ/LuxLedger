@@ -1,5 +1,11 @@
-import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import { EntryDirection } from '@lux/ledger/application';
+
+const NON_EMPTY_TRIMMED_PATTERN = '^(?=.*\\S).+$';
+
+const nonEmptyTrimmedStringSchema = {
+  type: 'string',
+  pattern: NON_EMPTY_TRIMMED_PATTERN,
+} as const;
 
 export type TransactionEntryRequest = {
   account_id: string;
@@ -63,7 +69,7 @@ export const transactionEntryRequestSchema = {
       type: 'string',
       pattern: '^[1-9][0-9]*$',
     },
-    currency: NonEmptyTrimmedStringSchema,
+    currency: nonEmptyTrimmedStringSchema,
   },
 } as const;
 
@@ -76,9 +82,9 @@ export const createTransactionRequestSchema = {
       type: 'string',
       format: 'uuid',
     },
-    reference: NonEmptyTrimmedStringSchema,
-    currency: NonEmptyTrimmedStringSchema,
-    description: NonEmptyTrimmedStringSchema,
+    reference: nonEmptyTrimmedStringSchema,
+    currency: nonEmptyTrimmedStringSchema,
+    description: nonEmptyTrimmedStringSchema,
     entries: {
       type: 'array',
       minItems: 2,
