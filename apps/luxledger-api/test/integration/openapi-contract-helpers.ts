@@ -60,7 +60,7 @@ export const extractPropertyNames = (section: string): string[] => {
   }
 
   const afterProperties = section.slice(propertiesIndex);
-  const names = [...afterProperties.matchAll(/^\s{8}([a-z_]+):\s*$/gm)].map(
+  const names = [...afterProperties.matchAll(/^\s{8}([A-Za-z_]+):\s*$/gm)].map(
     (match) => match[1] ?? '',
   );
   return names.filter((name) => name.length > 0).sort();

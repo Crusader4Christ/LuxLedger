@@ -70,12 +70,31 @@ export abstract class BasePaginatedRoute<
     return mergePaginationQuerySchema(extra);
   }
 
+  protected responseSchema() {
+    return {
+      type: 'object',
+      required: ['data', 'next_cursor'],
+      properties: {
+        data: {
+          type: 'array',
+        },
+        next_cursor: {
+          type: 'string',
+          nullable: true,
+        },
+      },
+    } as const;
+  }
+
   public register(server: FastifyInstance): void {
     server.get<{ Querystring: Query }>(
       this.path,
       {
         schema: {
           querystring: this.querystringSchema(),
+          response: {
+            200: this.responseSchema(),
+          },
         },
       },
       async (request, reply) =>

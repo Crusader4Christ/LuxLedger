@@ -1,24 +1,22 @@
 import {
+  type CreateLedgerRequest,
+  createLedgerBodySchema,
+  type LedgerByIdParams,
+  ledgerByIdParamsSchema,
+  ledgerResponseSchema,
+  ledgersListResponseSchema,
+  type TrialBalanceParams,
+  trialBalanceParamsSchema,
+  trialBalanceResponseSchema,
+} from '@api/contracts/ledgers';
+import {
   type CreateTransactionRequest,
   type CreateTransactionResponse,
   createTransactionRequestSchema,
 } from '@api/contracts/transactions';
 import { BaseRoute } from '@api/routes/base-route';
-import { NonEmptyTrimmedStringSchema } from '@api/schema/common';
 import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
-
-interface CreateLedgerBody {
-  name: string;
-}
-
-interface LedgerByIdParams {
-  id: string;
-}
-
-interface TrialBalanceParams {
-  ledger_id: string;
-}
 
 export class LedgerRoutes extends BaseRoute {
   public constructor(private readonly ledgerService: LedgerService) {
@@ -34,17 +32,13 @@ export class LedgerRoutes extends BaseRoute {
   }
 
   private registerCreateLedger(server: FastifyInstance): void {
-    server.post<{ Body: CreateLedgerBody }>(
+    server.post<{ Body: CreateLedgerRequest }>(
       '/v1/ledgers',
       {
         schema: {
-          body: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['name'],
-            properties: {
-              name: NonEmptyTrimmedStringSchema,
-            },
+          body: createLedgerBodySchema,
+          response: {
+            201: ledgerResponseSchema,
           },
         },
       },
@@ -103,16 +97,9 @@ export class LedgerRoutes extends BaseRoute {
       '/v1/ledgers/:id',
       {
         schema: {
-          params: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['id'],
-            properties: {
-              id: {
-                type: 'string',
-                format: 'uuid',
-              },
-            },
+          params: ledgerByIdParamsSchema,
+          response: {
+            200: ledgerResponseSchema,
           },
         },
       },
@@ -129,11 +116,20 @@ export class LedgerRoutes extends BaseRoute {
   }
 
   private registerGetLedgers(server: FastifyInstance): void {
-    server.get('/v1/ledgers', async (request, reply) =>
-      this.handle(reply, async () => {
-        const ledgers = await this.ledgerService.getLedgersByTenant(request.tenantId as string);
-        return reply.status(200).send(ledgers);
-      }),
+    server.get(
+      '/v1/ledgers',
+      {
+        schema: {
+          response: {
+            200: ledgersListResponseSchema,
+          },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const ledgers = await this.ledgerService.getLedgersByTenant(request.tenantId as string);
+          return reply.status(200).send(ledgers);
+        }),
     );
   }
 
@@ -142,16 +138,9 @@ export class LedgerRoutes extends BaseRoute {
       '/v1/ledgers/:ledger_id/trial-balance',
       {
         schema: {
-          params: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['ledger_id'],
-            properties: {
-              ledger_id: {
-                type: 'string',
-                format: 'uuid',
-              },
-            },
+          params: trialBalanceParamsSchema,
+          response: {
+            200: trialBalanceResponseSchema,
           },
         },
       },

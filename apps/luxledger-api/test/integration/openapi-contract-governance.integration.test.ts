@@ -7,6 +7,8 @@ import {
 } from '@api/contracts/transactions';
 import { assertOpenApiAccountsContractsSynced } from './accounts-contract.fixtures';
 import { assertOpenApiAuthAdminContractsSynced } from './auth-admin-contract.fixtures';
+import { assertOpenApiEntriesContractsSynced } from './entries-contract.fixtures';
+import { assertOpenApiLedgersContractsSynced } from './ledgers-contract.fixtures';
 import { assertOpenApiTransactionContractsSynced } from './transactions-contract.fixtures';
 
 const OPENAPI_SPEC_PATH = resolve(import.meta.dir, '../../openapi/openapi.yaml');
@@ -109,5 +111,17 @@ describe('openapi contract governance', () => {
     const openapiYaml = readOpenApiSpec();
 
     assertOpenApiAccountsContractsSynced(openapiYaml);
+  });
+
+  it('keeps ledger contract schemas synchronized with openapi.yaml', () => {
+    const openapiYaml = readOpenApiSpec();
+
+    assertOpenApiLedgersContractsSynced(openapiYaml);
+  });
+
+  it('keeps entries contract schemas synchronized with openapi.yaml', () => {
+    const openapiYaml = readOpenApiSpec();
+
+    assertOpenApiEntriesContractsSynced(openapiYaml);
   });
 });

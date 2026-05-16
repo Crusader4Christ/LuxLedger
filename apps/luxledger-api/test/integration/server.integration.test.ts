@@ -12,6 +12,8 @@ import type {
   CreateApiKeyRequest,
   CreateApiKeyResponse,
 } from '@api/contracts/auth-admin';
+import type { EntriesPageResponse, EntryResponse } from '@api/contracts/entries';
+import type { LedgerResponse, TrialBalanceResponse } from '@api/contracts/ledgers';
 import type { TransactionResponse, TransactionsPage } from '@api/contracts/transactions';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
@@ -61,6 +63,12 @@ import {
   assertOpenApiAuthAdminContractsSynced,
   createApiKeyRequestFactory,
 } from './auth-admin-contract.fixtures';
+import { assertEntriesPageShape, assertEntryResponseShape } from './entries-contract.fixtures';
+import {
+  assertLedgerResponseShape,
+  assertLedgersListShape,
+  assertTrialBalanceResponseShape,
+} from './ledgers-contract.fixtures';
 import {
   assertCreateTransactionResponseShape,
   assertOpenApiTransactionContractsSynced,
@@ -1393,8 +1401,9 @@ describe('server', () => {
 
     expect(response.statusCode).toBe(200);
 
-    const payload = parsePayload<Ledger[]>(response.body);
+    const payload = parsePayload<LedgerResponse[]>(response.body);
 
+    assertLedgersListShape(payload);
     expect(payload.length).toBe(1);
     expect(payload[0]?.name).toBe('Main ledger');
 
@@ -1413,7 +1422,8 @@ describe('server', () => {
       },
     });
 
-    const created = parsePayload<Ledger>(createdResponse.body);
+    const created = parsePayload<LedgerResponse>(createdResponse.body);
+    assertLedgerResponseShape(created);
 
     const response = await server.inject({
       method: 'GET',
@@ -1422,7 +1432,9 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(parsePayload<Ledger>(response.body)).toEqual(created);
+    const payload = parsePayload<LedgerResponse>(response.body);
+    assertLedgerResponseShape(payload);
+    expect(payload).toEqual(created);
 
     await server.close();
   });
@@ -1439,7 +1451,7 @@ describe('server', () => {
       },
     });
 
-    const created = parsePayload<Ledger>(createdResponse.body);
+    const created = parsePayload<LedgerResponse>(createdResponse.body);
 
     const response = await server.inject({
       method: 'GET',
@@ -1810,10 +1822,9 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{
-      data: Array<{ id: string; amount_minor: string }>;
-      next_cursor: string | null;
-    }>(response.body);
+    const payload = parsePayload<EntriesPageResponse>(response.body);
+    assertEntriesPageShape(payload);
+    assertEntryResponseShape(payload.data[0] as EntryResponse);
     expect(payload.data.length).toBe(1);
     expect(payload.data[0]?.id).toBe('00000000-0000-4000-8000-000000000302');
     expect(payload.data[0]?.amount_minor).toBe('123');
@@ -1921,19 +1932,8 @@ describe('server', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const payload = parsePayload<{
-      ledger_id: string;
-      accounts: Array<{
-        account_id: string;
-        code: string;
-        name: string;
-        normal_balance: EntryDirection;
-        balance: string;
-        is_contra: boolean;
-      }>;
-      total_debits: string;
-      total_credits: string;
-    }>(response.body);
+    const payload = parsePayload<TrialBalanceResponse>(response.body);
+    assertTrialBalanceResponseShape(payload);
 
     expect(payload.ledger_id).toBe('00000000-0000-4000-8000-000000000001');
     expect(payload.accounts.length).toBe(2);
