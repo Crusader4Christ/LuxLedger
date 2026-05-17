@@ -1,4 +1,5 @@
 import {
+  type ApiKeyRole,
   type ApiKeyContract,
   type CreateApiKeyRequest,
   createApiKeyBodySchema,
@@ -9,7 +10,7 @@ import {
 } from '@lux/ledger-http/auth-admin';
 import { BaseEntityRoute } from '../routes/base-route';
 import type { ApiKeyEntity } from '@lux/ledger';
-import type { ApiKeyRole, ApiKeyService } from '@lux/ledger/application';
+import type { ApiKeyService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
 export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContract> {
