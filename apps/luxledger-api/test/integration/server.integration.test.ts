@@ -2143,4 +2143,64 @@ describe('server', () => {
 
     await server.close();
   });
+
+  describe('fastify adapter parity guardrails', () => {
+    it('keeps route-level validation mapping for adapter-registered account creation', async () => {
+      const server = createServer();
+
+      const response = await server.inject({
+        method: 'POST',
+        url: '/v1/accounts',
+        headers: await authHeaders(server),
+        payload: {
+          name: 'Broken request',
+          side: 'DEBIT',
+          currency: 'USD',
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      const payload = parsePayload<{ error: string; message: string }>(response.body);
+      expect(payload.error).toBe('INVALID_INPUT');
+      expect(payload.message.length).toBeGreaterThan(0);
+
+      await server.close();
+    });
+
+    it('keeps idempotent create transaction status semantics for adapter-registered route', async () => {
+      const server = createServer();
+      const headers = await authHeaders(server);
+
+      const ledgerResponse = await server.inject({
+        method: 'POST',
+        url: '/v1/ledgers',
+        headers,
+        payload: {
+          name: 'Adapter parity ledger',
+        },
+      });
+      const ledger = parsePayload<Ledger>(ledgerResponse.body);
+      const payload = createTransactionRequestFactory(ledger.id, 'adapter-parity-ref');
+
+      const first = await server.inject({
+        method: 'POST',
+        url: '/v1/transactions',
+        headers,
+        payload,
+      });
+      expect(first.statusCode).toBe(201);
+
+      const second = await server.inject({
+        method: 'POST',
+        url: '/v1/transactions',
+        headers,
+        payload,
+      });
+
+      expect(second.statusCode).toBe(200);
+      expect(parsePayload<{ created: boolean }>(second.body).created).toBeFalse();
+
+      await server.close();
+    });
+  });
 });
