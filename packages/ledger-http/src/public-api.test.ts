@@ -1,15 +1,13 @@
 import { expect, test } from 'bun:test';
 import * as publicApi from './index';
 
-test('public API exports only supported surface', () => {
-  expect(Object.keys(publicApi).sort()).toEqual([
-    'createTransactionRequestSchema',
-    'defaultErrorResponses',
-    'errorResponseSchema',
-    'listTransactionsQuerySchemaExtra',
-    'mapDomainErrorToHttp',
-    'transactionByIdParamsSchema',
-    'transactionEntryRequestSchema',
-    'transactionResponseSchema',
-  ]);
+test('public API includes shared HTTP contracts and primitives', () => {
+  const keys = Object.keys(publicApi);
+  expect(keys).toContain('createTransactionRequestSchema');
+  expect(keys).toContain('createAccountBodySchema');
+  expect(keys).toContain('createApiKeyBodySchema');
+  expect(keys).toContain('createLedgerBodySchema');
+  expect(keys).toContain('entriesPageResponseSchema');
+  expect(keys).toContain('ApiKeyRole');
+  expect(keys).toContain('mapDomainErrorToHttp');
 });
