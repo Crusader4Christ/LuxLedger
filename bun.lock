@@ -34,6 +34,15 @@
         "postgres": "^3.4.8",
       },
     },
+    "packages/ledger-fastify-adapter": {
+      "name": "@lux/ledger-fastify-adapter",
+      "version": "0.1.0",
+      "dependencies": {
+        "@lux/ledger": "workspace:*",
+        "@lux/ledger-http": "workspace:*",
+        "fastify": "^5.7.4",
+      },
+    },
     "packages/ledger-http": {
       "name": "@lux/ledger-http",
       "version": "0.1.0",
@@ -134,6 +143,8 @@
     "@lux/ledger": ["@lux/ledger@workspace:packages/ledger"],
 
     "@lux/ledger-drizzle-adapter": ["@lux/ledger-drizzle-adapter@workspace:packages/ledger-drizzle-adapter"],
+
+    "@lux/ledger-fastify-adapter": ["@lux/ledger-fastify-adapter@workspace:packages/ledger-fastify-adapter"],
 
     "@lux/ledger-http": ["@lux/ledger-http@workspace:packages/ledger-http"],
 
