@@ -13,7 +13,8 @@
     "./entries": "./src/entries.ts",
     "./ledgers": "./src/ledgers.ts",
     "./route-specs": "./src/route-specs.ts",
-    "./transactions": "./src/transactions.ts"
+    "./transactions": "./src/transactions.ts",
+    "./test/harness": "./src/test/harness.ts"
   },
   "dependencies": {
     "@lux/ledger": "workspace:*"
