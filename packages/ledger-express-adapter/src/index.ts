@@ -3,11 +3,13 @@ import type {
   CreateAccountRequest,
   ListAccountsQuery,
 } from '@lux/ledger-http/contracts/accounts';
+import { createAccountBodySchema } from '@lux/ledger-http/contracts/accounts';
 import {
   ApiKeyRole,
   type CreateApiKeyRequest,
   type RevokeApiKeyParams,
 } from '@lux/ledger-http/contracts/auth-admin';
+import { createApiKeyBodySchema } from '@lux/ledger-http/contracts/auth-admin';
 import type { ListEntriesQuery } from '@lux/ledger-http/contracts/entries';
 import type {
   CreateLedgerRequest,
@@ -15,12 +17,14 @@ import type {
   TrialBalanceParams,
   TrialBalanceResponse,
 } from '@lux/ledger-http/contracts/ledgers';
+import { createLedgerBodySchema } from '@lux/ledger-http/contracts/ledgers';
 import type {
   CreateTransactionRequest,
   CreateTransactionResponse,
   ListTransactionsQuery,
   TransactionByIdParams,
 } from '@lux/ledger-http/contracts/transactions';
+import { createTransactionRequestSchema } from '@lux/ledger-http/contracts/transactions';
 import {
   parseCursorQuery,
   parseLimitQuery,
@@ -32,12 +36,7 @@ import {
 } from '@lux/ledger-http/adapter-utils';
 import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
 import { withErrorHandling } from '@lux/ledger-http/route-core';
-import {
-  isNonEmptyTrimmed,
-  isRecord,
-  isUuid,
-  parseUuidParam,
-} from '@lux/ledger-http/validation-utils';
+import { parseUuidParam } from '@lux/ledger-http/validation-utils';
 import { AccountSide } from '@lux/ledger';
 import {
   ForbiddenError,
@@ -45,6 +44,8 @@ import {
   type LedgerService,
   UnauthorizedError,
 } from '@lux/ledger/application';
+import Ajv, { type ValidateFunction } from 'ajv';
+import addFormats from 'ajv-formats';
 import express, { type Application, type Request, type Response } from 'express';
 
 type RequestContext = {
@@ -60,7 +61,9 @@ export type ExpressLedgerAdapterDependencies = {
   apiKeyService: ApiKeyService;
 };
 
-const POSITIVE_INT_STRING_PATTERN = /^[1-9][0-9]*$/;
+const ajv = new Ajv({ allErrors: true, strict: false });
+addFormats(ajv);
+const validators = new Map<object, ValidateFunction>();
 
 const sendInvalidInput = (res: Response, message: string): Response =>
   res.status(400).json(invalidInputPayload(message));
@@ -93,102 +96,12 @@ const requireContext = (req: RequestWithContext): RequestContext => {
   };
 };
 
-
-const parseCreateLedgerBody = (body: unknown): CreateLedgerRequest | null => {
-  if (!isRecord(body)) {
-    return null;
+const validate = <T>(schema: object, value: unknown): T | null => {
+  const validator = validators.get(schema) ?? ajv.compile(schema);
+  if (!validators.has(schema)) {
+    validators.set(schema, validator);
   }
-  if (Object.keys(body).length !== 1 || !('name' in body)) {
-    return null;
-  }
-  if (!isNonEmptyTrimmed(body.name)) {
-    return null;
-  }
-  return { name: body.name };
-};
-
-const parseCreateAccountBody = (body: unknown): CreateAccountRequest | null => {
-  if (!isRecord(body)) {
-    return null;
-  }
-  const keys = Object.keys(body).sort();
-  if (keys.join(',') !== 'currency,ledger_id,name,side') {
-    return null;
-  }
-  if (
-    !isUuid(body.ledger_id) ||
-    !isNonEmptyTrimmed(body.name) ||
-    !isNonEmptyTrimmed(body.currency) ||
-    (body.side !== 'DEBIT' && body.side !== 'CREDIT')
-  ) {
-    return null;
-  }
-  return {
-    ledger_id: body.ledger_id,
-    name: body.name,
-    side: body.side,
-    currency: body.currency,
-  };
-};
-
-const parseCreateTransactionBody = (body: unknown): CreateTransactionRequest | null => {
-  if (!isRecord(body)) {
-    return null;
-  }
-  const keys = Object.keys(body).sort();
-  const validShape =
-    keys.join(',') === 'currency,description,entries,ledger_id,reference' ||
-    keys.join(',') === 'currency,entries,ledger_id,reference';
-  if (!validShape) {
-    return null;
-  }
-  if (
-    !isUuid(body.ledger_id) ||
-    !isNonEmptyTrimmed(body.reference) ||
-    !isNonEmptyTrimmed(body.currency) ||
-    !Array.isArray(body.entries) ||
-    body.entries.length < 2
-  ) {
-    return null;
-  }
-  if (body.description !== undefined && !isNonEmptyTrimmed(body.description)) {
-    return null;
-  }
-
-  for (const entry of body.entries) {
-    if (!isRecord(entry)) {
-      return null;
-    }
-    const entryKeys = Object.keys(entry).sort();
-    if (entryKeys.join(',') !== 'account_id,amount_minor,currency,direction') {
-      return null;
-    }
-    if (
-      !isUuid(entry.account_id) ||
-      (entry.direction !== 'DEBIT' && entry.direction !== 'CREDIT') ||
-      typeof entry.amount_minor !== 'string' ||
-      !POSITIVE_INT_STRING_PATTERN.test(entry.amount_minor) ||
-      !isNonEmptyTrimmed(entry.currency)
-    ) {
-      return null;
-    }
-  }
-
-  return body as CreateTransactionRequest;
-};
-
-const parseCreateApiKeyBody = (body: unknown): CreateApiKeyRequest | null => {
-  if (!isRecord(body)) {
-    return null;
-  }
-  const keys = Object.keys(body).sort();
-  if (keys.join(',') !== 'name,role') {
-    return null;
-  }
-  if (!isNonEmptyTrimmed(body.name) || (body.role !== ApiKeyRole.ADMIN && body.role !== ApiKeyRole.SERVICE)) {
-    return null;
-  }
-  return { name: body.name, role: body.role };
+  return validator(value) ? (value as T) : null;
 };
 
 const assertAdmin = (context: RequestContext): void => {
@@ -212,7 +125,7 @@ export const registerLedgerExpressAdapter = (
 
   app.post('/v1/ledgers', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      const body = parseCreateLedgerBody(req.body);
+      const body = validate<CreateLedgerRequest>(createLedgerBodySchema, req.body);
       if (body === null) {
         sendInvalidInput(res, 'Invalid request body');
         return;
@@ -278,7 +191,7 @@ export const registerLedgerExpressAdapter = (
 
   app.post('/v1/transactions', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      const body = parseCreateTransactionBody(req.body);
+      const body = validate<CreateTransactionRequest>(createTransactionRequestSchema, req.body);
       if (body === null) {
         sendInvalidInput(res, 'Invalid request body');
         return;
@@ -353,7 +266,7 @@ export const registerLedgerExpressAdapter = (
 
   app.post('/v1/accounts', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      const body = parseCreateAccountBody(req.body);
+      const body = validate<CreateAccountRequest>(createAccountBodySchema, req.body);
       if (body === null) {
         sendInvalidInput(res, 'Invalid request body');
         return;
@@ -459,7 +372,7 @@ export const registerLedgerExpressAdapter = (
 
   app.post('/v1/admin/api-keys', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      const body = parseCreateApiKeyBody(req.body);
+      const body = validate<CreateApiKeyRequest>(createApiKeyBodySchema, req.body);
       if (body === null) {
         sendInvalidInput(res, 'Invalid request body');
         return;
