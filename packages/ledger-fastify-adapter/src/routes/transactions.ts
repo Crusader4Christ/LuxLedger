@@ -5,8 +5,9 @@ import {
   type TransactionResponse,
   transactionByIdParamsSchema,
 } from '@lux/ledger-http/transactions';
+import { toTransactionResponse } from '@lux/ledger-http/adapter-utils';
 import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
-import { InvariantViolationError, type TransactionEntity } from '@lux/ledger';
+import type { TransactionEntity } from '@lux/ledger';
 import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
@@ -40,19 +41,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   }
 
   protected toDto(transaction: TransactionEntity): TransactionResponse {
-    if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
-      throw new InvariantViolationError('transaction must be persisted before listing');
-    }
-
-    return {
-      id: transaction.id.value,
-      tenant_id: transaction.tenantId,
-      ledger_id: transaction.ledgerId.value,
-      reference: transaction.reference,
-      currency: transaction.currency,
-      description: transaction.description,
-      created_at: transaction.createdAt.toISOString(),
-    };
+    return toTransactionResponse(transaction);
   }
 
   private registerGetTransactionById(server: FastifyInstance): void {

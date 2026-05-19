@@ -1,16 +1,14 @@
 import type {
   AccountByIdParams,
-  AccountResponse,
   CreateAccountRequest,
   ListAccountsQuery,
 } from '@lux/ledger-http/accounts';
 import {
   ApiKeyRole,
-  type ApiKeyContract,
   type CreateApiKeyRequest,
   type RevokeApiKeyParams,
 } from '@lux/ledger-http/auth-admin';
-import type { EntryResponse, ListEntriesQuery } from '@lux/ledger-http/entries';
+import type { ListEntriesQuery } from '@lux/ledger-http/entries';
 import type {
   CreateLedgerRequest,
   LedgerByIdParams,
@@ -22,12 +20,26 @@ import type {
   CreateTransactionResponse,
   ListTransactionsQuery,
   TransactionByIdParams,
-  TransactionResponse,
 } from '@lux/ledger-http/transactions';
-import { AccountSide, type AccountEntity, type ApiKeyEntity, type EntryEntity, type TransactionEntity } from '@lux/ledger';
+import {
+  parseCursorQuery,
+  parseLimitQuery,
+  parseUuidQuery,
+  toAccountResponse,
+  toApiKeyContract,
+  toEntryResponse,
+  toTransactionResponse,
+} from '@lux/ledger-http/adapter-utils';
+import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
+import {
+  isNonEmptyTrimmed,
+  isRecord,
+  isUuid,
+  parseUuidParam,
+} from '@lux/ledger-http/validation-utils';
+import { AccountSide } from '@lux/ledger';
 import {
   ForbiddenError,
-  InvariantViolationError,
   type ApiKeyService,
   type LedgerService,
   UnauthorizedError,
@@ -47,65 +59,16 @@ export type ExpressLedgerAdapterDependencies = {
   apiKeyService: ApiKeyService;
 };
 
-type HttpError = {
-  code: string;
-  message: string;
-  httpStatus: number;
-};
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const POSITIVE_INT_STRING_PATTERN = /^[1-9][0-9]*$/;
 
-const isNonEmptyTrimmed = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0;
-const isUuid = (value: unknown): value is string =>
-  typeof value === 'string' && UUID_PATTERN.test(value);
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
 const sendInvalidInput = (res: Response, message: string): Response =>
-  res.status(400).json({
-    error: 'INVALID_INPUT',
-    message,
-  });
+  res.status(400).json(invalidInputPayload(message));
 
 const sendDomainError = (res: Response, error: unknown): Response => {
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'httpStatus' in error &&
-    typeof (error as { httpStatus: unknown }).httpStatus === 'number' &&
-    'code' in error &&
-    typeof (error as { code: unknown }).code === 'string' &&
-    'message' in error &&
-    typeof (error as { message: unknown }).message === 'string'
-  ) {
-    const typed = error as HttpError;
-    return res.status(typed.httpStatus).json({
-      error: typed.code,
-      message: typed.message,
-    });
-  }
-
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    typeof (error as { code: unknown }).code === 'string' &&
-    'message' in error &&
-    typeof (error as { message: unknown }).message === 'string'
-  ) {
-    const typed = error as { code: string; message: string };
-    const status = /^\d{3}$/.test(typed.code) ? Number(typed.code) : 500;
-    return res.status(status).json({
-      error: typed.code,
-      message: typed.message,
-    });
-  }
-
-  return res.status(500).json({
-    error: 'INTERNAL_ERROR',
-    message: 'Internal server error',
+  const payload = toHttpErrorPayload(error);
+  return res.status(payload.statusCode).json({
+    error: payload.error,
+    message: payload.message,
   });
 };
 
@@ -131,39 +94,6 @@ const requireContext = (req: RequestWithContext): RequestContext => {
   };
 };
 
-const parseLimit = (value: unknown): number | null => {
-  if (value === undefined) {
-    return 50;
-  }
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    return null;
-  }
-  const numeric = Number(value);
-  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 200) {
-    return null;
-  }
-  return numeric;
-};
-
-const parseCursor = (value: unknown): string | null => {
-  if (value === undefined) {
-    return null;
-  }
-  if (typeof value !== 'string' || value.length === 0) {
-    return null;
-  }
-  return value;
-};
-
-const parseLedgerIdQuery = (value: unknown): string | null => {
-  if (value === undefined) {
-    return null;
-  }
-  if (!isUuid(value)) {
-    return null;
-  }
-  return value;
-};
 
 const parseCreateLedgerBody = (body: unknown): CreateLedgerRequest | null => {
   if (!isRecord(body)) {
@@ -261,63 +191,6 @@ const parseCreateApiKeyBody = (body: unknown): CreateApiKeyRequest | null => {
   }
   return { name: body.name, role: body.role };
 };
-
-const parseUuidParam = <T extends string>(value: unknown, key: T): Record<T, string> | null => {
-  if (!isUuid(value)) {
-    return null;
-  }
-  return { [key]: value } as Record<T, string>;
-};
-
-const toAccountResponse = (account: AccountEntity): AccountResponse => ({
-  id: account.id,
-  tenant_id: account.tenantId,
-  ledger_id: account.ledgerId,
-  name: account.name,
-  side: account.side,
-  currency: account.currency,
-  balance_minor: account.balanceMinor.toString(),
-  created_at: account.createdAt.toISOString(),
-});
-
-const toTransactionResponse = (transaction: TransactionEntity): TransactionResponse => {
-  if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
-    throw new InvariantViolationError('transaction must be persisted before listing');
-  }
-  return {
-    id: transaction.id.value,
-    tenant_id: transaction.tenantId,
-    ledger_id: transaction.ledgerId.value,
-    reference: transaction.reference,
-    currency: transaction.currency,
-    description: transaction.description,
-    created_at: transaction.createdAt.toISOString(),
-  };
-};
-
-const toEntryResponse = (entry: EntryEntity): EntryResponse => {
-  if (!entry.id || !entry.transactionId || !entry.createdAt) {
-    throw new InvariantViolationError('entry must be persisted before listing');
-  }
-  return {
-    id: entry.id,
-    transaction_id: entry.transactionId,
-    account_id: entry.accountId.value,
-    direction: entry.direction,
-    amount_minor: entry.money.amountMinor.toString(),
-    currency: entry.money.currency,
-    created_at: entry.createdAt.toISOString(),
-  };
-};
-
-const toApiKeyContract = (key: ApiKeyEntity): ApiKeyContract => ({
-  id: key.id,
-  tenant_id: key.tenantId,
-  name: key.name,
-  role: key.role,
-  created_at: key.createdAt.toISOString(),
-  revoked_at: key.revokedAt ? key.revokedAt.toISOString() : null,
-});
 
 const assertAdmin = (context: RequestContext): void => {
   if (context.apiKeyRole !== ApiKeyRole.ADMIN) {
@@ -448,9 +321,9 @@ export const registerLedgerExpressAdapter = (
 
   app.get('/v1/transactions', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      const limit = parseLimit(req.query.limit);
-      const cursor = parseCursor(req.query.cursor);
-      const ledgerId = parseLedgerIdQuery(req.query.ledger_id);
+      const limit = parseLimitQuery(req.query.limit);
+      const cursor = parseCursorQuery(req.query.cursor);
+      const ledgerId = parseUuidQuery(req.query.ledger_id);
       if (limit === null || (req.query.cursor !== undefined && cursor === null)) {
         sendInvalidInput(res, 'Invalid querystring');
         return;
@@ -513,9 +386,9 @@ export const registerLedgerExpressAdapter = (
 
   app.get('/v1/accounts', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      const limit = parseLimit(req.query.limit);
-      const cursor = parseCursor(req.query.cursor);
-      const ledgerId = parseLedgerIdQuery(req.query.ledger_id);
+      const limit = parseLimitQuery(req.query.limit);
+      const cursor = parseCursorQuery(req.query.cursor);
+      const ledgerId = parseUuidQuery(req.query.ledger_id);
       if (limit === null || (req.query.cursor !== undefined && cursor === null)) {
         sendInvalidInput(res, 'Invalid querystring');
         return;
@@ -546,8 +419,8 @@ export const registerLedgerExpressAdapter = (
 
   app.get('/v1/entries', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      const limit = parseLimit(req.query.limit);
-      const cursor = parseCursor(req.query.cursor);
+      const limit = parseLimitQuery(req.query.limit);
+      const cursor = parseCursorQuery(req.query.cursor);
       if (limit === null || (req.query.cursor !== undefined && cursor === null)) {
         sendInvalidInput(res, 'Invalid querystring');
         return;

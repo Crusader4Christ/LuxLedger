@@ -23,6 +23,8 @@ export * from './auth-admin';
 export * from './entries';
 export * from './ledgers';
 export * from './common';
+export * from './adapter-utils';
+export * from './validation-utils';
 export type { HttpErrorDto, HttpErrorMapper } from './types';
 
 export * from './accounts';

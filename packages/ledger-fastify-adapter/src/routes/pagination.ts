@@ -1,5 +1,6 @@
 import { BaseEntityRoute } from '../routes/base-route';
 import type { PaginationQuery } from '../types/pagination-query';
+import { resolveLimit } from '@lux/ledger-http/adapter-utils';
 import type { PaginatedResult } from '@lux/ledger/application';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
@@ -19,8 +20,6 @@ export const paginationQuerySchema = {
     },
   },
 } as const;
-
-export const resolveLimit = (value: number | undefined): number => value ?? 50;
 
 type JsonRecord = Record<string, unknown>;
 
