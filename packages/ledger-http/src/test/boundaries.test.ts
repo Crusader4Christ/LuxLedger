@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import pkg from '../package.json';
+import pkg from '../../package.json';
 
 test('has no framework runtime dependencies', () => {
   const packageJson = pkg as {

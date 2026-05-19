@@ -8,12 +8,12 @@ import {
   type TrialBalanceParams,
   trialBalanceParamsSchema,
   trialBalanceResponseSchema,
-} from '@lux/ledger-http/ledgers';
+} from '@lux/ledger-http/contracts/ledgers';
 import {
   type CreateTransactionRequest,
   type CreateTransactionResponse,
   createTransactionRequestSchema,
-} from '@lux/ledger-http/transactions';
+} from '@lux/ledger-http/contracts/transactions';
 import { BaseRoute } from '../routes/base-route';
 import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';

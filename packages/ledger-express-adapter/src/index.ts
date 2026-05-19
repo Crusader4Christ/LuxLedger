@@ -2,25 +2,25 @@ import type {
   AccountByIdParams,
   CreateAccountRequest,
   ListAccountsQuery,
-} from '@lux/ledger-http/accounts';
+} from '@lux/ledger-http/contracts/accounts';
 import {
   ApiKeyRole,
   type CreateApiKeyRequest,
   type RevokeApiKeyParams,
-} from '@lux/ledger-http/auth-admin';
-import type { ListEntriesQuery } from '@lux/ledger-http/entries';
+} from '@lux/ledger-http/contracts/auth-admin';
+import type { ListEntriesQuery } from '@lux/ledger-http/contracts/entries';
 import type {
   CreateLedgerRequest,
   LedgerByIdParams,
   TrialBalanceParams,
   TrialBalanceResponse,
-} from '@lux/ledger-http/ledgers';
+} from '@lux/ledger-http/contracts/ledgers';
 import type {
   CreateTransactionRequest,
   CreateTransactionResponse,
   ListTransactionsQuery,
   TransactionByIdParams,
-} from '@lux/ledger-http/transactions';
+} from '@lux/ledger-http/contracts/transactions';
 import {
   parseCursorQuery,
   parseLimitQuery,
@@ -31,6 +31,7 @@ import {
   toTransactionResponse,
 } from '@lux/ledger-http/adapter-utils';
 import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
+import { withErrorHandling } from '@lux/ledger-http/route-core';
 import {
   isNonEmptyTrimmed,
   isRecord,
@@ -76,11 +77,9 @@ const withDomainErrorHandling = async (
   res: Response,
   handler: () => Promise<void>,
 ): Promise<void> => {
-  try {
-    await handler();
-  } catch (error) {
+  await withErrorHandling(handler, (error) => {
     sendDomainError(res, error);
-  }
+  });
 };
 
 const requireContext = (req: RequestWithContext): RequestContext => {

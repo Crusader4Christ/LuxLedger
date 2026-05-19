@@ -4,7 +4,7 @@ import {
   type TransactionByIdParams,
   type TransactionResponse,
   transactionByIdParamsSchema,
-} from '@lux/ledger-http/transactions';
+} from '@lux/ledger-http/contracts/transactions';
 import { toTransactionResponse } from '@lux/ledger-http/adapter-utils';
 import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
 import type { TransactionEntity } from '@lux/ledger';

@@ -1,4 +1,4 @@
-import { errorResponseSchema } from './contracts';
+import { errorResponseSchema } from './errors';
 
 export const defaultErrorResponses = {
   400: errorResponseSchema,

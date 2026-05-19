@@ -1,5 +1,25 @@
 import type { DomainError } from '@lux/ledger/base';
-import type { HttpErrorDto } from './types';
+
+export type ErrorResponse = {
+  error: string;
+  message: string;
+};
+
+export const errorResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['error', 'message'],
+  properties: {
+    error: { type: 'string' },
+    message: { type: 'string' },
+  },
+} as const;
+
+export type HttpErrorDto = {
+  statusCode: number;
+  code: string;
+  message: string;
+};
 
 const codeToStatus: Record<string, number> = {
   UNAUTHORIZED: 401,

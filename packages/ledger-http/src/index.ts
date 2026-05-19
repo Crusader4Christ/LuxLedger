@@ -1,5 +1,5 @@
-export type { ErrorResponse } from './contracts';
-export { errorResponseSchema } from './contracts';
+export type { ErrorResponse } from './errors';
+export { errorResponseSchema } from './errors';
 export { mapDomainErrorToHttp } from './errors';
 export { defaultErrorResponses } from './route-specs';
 export type {
@@ -10,25 +10,20 @@ export type {
   TransactionEntryRequest,
   TransactionResponse,
   TransactionsPage,
-} from './transactions';
+} from './contracts/transactions';
 export {
   createTransactionRequestSchema,
   listTransactionsQuerySchemaExtra,
   transactionByIdParamsSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
-} from './transactions';
-export * from './accounts';
-export * from './auth-admin';
-export * from './entries';
-export * from './ledgers';
-export * from './common';
+} from './contracts/transactions';
+export * from './contracts/accounts';
+export * from './contracts/auth-admin';
+export * from './contracts/entries';
+export * from './contracts/ledgers';
+export * from './contracts/common';
 export * from './adapter-utils';
 export * from './validation-utils';
-export type { HttpErrorDto, HttpErrorMapper } from './types';
-
-export * from './accounts';
-export * from './auth-admin';
-export * from './entries';
-export * from './ledgers';
-export * from './common';
+export * from './route-core';
+export type { HttpErrorDto } from './errors';

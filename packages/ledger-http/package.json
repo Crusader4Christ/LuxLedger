@@ -6,16 +6,16 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./contracts": "./src/contracts.ts",
     "./errors": "./src/errors.ts",
-    "./accounts": "./src/accounts.ts",
-    "./auth-admin": "./src/auth-admin.ts",
-    "./entries": "./src/entries.ts",
-    "./ledgers": "./src/ledgers.ts",
+    "./contracts/accounts": "./src/contracts/accounts.ts",
+    "./contracts/auth-admin": "./src/contracts/auth-admin.ts",
+    "./contracts/entries": "./src/contracts/entries.ts",
+    "./contracts/ledgers": "./src/contracts/ledgers.ts",
+    "./contracts/transactions": "./src/contracts/transactions.ts",
     "./adapter-utils": "./src/adapter-utils.ts",
     "./validation-utils": "./src/validation-utils.ts",
+    "./route-core": "./src/route-core.ts",
     "./route-specs": "./src/route-specs.ts",
-    "./transactions": "./src/transactions.ts",
     "./test/harness": "./src/test/harness.ts"
   },
   "dependencies": {

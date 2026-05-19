@@ -1,7 +1,7 @@
-import type { AccountResponse } from './accounts';
-import type { ApiKeyContract } from './auth-admin';
-import type { EntryResponse } from './entries';
-import type { TransactionResponse } from './transactions';
+import type { AccountResponse } from './contracts/accounts';
+import type { ApiKeyContract } from './contracts/auth-admin';
+import type { EntryResponse } from './contracts/entries';
+import type { TransactionResponse } from './contracts/transactions';
 import {
   InvariantViolationError,
   type AccountEntity,

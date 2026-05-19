@@ -7,7 +7,7 @@ import {
   listApiKeysResponseSchema,
   type RevokeApiKeyParams,
   revokeApiKeyParamsSchema,
-} from '@lux/ledger-http/auth-admin';
+} from '@lux/ledger-http/contracts/auth-admin';
 import { toApiKeyContract } from '@lux/ledger-http/adapter-utils';
 import { BaseEntityRoute } from '../routes/base-route';
 import type { ApiKeyEntity } from '@lux/ledger';
