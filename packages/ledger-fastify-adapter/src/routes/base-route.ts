@@ -1,13 +1,10 @@
+import { withErrorHandling } from '@lux/ledger-http/route-core';
 import { sendDomainError } from '../errors/send-domain-error';
 import type { FastifyReply } from 'fastify';
 
 export abstract class BaseRoute {
   protected async handle(reply: FastifyReply, handler: () => Promise<unknown>): Promise<unknown> {
-    try {
-      return await handler();
-    } catch (error) {
-      return sendDomainError(reply, error);
-    }
+    return withErrorHandling(handler, (error) => sendDomainError(reply, error));
   }
 }
 

@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import {
   createTransactionRequestSchema,
   transactionResponseSchema,
-} from '@lux/ledger-http/transactions';
+} from '@lux/ledger-http/contracts';
 import { assertOpenApiAccountsContractsSynced } from './accounts-contract.fixtures';
 import { assertOpenApiAuthAdminContractsSynced } from './auth-admin-contract.fixtures';
 import { assertOpenApiEntriesContractsSynced } from './entries-contract.fixtures';

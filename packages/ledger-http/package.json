@@ -6,14 +6,14 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./contracts": "./src/contracts.ts",
     "./errors": "./src/errors.ts",
-    "./accounts": "./src/accounts.ts",
-    "./auth-admin": "./src/auth-admin.ts",
-    "./entries": "./src/entries.ts",
-    "./ledgers": "./src/ledgers.ts",
+    "./contracts": "./src/contracts/index.ts",
+    "./query/pagination": "./src/query/pagination.ts",
+    "./mappers": "./src/mappers/index.ts",
+    "./validation-utils": "./src/validation-utils.ts",
+    "./route-core": "./src/route-core.ts",
     "./route-specs": "./src/route-specs.ts",
-    "./transactions": "./src/transactions.ts"
+    "./test/harness": "./src/test/harness.ts"
   },
   "dependencies": {
     "@lux/ledger": "workspace:*"

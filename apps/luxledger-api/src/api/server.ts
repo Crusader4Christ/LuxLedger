@@ -7,12 +7,12 @@ import {
   type AuthTokenRequestHeaders,
   type AuthTokenResponse,
   authTokenResponseSchema,
-} from '@lux/ledger-http/auth-admin';
+} from '@lux/ledger-http/contracts';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { ApiMetrics } from '@api/observability/metrics';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
 import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
-import { registerLedgerFastifyAdapter } from '@lux/ledger-fastify-adapter';
+import { registerLedgerAdapter } from '@lux/ledger-fastify-adapter';
 import type { ApplicationDependencies, CreateServerCoreOptions } from '@api/server-types';
 import { ApiKeyRole, ForbiddenError, UnauthorizedError } from '@lux/ledger/application';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -396,7 +396,7 @@ export const registerApplication = (
     },
   );
 
-  registerLedgerFastifyAdapter(server, {
+  registerLedgerAdapter(server, {
     ledgerService: dependencies.ledgerService,
     apiKeyService: dependencies.apiKeyService,
   });

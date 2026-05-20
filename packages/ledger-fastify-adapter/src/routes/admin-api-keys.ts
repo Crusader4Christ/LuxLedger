@@ -7,7 +7,8 @@ import {
   listApiKeysResponseSchema,
   type RevokeApiKeyParams,
   revokeApiKeyParamsSchema,
-} from '@lux/ledger-http/auth-admin';
+} from '@lux/ledger-http/contracts';
+import { toApiKeyContract } from '@lux/ledger-http/mappers';
 import { BaseEntityRoute } from '../routes/base-route';
 import type { ApiKeyEntity } from '@lux/ledger';
 import type { ApiKeyService } from '@lux/ledger/application';
@@ -19,14 +20,7 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
   }
 
   protected toDto(key: ApiKeyEntity): ApiKeyContract {
-    return {
-      id: key.id,
-      tenant_id: key.tenantId,
-      name: key.name,
-      role: key.role,
-      created_at: key.createdAt.toISOString(),
-      revoked_at: key.revokedAt ? key.revokedAt.toISOString() : null,
-    };
+    return toApiKeyContract(key);
   }
 
   public register(server: FastifyInstance): void {

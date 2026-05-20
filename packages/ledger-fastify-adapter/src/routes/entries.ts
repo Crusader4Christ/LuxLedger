@@ -2,9 +2,10 @@ import {
   type EntryResponse,
   entriesPageResponseSchema,
   type ListEntriesQuery,
-} from '@lux/ledger-http/entries';
+} from '@lux/ledger-http/contracts';
+import { toEntryResponse } from '@lux/ledger-http/mappers';
 import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
-import { type EntryEntity, InvariantViolationError, type LedgerService } from '@lux/ledger';
+import { type EntryEntity, type LedgerService } from '@lux/ledger';
 
 export class EntriesListRoute extends BasePaginatedRoute<
   EntryEntity,
@@ -26,19 +27,7 @@ export class EntriesListRoute extends BasePaginatedRoute<
   }
 
   protected toDto(entry: EntryEntity): EntryResponse {
-    if (!entry.id || !entry.transactionId || !entry.createdAt) {
-      throw new InvariantViolationError('entry must be persisted before listing');
-    }
-
-    return {
-      id: entry.id,
-      transaction_id: entry.transactionId,
-      account_id: entry.accountId.value,
-      direction: entry.direction,
-      amount_minor: entry.money.amountMinor.toString(),
-      currency: entry.money.currency,
-      created_at: entry.createdAt.toISOString(),
-    };
+    return toEntryResponse(entry);
   }
 
   protected override responseSchema() {

@@ -5,7 +5,7 @@ import {
   createTransactionRequestSchema,
   type TransactionResponse,
   transactionResponseSchema,
-} from '@lux/ledger-http/transactions';
+} from '@lux/ledger-http/contracts';
 import { EntryDirection } from '@lux/ledger/application';
 import {
   extractPathMethodSection,

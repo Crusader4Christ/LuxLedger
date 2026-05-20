@@ -10,10 +10,10 @@ import {
   entriesPageResponseSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
-} from './index';
-import { createContractHarness } from './test/harness';
+} from '../index';
+import { createContractHarness } from './harness';
 
-const openapiPath = resolve(import.meta.dir, '../../../apps/luxledger-api/openapi/openapi.yaml');
+const openapiPath = resolve(import.meta.dir, '../../../../apps/luxledger-api/openapi/openapi.yaml');
 
 describe('framework-agnostic contract suite', () => {
   it('keeps core request/response schemas deterministic', () => {

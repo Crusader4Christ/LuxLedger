@@ -18,12 +18,12 @@ HTTP mapping helpers for `@lux/ledger` domain/application errors.
   - `errorResponseSchema`
   - `defaultErrorResponses`
   - `HttpErrorDto`, `HttpErrorMapper`, `ErrorResponse` types
-- `@lux/ledger-http/contracts`: schema and response contracts
+- `@lux/ledger-http/errors`: schema and response contracts
 - `@lux/ledger-http/errors`: error mapping
 - `@lux/ledger-http/route-specs`: default route error response specs
 
 ## Internal
-- `src/internal.ts` is internal-only and must not be exported from package root.
+- `
 
 ## Usage
 
@@ -36,5 +36,5 @@ route.schema.response = { ...defaultErrorResponses };
 ```
 
 ```ts
-import { errorResponseSchema } from '@lux/ledger-http/contracts';
+import { errorResponseSchema } from '@lux/ledger-http/errors';
 ```

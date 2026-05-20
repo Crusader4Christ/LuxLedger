@@ -8,9 +8,11 @@ import {
   createAccountBodySchema,
   type ListAccountsQuery,
   listAccountsQuerySchemaExtra,
-} from '@lux/ledger-http/accounts';
+} from '@lux/ledger-http/contracts';
+import { toAccountResponse } from '@lux/ledger-http/mappers';
+import { resolveLimit } from '@lux/ledger-http/query/pagination';
 import { BaseEntityRoute } from '../routes/base-route';
-import { mergePaginationQuerySchema, resolveLimit } from '../routes/pagination';
+import { mergePaginationQuerySchema } from '../routes/pagination';
 import type { AccountListItemDto } from '../types/list-item-dto';
 import type { AccountEntity, AccountSide, LedgerService } from '@lux/ledger';
 import type { FastifyInstance } from 'fastify';
@@ -21,16 +23,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
   }
 
   protected toDto(account: AccountEntity): AccountListItemDto {
-    return {
-      id: account.id,
-      tenant_id: account.tenantId,
-      ledger_id: account.ledgerId,
-      name: account.name,
-      side: account.side,
-      currency: account.currency,
-      balance_minor: account.balanceMinor.toString(),
-      created_at: account.createdAt.toISOString(),
-    };
+    return toAccountResponse(account);
   }
 
   public register(server: FastifyInstance): void {

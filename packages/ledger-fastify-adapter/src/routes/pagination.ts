@@ -1,5 +1,6 @@
 import { BaseEntityRoute } from '../routes/base-route';
 import type { PaginationQuery } from '../types/pagination-query';
+import { deepMerge, resolveLimit } from '@lux/ledger-http/query/pagination';
 import type { PaginatedResult } from '@lux/ledger/application';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
@@ -20,31 +21,7 @@ export const paginationQuerySchema = {
   },
 } as const;
 
-export const resolveLimit = (value: number | undefined): number => value ?? 50;
-
 type JsonRecord = Record<string, unknown>;
-
-const isObjectRecord = (value: unknown): value is JsonRecord =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const deepMerge = (base: JsonRecord, extra: JsonRecord): JsonRecord => {
-  const merged: JsonRecord = { ...base };
-  if (!extra || Object.entries(extra).length === 0) {
-    return merged;
-  }
-
-  for (const [key, value] of Object.entries(extra)) {
-    const existing = merged[key];
-    if (isObjectRecord(existing) && isObjectRecord(value)) {
-      merged[key] = deepMerge(existing, value);
-      continue;
-    }
-
-    merged[key] = value;
-  }
-
-  return merged;
-};
 
 export const mergePaginationQuerySchema = (extra: JsonRecord = {}) =>
   deepMerge(paginationQuerySchema, extra);

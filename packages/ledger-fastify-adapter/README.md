@@ -5,9 +5,9 @@ Fastify adapter for LuxLedger HTTP route registration.
 ## Registering the adapter
 
 ```ts
-import { registerLedgerFastifyAdapter } from '@lux/ledger-fastify-adapter';
+import { registerLedgerAdapter } from '@lux/ledger-fastify-adapter';
 
-registerLedgerFastifyAdapter(server, {
+registerLedgerAdapter(server, {
   ledgerService,
   apiKeyService,
 });
@@ -17,7 +17,7 @@ registerLedgerFastifyAdapter(server, {
 
 ## Expected dependencies
 
-`registerLedgerFastifyAdapter` expects:
+`registerLedgerAdapter` expects:
 
 - `ledgerService` (`LedgerService`) for ledger/account/transaction/entry route handlers.
 - `apiKeyService` (`ApiKeyService`) for admin API key route handlers.
