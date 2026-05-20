@@ -7,7 +7,7 @@ import {
   type CreateApiKeyRequest,
   type CreateApiKeyResponse,
   createApiKeyBodySchema,
-} from '@api/contracts/auth-admin';
+} from '@lux/ledger-http/contracts';
 import {
   extractPathMethodSection,
   extractPropertyNames,

@@ -5,7 +5,7 @@ import {
   ledgerResponseSchema,
   type TrialBalanceResponse,
   trialBalanceResponseSchema,
-} from '@api/contracts/ledgers';
+} from '@lux/ledger-http/contracts';
 import {
   extractPathMethodSection,
   extractPropertyNames,
