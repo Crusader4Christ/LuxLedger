@@ -11,7 +11,7 @@ export type FastifyLedgerAdapterDependencies = {
   apiKeyService: ApiKeyService;
 };
 
-export const registerLedgerFastifyAdapter = (
+export const registerLedgerAdapter = (
   server: FastifyInstance,
   dependencies: FastifyLedgerAdapterDependencies,
 ): void => {
@@ -21,3 +21,5 @@ export const registerLedgerFastifyAdapter = (
   new EntriesListRoute(dependencies.ledgerService).register(server);
   new AdminApiKeyRoutes(dependencies.apiKeyService).register(server);
 };
+
+export const registerLedgerFastifyAdapter = registerLedgerAdapter;

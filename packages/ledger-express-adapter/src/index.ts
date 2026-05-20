@@ -117,7 +117,7 @@ const ensureJsonMiddleware = (app: Application): void => {
   }
 };
 
-export const registerLedgerExpressAdapter = (
+export const registerLedgerAdapter = (
   app: Application,
   dependencies: ExpressLedgerAdapterDependencies,
 ): void => {
@@ -419,3 +419,5 @@ export const registerLedgerExpressAdapter = (
     }),
   );
 };
+
+export const registerLedgerExpressAdapter = registerLedgerAdapter;

@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { registerLedgerFastifyAdapter } from '@lux/ledger-fastify-adapter';
+import { registerLedgerAdapter as registerFastifyLedgerAdapter } from '@lux/ledger-fastify-adapter';
 import { createContractHarness } from '@lux/ledger-http/test/harness';
 import { ApiKeyRole, type ApiKeyService, type LedgerService } from '@lux/ledger/application';
 import express, { type Application } from 'express';
 import Fastify, { type FastifyInstance } from 'fastify';
 import httpMocks from 'node-mocks-http';
-import { registerLedgerExpressAdapter } from './index';
+import { registerLedgerAdapter as registerExpressLedgerAdapter } from './index';
 
 type RequestResult = {
   status: number;
@@ -81,7 +81,7 @@ describe('express adapter parity with fastify adapter', () => {
       }
       reply.status(500).send({ error: 'INTERNAL_ERROR', message: 'Internal server error' });
     });
-    registerLedgerFastifyAdapter(fastifyServer, { ledgerService, apiKeyService });
+    registerFastifyLedgerAdapter(fastifyServer, { ledgerService, apiKeyService });
 
     expressApp = express();
     expressApp.use(express.json());
@@ -91,7 +91,7 @@ describe('express adapter parity with fastify adapter', () => {
       (req as { apiKeyRole?: ApiKeyRole }).apiKeyRole = ApiKeyRole.ADMIN;
       next();
     });
-    registerLedgerExpressAdapter(expressApp, { ledgerService, apiKeyService });
+    registerExpressLedgerAdapter(expressApp, { ledgerService, apiKeyService });
   });
 
   afterAll(async () => {

@@ -6,10 +6,10 @@ Express adapter for LuxLedger HTTP routes, aligned with `@lux/ledger-fastify-ada
 
 ```ts
 import express from 'express';
-import { registerLedgerExpressAdapter } from '@lux/ledger-express-adapter';
+import { registerLedgerAdapter } from '@lux/ledger-express-adapter';
 
 const app = express();
-registerLedgerExpressAdapter(app, {
+registerLedgerAdapter(app, {
   ledgerService,
   apiKeyService,
 });
