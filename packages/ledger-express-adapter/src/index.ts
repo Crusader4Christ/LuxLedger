@@ -2,28 +2,28 @@ import type {
   AccountByIdParams,
   CreateAccountRequest,
   ListAccountsQuery,
-} from '@lux/ledger-http/contracts/accounts';
-import { createAccountBodySchema } from '@lux/ledger-http/contracts/accounts';
+} from '@lux/ledger-http/contracts';
+import { createAccountBodySchema } from '@lux/ledger-http/contracts';
 import {
   ApiKeyRole,
   type CreateApiKeyRequest,
   type RevokeApiKeyParams,
-} from '@lux/ledger-http/contracts/auth-admin';
-import { createApiKeyBodySchema } from '@lux/ledger-http/contracts/auth-admin';
-import type { ListEntriesQuery } from '@lux/ledger-http/contracts/entries';
+} from '@lux/ledger-http/contracts';
+import { createApiKeyBodySchema } from '@lux/ledger-http/contracts';
+import type { ListEntriesQuery } from '@lux/ledger-http/contracts';
 import type {
   CreateLedgerRequest,
   LedgerByIdParams,
   TrialBalanceParams,
-} from '@lux/ledger-http/contracts/ledgers';
-import { createLedgerBodySchema } from '@lux/ledger-http/contracts/ledgers';
+} from '@lux/ledger-http/contracts';
+import { createLedgerBodySchema } from '@lux/ledger-http/contracts';
 import type {
   CreateTransactionRequest,
   CreateTransactionResponse,
   ListTransactionsQuery,
   TransactionByIdParams,
-} from '@lux/ledger-http/contracts/transactions';
-import { createTransactionRequestSchema } from '@lux/ledger-http/contracts/transactions';
+} from '@lux/ledger-http/contracts';
+import { createTransactionRequestSchema } from '@lux/ledger-http/contracts';
 import { toAccountResponse } from '@lux/ledger-http/mappers';
 import { toApiKeyContract } from '@lux/ledger-http/mappers';
 import { toEntryResponse } from '@lux/ledger-http/mappers';

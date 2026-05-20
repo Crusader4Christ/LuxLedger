@@ -7,7 +7,7 @@ import {
   type AuthTokenRequestHeaders,
   type AuthTokenResponse,
   authTokenResponseSchema,
-} from '@lux/ledger-http/contracts/auth-admin';
+} from '@lux/ledger-http/contracts';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { ApiMetrics } from '@api/observability/metrics';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';

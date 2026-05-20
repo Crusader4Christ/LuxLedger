@@ -8,12 +8,12 @@ import {
   type TrialBalanceParams,
   trialBalanceParamsSchema,
   trialBalanceResponseSchema,
-} from '@lux/ledger-http/contracts/ledgers';
+} from '@lux/ledger-http/contracts';
 import {
   type CreateTransactionRequest,
   type CreateTransactionResponse,
   createTransactionRequestSchema,
-} from '@lux/ledger-http/contracts/transactions';
+} from '@lux/ledger-http/contracts';
 import { BaseRoute } from '../routes/base-route';
 import { toTrialBalanceResponse } from '@lux/ledger-http/mappers';
 import type { LedgerService } from '@lux/ledger/application';

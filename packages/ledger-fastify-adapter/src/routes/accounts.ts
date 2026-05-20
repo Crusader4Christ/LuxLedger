@@ -8,7 +8,7 @@ import {
   createAccountBodySchema,
   type ListAccountsQuery,
   listAccountsQuerySchemaExtra,
-} from '@lux/ledger-http/contracts/accounts';
+} from '@lux/ledger-http/contracts';
 import { toAccountResponse } from '@lux/ledger-http/mappers';
 import { resolveLimit } from '@lux/ledger-http/query/pagination';
 import { BaseEntityRoute } from '../routes/base-route';
