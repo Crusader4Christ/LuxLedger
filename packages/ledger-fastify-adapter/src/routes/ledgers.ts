@@ -15,6 +15,7 @@ import {
   createTransactionRequestSchema,
 } from '@lux/ledger-http/contracts/transactions';
 import { BaseRoute } from '../routes/base-route';
+import { toTrialBalanceResponse } from '@lux/ledger-http/mappers';
 import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 
@@ -150,19 +151,7 @@ export class LedgerRoutes extends BaseRoute {
             tenantId: request.tenantId as string,
             ledgerId: request.params.ledger_id,
           });
-          return reply.status(200).send({
-            ledger_id: trialBalance.ledgerId,
-            accounts: trialBalance.accounts.map((account) => ({
-              account_id: account.accountId,
-              code: account.code,
-              name: account.name,
-              normal_balance: account.normalBalance,
-              balance: account.balanceMinor.toString(),
-              is_contra: account.isContra,
-            })),
-            total_debits: trialBalance.totalDebitsMinor.toString(),
-            total_credits: trialBalance.totalCreditsMinor.toString(),
-          });
+          return reply.status(200).send(toTrialBalanceResponse(trialBalance));
         });
       },
     );

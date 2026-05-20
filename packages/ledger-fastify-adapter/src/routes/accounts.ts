@@ -9,7 +9,8 @@ import {
   type ListAccountsQuery,
   listAccountsQuerySchemaExtra,
 } from '@lux/ledger-http/contracts/accounts';
-import { resolveLimit, toAccountResponse } from '@lux/ledger-http/adapter-utils';
+import { toAccountResponse } from '@lux/ledger-http/mappers';
+import { resolveLimit } from '@lux/ledger-http/query/pagination';
 import { BaseEntityRoute } from '../routes/base-route';
 import { mergePaginationQuerySchema } from '../routes/pagination';
 import type { AccountListItemDto } from '../types/list-item-dto';

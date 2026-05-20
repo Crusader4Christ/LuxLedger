@@ -15,7 +15,6 @@ import type {
   CreateLedgerRequest,
   LedgerByIdParams,
   TrialBalanceParams,
-  TrialBalanceResponse,
 } from '@lux/ledger-http/contracts/ledgers';
 import { createLedgerBodySchema } from '@lux/ledger-http/contracts/ledgers';
 import type {
@@ -25,15 +24,12 @@ import type {
   TransactionByIdParams,
 } from '@lux/ledger-http/contracts/transactions';
 import { createTransactionRequestSchema } from '@lux/ledger-http/contracts/transactions';
-import {
-  parseCursorQuery,
-  parseLimitQuery,
-  parseUuidQuery,
-  toAccountResponse,
-  toApiKeyContract,
-  toEntryResponse,
-  toTransactionResponse,
-} from '@lux/ledger-http/adapter-utils';
+import { toAccountResponse } from '@lux/ledger-http/mappers';
+import { toApiKeyContract } from '@lux/ledger-http/mappers';
+import { toEntryResponse } from '@lux/ledger-http/mappers';
+import { toTrialBalanceResponse } from '@lux/ledger-http/mappers';
+import { toTransactionResponse } from '@lux/ledger-http/mappers';
+import { parseCursorQuery, parseLimitQuery, parseUuidQuery } from '@lux/ledger-http/query/pagination';
 import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
 import { withErrorHandling } from '@lux/ledger-http/route-core';
 import { parseUuidParam } from '@lux/ledger-http/validation-utils';
@@ -172,20 +168,7 @@ export const registerLedgerAdapter = (
         tenantId: context.tenantId,
         ledgerId: params.ledger_id,
       });
-      const response: TrialBalanceResponse = {
-        ledger_id: trialBalance.ledgerId,
-        accounts: trialBalance.accounts.map((account) => ({
-          account_id: account.accountId,
-          code: account.code,
-          name: account.name,
-          normal_balance: account.normalBalance,
-          balance: account.balanceMinor.toString(),
-          is_contra: account.isContra,
-        })),
-        total_debits: trialBalance.totalDebitsMinor.toString(),
-        total_credits: trialBalance.totalCreditsMinor.toString(),
-      };
-      res.status(200).json(response);
+      res.status(200).json(toTrialBalanceResponse(trialBalance));
     }),
   );
 

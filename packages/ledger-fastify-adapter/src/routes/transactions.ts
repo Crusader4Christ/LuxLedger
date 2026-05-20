@@ -5,7 +5,7 @@ import {
   type TransactionResponse,
   transactionByIdParamsSchema,
 } from '@lux/ledger-http/contracts/transactions';
-import { toTransactionResponse } from '@lux/ledger-http/adapter-utils';
+import { toTransactionResponse } from '@lux/ledger-http/mappers';
 import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
 import type { TransactionEntity } from '@lux/ledger';
 import type { LedgerService } from '@lux/ledger/application';

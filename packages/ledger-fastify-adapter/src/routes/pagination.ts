@@ -1,6 +1,6 @@
 import { BaseEntityRoute } from '../routes/base-route';
 import type { PaginationQuery } from '../types/pagination-query';
-import { deepMerge, resolveLimit } from '@lux/ledger-http/adapter-utils';
+import { deepMerge, resolveLimit } from '@lux/ledger-http/query/pagination';
 import type { PaginatedResult } from '@lux/ledger/application';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 

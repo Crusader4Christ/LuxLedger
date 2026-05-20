@@ -3,7 +3,7 @@ import {
   entriesPageResponseSchema,
   type ListEntriesQuery,
 } from '@lux/ledger-http/contracts/entries';
-import { toEntryResponse } from '@lux/ledger-http/adapter-utils';
+import { toEntryResponse } from '@lux/ledger-http/mappers';
 import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
 import { type EntryEntity, type LedgerService } from '@lux/ledger';
 
