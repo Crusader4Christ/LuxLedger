@@ -7,7 +7,7 @@ import {
   accountsPageResponseSchema,
   type CreateAccountRequest,
   createAccountBodySchema,
-} from '@api/contracts/accounts';
+} from '@lux/ledger-http/contracts';
 import { AccountSide } from '@lux/ledger';
 import {
   extractPathMethodSection,

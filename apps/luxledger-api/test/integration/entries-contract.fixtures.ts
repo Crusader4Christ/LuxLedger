@@ -4,7 +4,7 @@ import {
   type EntryResponse,
   entriesPageResponseSchema,
   entryResponseSchema,
-} from '@api/contracts/entries';
+} from '@lux/ledger-http/contracts';
 import {
   extractPathMethodSection,
   extractPropertyNames,

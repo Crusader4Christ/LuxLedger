@@ -5,16 +5,17 @@ import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
 import type {
   AccountResponse,
   AccountsPageResponse,
-  CreateAccountRequest,
-} from '@api/contracts/accounts';
-import type {
   AuthTokenResponse,
+  CreateAccountRequest,
   CreateApiKeyRequest,
   CreateApiKeyResponse,
-} from '@api/contracts/auth-admin';
-import type { EntriesPageResponse, EntryResponse } from '@api/contracts/entries';
-import type { LedgerResponse, TrialBalanceResponse } from '@api/contracts/ledgers';
-import type { TransactionResponse, TransactionsPage } from '@lux/ledger-http/contracts';
+  EntriesPageResponse,
+  EntryResponse,
+  LedgerResponse,
+  TransactionResponse,
+  TransactionsPage,
+  TrialBalanceResponse,
+} from '@lux/ledger-http/contracts';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
