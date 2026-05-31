@@ -645,6 +645,9 @@ const PREVIOUS_JWT_SIGNING_KEY = 'YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk';
 const JWT_ISSUER = 'luxledger-api-test';
 const JWT_TTL_SECONDS = DEFAULT_JWT_ACCESS_TTL_SECONDS;
 const JWT_CLOCK_SKEW_SECONDS = 5;
+const TEST_MAIN_LEDGER_ID = '00000000-0000-4000-8000-000000000001';
+const TEST_DEBIT_ACCOUNT_ID = '00000000-0000-4000-8000-000000000101';
+const TEST_CREDIT_ACCOUNT_ID = '00000000-0000-4000-8000-000000000102';
 
 const createJwtAuthConfig = (overrides: Partial<JwtAuthConfig> = {}): JwtAuthConfig => ({
   signingKey: JWT_SIGNING_KEY,
@@ -1438,18 +1441,18 @@ describe('server', () => {
     const headers = await authHeaders(server);
 
     const payload = {
-      ledger_id: '00000000-0000-4000-8000-000000000001',
+      ledger_id: TEST_MAIN_LEDGER_ID,
       reference: 'hold-ref-1',
       currency: 'USD',
       entries: [
         {
-          account_id: '00000000-0000-4000-8000-000000000101',
+          account_id: TEST_DEBIT_ACCOUNT_ID,
           direction: EntryDirection.DEBIT,
           amount_minor: '100',
           currency: 'USD',
         },
         {
-          account_id: '00000000-0000-4000-8000-000000000102',
+          account_id: TEST_CREDIT_ACCOUNT_ID,
           direction: EntryDirection.CREDIT,
           amount_minor: '100',
           currency: 'USD',
@@ -1487,18 +1490,18 @@ describe('server', () => {
       url: '/v1/holds',
       headers,
       payload: {
-        ledger_id: '00000000-0000-4000-8000-000000000001',
+        ledger_id: TEST_MAIN_LEDGER_ID,
         reference: 'hold-ref-2',
         currency: 'USD',
         entries: [
           {
-            account_id: '00000000-0000-4000-8000-000000000101',
+            account_id: TEST_DEBIT_ACCOUNT_ID,
             direction: EntryDirection.DEBIT,
             amount_minor: '150',
             currency: 'USD',
           },
           {
-            account_id: '00000000-0000-4000-8000-000000000102',
+            account_id: TEST_CREDIT_ACCOUNT_ID,
             direction: EntryDirection.CREDIT,
             amount_minor: '150',
             currency: 'USD',

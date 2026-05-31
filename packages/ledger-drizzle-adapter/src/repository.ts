@@ -421,6 +421,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     try {
       const result = await this.db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+        this.validateHoldEntriesInput(input.entries, input.currency);
         await this.validateCreateTransactionInvariants(tx, input);
 
         const [insertedTransaction] = await tx
@@ -577,7 +578,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             )
             .limit(1);
           if (!existingHold) {
-            throw new RepositoryError('Unable to resolve idempotent hold');
+            throw new RepositoryError(
+              `Unable to resolve idempotent hold for tenant ${input.tenantId} and reference ${input.reference}`,
+            );
           }
           if (
             existingHold.ledgerId !== input.ledgerId ||
@@ -1248,6 +1251,35 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       (sum, entry) => (entry.direction === EntryDirection.DEBIT ? sum + entry.amountMinor : sum),
       0n,
     );
+  }
+
+  private validateHoldEntriesInput(
+    entries: Array<{
+      direction: EntryDirection;
+      amountMinor: bigint;
+      currency: string;
+    }>,
+    holdCurrency: string,
+  ): void {
+    if (entries.length < 2) {
+      throw new InvariantViolationError('Unable to create hold: at least two entries are required');
+    }
+
+    const hasDebit = entries.some((entry) => entry.direction === EntryDirection.DEBIT);
+    const hasCredit = entries.some((entry) => entry.direction === EntryDirection.CREDIT);
+    if (!hasDebit || !hasCredit) {
+      throw new InvariantViolationError(
+        'Unable to create hold: entries must include at least one DEBIT and one CREDIT',
+      );
+    }
+
+    for (const entry of entries) {
+      if (entry.currency !== holdCurrency) {
+        throw new InvariantViolationError(
+          'Unable to create hold: entry currency must match hold currency',
+        );
+      }
+    }
   }
 
   private areEquivalentHoldEntries(
