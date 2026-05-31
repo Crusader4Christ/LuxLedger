@@ -21,6 +21,56 @@ export interface CreateTransactionResult {
   created: boolean;
 }
 
+export interface HoldEntryInput {
+  accountId: string;
+  direction: EntryDirection;
+  amountMinor: bigint;
+  currency: string;
+}
+
+export interface CreateHoldInput {
+  tenantId: string;
+  ledgerId: string;
+  reference: string;
+  currency: string;
+  description?: string;
+  entries: HoldEntryInput[];
+}
+
+export interface CreateHoldResult {
+  holdId: string;
+  created: boolean;
+  state: 'HELD' | 'APPLIED' | 'VOIDED';
+  remainingAmountMinor: bigint;
+}
+
+export interface CommitHoldInput {
+  tenantId: string;
+  holdId: string;
+  reference: string;
+  amountMinor?: bigint;
+}
+
+export interface CommitHoldResult {
+  holdId: string;
+  state: 'HELD' | 'APPLIED';
+  remainingAmountMinor: bigint;
+  transactionId: string;
+  created: boolean;
+}
+
+export interface VoidHoldInput {
+  tenantId: string;
+  holdId: string;
+}
+
+export interface VoidHoldResult {
+  holdId: string;
+  state: 'VOIDED';
+  remainingAmountMinor: bigint;
+  voided: boolean;
+}
+
 export interface PaginationQuery {
   tenantId: string;
   limit: number;
@@ -96,6 +146,9 @@ export interface LedgerRepository extends BaseLedgerRepository {
     transactionId: string,
   ): Promise<TransactionEntity | null>;
   createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult>;
+  createHold(input: CreateHoldInput): Promise<CreateHoldResult>;
+  commitHold(input: CommitHoldInput): Promise<CommitHoldResult>;
+  voidHold(input: VoidHoldInput): Promise<VoidHoldResult>;
   listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
   listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;

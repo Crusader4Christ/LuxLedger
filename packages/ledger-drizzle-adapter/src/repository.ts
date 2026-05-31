@@ -13,6 +13,8 @@ import {
   LedgerId as LedgerLedgerId,
   TransactionId as LedgerTransactionId,
   Money,
+  parseAccountSide,
+  parseEntryDirection,
   TransactionEntity,
 } from '@lux/ledger';
 import {
@@ -20,6 +22,10 @@ import {
   type ApiKeyRepository,
   type CreateAccountInput,
   type CreateLedgerInput,
+  type CreateHoldInput,
+  type CreateHoldResult,
+  type CommitHoldInput,
+  type CommitHoldResult,
   type CreateTransactionInput,
   type CreateTransactionResult,
   InvariantViolationError,
@@ -32,6 +38,8 @@ import {
   type TrialBalance,
   type TrialBalanceAccount,
   type TrialBalanceQuery,
+  type VoidHoldInput,
+  type VoidHoldResult,
 } from '@lux/ledger/application';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -82,25 +90,10 @@ const parseApiKeyRole = (role: string): ApiKeyRole => {
   throw new RepositoryError('Unable to parse api key role');
 };
 
-const parseEntryDirection = (direction: string): EntryDirection => {
-  if ((Object.values(EntryDirection) as EntryDirection[]).includes(direction as EntryDirection)) {
-    return direction as EntryDirection;
-  }
-
-  throw new RepositoryError('Unable to parse entry direction');
-};
-
-const parseAccountSide = (side: string): AccountSide => {
-  if ((Object.values(AccountSide) as AccountSide[]).includes(side as AccountSide)) {
-    return side as AccountSide;
-  }
-
-  throw new RepositoryError('Unable to parse account side');
-};
-
 type AccountRow = typeof schema.accounts.$inferSelect;
 type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
+type HoldRow = typeof schema.holds.$inferSelect;
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
@@ -541,6 +534,343 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
+  public async createHold(input: CreateHoldInput): Promise<CreateHoldResult> {
+    try {
+      const result = await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+        await this.validateCreateTransactionInvariants(tx, input);
+
+        const amountMinor = this.resolveTotalDebit(input.entries);
+        const [insertedHold] = await tx
+          .insert(schema.holds)
+          .values({
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            reference: input.reference,
+            currency: input.currency,
+            description: input.description ?? null,
+            originalAmountMinor: amountMinor,
+            remainingAmountMinor: amountMinor,
+          })
+          .onConflictDoNothing({
+            target: [schema.holds.tenantId, schema.holds.reference],
+          })
+          .returning({
+            id: schema.holds.id,
+            state: schema.holds.state,
+            remainingAmountMinor: schema.holds.remainingAmountMinor,
+          });
+
+        if (!insertedHold) {
+          const [existingHold] = await tx
+            .select({
+              id: schema.holds.id,
+              ledgerId: schema.holds.ledgerId,
+              currency: schema.holds.currency,
+              description: schema.holds.description,
+              state: schema.holds.state,
+              remainingAmountMinor: schema.holds.remainingAmountMinor,
+            })
+            .from(schema.holds)
+            .where(
+              and(eq(schema.holds.tenantId, input.tenantId), eq(schema.holds.reference, input.reference)),
+            )
+            .limit(1);
+          if (!existingHold) {
+            throw new RepositoryError('Unable to resolve idempotent hold');
+          }
+          if (
+            existingHold.ledgerId !== input.ledgerId ||
+            existingHold.currency !== input.currency ||
+            (existingHold.description ?? null) !== (input.description ?? null)
+          ) {
+            throw new InvariantViolationError('Unable to create hold: reference payload mismatch');
+          }
+          const existingEntries = await tx
+            .select({
+              accountId: schema.holdEntries.accountId,
+              direction: schema.holdEntries.direction,
+              amountMinor: schema.holdEntries.amountMinor,
+              currency: schema.holdEntries.currency,
+            })
+            .from(schema.holdEntries)
+            .where(
+              and(
+                eq(schema.holdEntries.tenantId, input.tenantId),
+                eq(schema.holdEntries.holdId, existingHold.id),
+              ),
+            );
+          if (!this.areEquivalentHoldEntries(existingEntries, input.entries)) {
+            throw new InvariantViolationError('Unable to create hold: reference payload mismatch');
+          }
+          return {
+            holdId: existingHold.id,
+            created: false,
+            state: existingHold.state,
+            remainingAmountMinor: existingHold.remainingAmountMinor,
+          } satisfies CreateHoldResult;
+        }
+
+        await tx.insert(schema.holdEntries).values(
+          input.entries.map((entry) => ({
+            tenantId: input.tenantId,
+            holdId: insertedHold.id,
+            accountId: entry.accountId,
+            direction: entry.direction,
+            amountMinor: entry.amountMinor,
+            currency: entry.currency,
+          })),
+        );
+
+        for (const entry of [...input.entries].sort((a, b) => a.accountId.localeCompare(b.accountId))) {
+          const field =
+            entry.direction === EntryDirection.DEBIT
+              ? schema.accounts.inflightDebitMinor
+              : schema.accounts.inflightCreditMinor;
+          const [updatedAccount] = await tx
+            .update(schema.accounts)
+            .set({
+              inflightDebitMinor:
+                entry.direction === EntryDirection.DEBIT
+                  ? sql`${schema.accounts.inflightDebitMinor} + ${entry.amountMinor}`
+                  : schema.accounts.inflightDebitMinor,
+              inflightCreditMinor:
+                entry.direction === EntryDirection.CREDIT
+                  ? sql`${schema.accounts.inflightCreditMinor} + ${entry.amountMinor}`
+                  : schema.accounts.inflightCreditMinor,
+              updatedAt: sql`now()`,
+            })
+            .where(
+              and(
+                eq(schema.accounts.id, entry.accountId),
+                eq(schema.accounts.tenantId, input.tenantId),
+                eq(schema.accounts.ledgerId, input.ledgerId),
+                eq(schema.accounts.currency, input.currency),
+              ),
+            )
+            .returning({ id: schema.accounts.id, inflight: field });
+          if (!updatedAccount) {
+            throw new InvariantViolationError('Unable to create hold: account ledger/currency mismatch');
+          }
+        }
+
+        return {
+          holdId: insertedHold.id,
+          created: true,
+          state: insertedHold.state,
+          remainingAmountMinor: insertedHold.remainingAmountMinor,
+        } satisfies CreateHoldResult;
+      });
+
+      return result;
+    } catch (error) {
+      this.handleDatabaseError(error, 'create hold');
+    }
+  }
+
+  public async commitHold(input: CommitHoldInput): Promise<CommitHoldResult> {
+    try {
+      const result = await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+        const hold = await this.lockHold(tx, input.tenantId, input.holdId);
+        if (!hold) {
+          throw new InvariantViolationError('Unable to commit hold: hold not found');
+        }
+
+        const [existingTransaction] = await tx
+          .select({ id: schema.transactions.id })
+          .from(schema.transactions)
+          .where(and(eq(schema.transactions.tenantId, input.tenantId), eq(schema.transactions.reference, input.reference)))
+          .limit(1);
+        if (existingTransaction) {
+          const [sameHold] = await tx
+            .select({ id: schema.transactions.id })
+            .from(schema.transactions)
+            .where(and(eq(schema.transactions.id, existingTransaction.id), eq(schema.transactions.holdId, input.holdId)))
+            .limit(1);
+          if (!sameHold) {
+            throw new InvariantViolationError('Unable to commit hold: reference belongs to different transaction');
+          }
+          return {
+            holdId: hold.id,
+            state: hold.state === 'APPLIED' ? 'APPLIED' : 'HELD',
+            remainingAmountMinor: hold.remainingAmountMinor,
+            transactionId: existingTransaction.id,
+            created: false,
+          } satisfies CommitHoldResult;
+        }
+        if (hold.state !== 'HELD') {
+          throw new InvariantViolationError(`Unable to commit hold: invalid hold state ${hold.state}`);
+        }
+
+        const commitAmount = input.amountMinor ?? hold.remainingAmountMinor;
+        if (commitAmount <= 0n) {
+          throw new InvariantViolationError('Unable to commit hold: amount must be positive');
+        }
+        if (commitAmount > hold.remainingAmountMinor) {
+          throw new InvariantViolationError('Unable to commit hold: amount exceeds remaining amount');
+        }
+
+        const holdEntries = await tx
+          .select()
+          .from(schema.holdEntries)
+          .where(and(eq(schema.holdEntries.tenantId, input.tenantId), eq(schema.holdEntries.holdId, input.holdId)))
+          .orderBy(asc(schema.holdEntries.createdAt), asc(schema.holdEntries.id));
+        if (holdEntries.length < 2) {
+          throw new InvariantViolationError('Unable to commit hold: hold entries are missing');
+        }
+
+        const [insertedTransaction] = await tx
+          .insert(schema.transactions)
+          .values({
+            tenantId: hold.tenantId,
+            ledgerId: hold.ledgerId,
+            holdId: hold.id,
+            reference: input.reference,
+            currency: hold.currency,
+            description: hold.description,
+          })
+          .returning({ id: schema.transactions.id });
+
+        const committedEntries = holdEntries.map((entry) => {
+          const scaled = entry.amountMinor * commitAmount;
+          if (scaled % hold.originalAmountMinor !== 0n) {
+            throw new InvariantViolationError(
+              'Unable to commit hold: amount cannot be represented without rounding',
+            );
+          }
+          const amountMinor = scaled / hold.originalAmountMinor;
+          if (amountMinor <= 0n) {
+            throw new InvariantViolationError('Unable to commit hold: amount produced zero entry');
+          }
+          return {
+            tenantId: input.tenantId,
+            transactionId: insertedTransaction.id,
+            accountId: entry.accountId,
+            direction: entry.direction,
+            amountMinor,
+            currency: entry.currency,
+          };
+        });
+
+        await tx.insert(schema.entries).values(committedEntries);
+
+        for (const entry of committedEntries.sort((a, b) => a.accountId.localeCompare(b.accountId))) {
+          const delta = entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
+          const [updatedAccount] = await tx
+            .update(schema.accounts)
+            .set({
+              balanceMinor: sql`${schema.accounts.balanceMinor} + ${delta}`,
+              inflightDebitMinor:
+                entry.direction === EntryDirection.DEBIT
+                  ? sql`${schema.accounts.inflightDebitMinor} - ${entry.amountMinor}`
+                  : schema.accounts.inflightDebitMinor,
+              inflightCreditMinor:
+                entry.direction === EntryDirection.CREDIT
+                  ? sql`${schema.accounts.inflightCreditMinor} - ${entry.amountMinor}`
+                  : schema.accounts.inflightCreditMinor,
+              updatedAt: sql`now()`,
+            })
+            .where(and(eq(schema.accounts.id, entry.accountId), eq(schema.accounts.tenantId, input.tenantId)))
+            .returning({ id: schema.accounts.id });
+          if (!updatedAccount) {
+            throw new InvariantViolationError('Unable to commit hold: account not found');
+          }
+        }
+
+        const remainingAmountMinor = hold.remainingAmountMinor - commitAmount;
+        const [updatedHold] = await tx
+          .update(schema.holds)
+          .set({
+            remainingAmountMinor,
+            state: remainingAmountMinor === 0n ? 'APPLIED' : 'HELD',
+            appliedAt: remainingAmountMinor === 0n ? sql`now()` : null,
+          })
+          .where(eq(schema.holds.id, hold.id))
+          .returning({ state: schema.holds.state, remainingAmountMinor: schema.holds.remainingAmountMinor });
+
+        return {
+          holdId: hold.id,
+          state: updatedHold.state as 'HELD' | 'APPLIED',
+          remainingAmountMinor: updatedHold.remainingAmountMinor,
+          transactionId: insertedTransaction.id,
+          created: true,
+        } satisfies CommitHoldResult;
+      });
+      return result;
+    } catch (error) {
+      this.handleDatabaseError(error, 'commit hold');
+    }
+  }
+
+  public async voidHold(input: VoidHoldInput): Promise<VoidHoldResult> {
+    try {
+      const result = await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+        const hold = await this.lockHold(tx, input.tenantId, input.holdId);
+        if (!hold) {
+          throw new InvariantViolationError('Unable to void hold: hold not found');
+        }
+        if (hold.state === 'VOIDED') {
+          return {
+            holdId: hold.id,
+            state: 'VOIDED',
+            remainingAmountMinor: hold.remainingAmountMinor,
+            voided: false,
+          } satisfies VoidHoldResult;
+        }
+        if (hold.state !== 'HELD') {
+          throw new InvariantViolationError(`Unable to void hold: invalid hold state ${hold.state}`);
+        }
+
+        const holdEntries = await tx
+          .select()
+          .from(schema.holdEntries)
+          .where(and(eq(schema.holdEntries.tenantId, input.tenantId), eq(schema.holdEntries.holdId, input.holdId)));
+        for (const entry of holdEntries) {
+          const releaseAmount = (entry.amountMinor * hold.remainingAmountMinor) / hold.originalAmountMinor;
+          const [updated] = await tx
+            .update(schema.accounts)
+            .set({
+              inflightDebitMinor:
+                entry.direction === EntryDirection.DEBIT
+                  ? sql`${schema.accounts.inflightDebitMinor} - ${releaseAmount}`
+                  : schema.accounts.inflightDebitMinor,
+              inflightCreditMinor:
+                entry.direction === EntryDirection.CREDIT
+                  ? sql`${schema.accounts.inflightCreditMinor} - ${releaseAmount}`
+                  : schema.accounts.inflightCreditMinor,
+              updatedAt: sql`now()`,
+            })
+            .where(and(eq(schema.accounts.id, entry.accountId), eq(schema.accounts.tenantId, input.tenantId)))
+            .returning({ id: schema.accounts.id });
+          if (!updated) {
+            throw new InvariantViolationError('Unable to void hold: account not found');
+          }
+        }
+
+        await tx
+          .update(schema.holds)
+          .set({
+            state: 'VOIDED',
+            remainingAmountMinor: 0n,
+            voidedAt: sql`now()`,
+          })
+          .where(eq(schema.holds.id, hold.id));
+
+        return {
+          holdId: hold.id,
+          state: 'VOIDED',
+          remainingAmountMinor: 0n,
+          voided: true,
+        } satisfies VoidHoldResult;
+      });
+      return result;
+    } catch (error) {
+      this.handleDatabaseError(error, 'void hold');
+    }
+  }
+
   private async validateCreateTransactionInvariants(
     tx: PostgresJsDatabase<typeof schema>,
     input: CreateTransactionInput,
@@ -909,6 +1239,61 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
 
     return entriesByTransactionId;
+  }
+
+  private resolveTotalDebit(
+    entries: Array<{ direction: EntryDirection; amountMinor: bigint }>,
+  ): bigint {
+    return entries.reduce(
+      (sum, entry) => (entry.direction === EntryDirection.DEBIT ? sum + entry.amountMinor : sum),
+      0n,
+    );
+  }
+
+  private areEquivalentHoldEntries(
+    existingEntries: Array<{
+      accountId: string;
+      direction: string;
+      amountMinor: bigint;
+      currency: string;
+    }>,
+    inputEntries: Array<{
+      accountId: string;
+      direction: EntryDirection;
+      amountMinor: bigint;
+      currency: string;
+    }>,
+  ): boolean {
+    if (existingEntries.length !== inputEntries.length) {
+      return false;
+    }
+    const normalize = (entries: Array<{
+      accountId: string;
+      direction: string;
+      amountMinor: bigint;
+      currency: string;
+    }>) =>
+      entries
+        .map((entry) => `${entry.accountId}:${entry.direction}:${entry.amountMinor.toString()}:${entry.currency}`)
+        .sort();
+
+    const existing = normalize(existingEntries);
+    const input = normalize(inputEntries);
+    return existing.every((value, index) => value === input[index]);
+  }
+
+  private async lockHold(
+    tx: PostgresJsDatabase<typeof schema>,
+    tenantId: string,
+    holdId: string,
+  ): Promise<HoldRow | null> {
+    const rows = await tx.execute(
+      sql`select * from holds where tenant_id = ${tenantId} and id = ${holdId} for update`,
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return rows[0] as HoldRow;
   }
 
   private async withTenantContext<T>(

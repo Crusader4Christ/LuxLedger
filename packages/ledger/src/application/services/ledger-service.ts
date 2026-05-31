@@ -13,8 +13,12 @@ import type {
   AccountPaginationQuery,
   CreateAccountInput,
   CreateLedgerInput,
+  CreateHoldInput,
+  CreateHoldResult,
   CreateTransactionInput,
   CreateTransactionResult,
+  CommitHoldInput,
+  CommitHoldResult,
   Ledger,
   LedgerRepository,
   PaginatedResult,
@@ -22,6 +26,8 @@ import type {
   TransactionPaginationQuery,
   TrialBalance,
   TrialBalanceQuery,
+  VoidHoldInput,
+  VoidHoldResult,
 } from '../types';
 
 export class LedgerService {
@@ -70,6 +76,36 @@ export class LedgerService {
     }
 
     return this.repository.createTransaction(input);
+  }
+
+  public async createHold(input: CreateHoldInput): Promise<CreateHoldResult> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.ledgerId, 'ledgerId is required');
+    assertNonEmpty(input.reference, 'reference is required');
+    assertNonEmpty(input.currency, 'currency is required');
+    if (typeof input.description === 'string') {
+      assertNonEmpty(input.description, 'description must be a non-empty string');
+    }
+
+    return this.repository.createHold(input);
+  }
+
+  public async commitHold(input: CommitHoldInput): Promise<CommitHoldResult> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.holdId, 'holdId is required');
+    assertNonEmpty(input.reference, 'reference is required');
+    if (input.amountMinor !== undefined && input.amountMinor <= 0n) {
+      throw new InvariantViolationError('amountMinor must be positive when provided');
+    }
+
+    return this.repository.commitHold(input);
+  }
+
+  public async voidHold(input: VoidHoldInput): Promise<VoidHoldResult> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.holdId, 'holdId is required');
+
+    return this.repository.voidHold(input);
   }
 
   public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {

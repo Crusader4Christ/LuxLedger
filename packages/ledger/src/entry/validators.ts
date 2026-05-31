@@ -12,3 +12,8 @@ export function validateEntryAmount(amountMinor: bigint): void {
     throw new InvalidAmountError('amount must be positive');
   }
 }
+
+export function parseEntryDirection(direction: string): EntryDirection {
+  validateEntryDirection(direction);
+  return direction as EntryDirection;
+}

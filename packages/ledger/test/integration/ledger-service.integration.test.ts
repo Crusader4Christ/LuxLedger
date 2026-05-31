@@ -59,6 +59,40 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
+  public async createHold(): Promise<{
+    holdId: string;
+    created: boolean;
+    state: 'HELD' | 'APPLIED' | 'VOIDED';
+    remainingAmountMinor: bigint;
+  }> {
+    return { holdId: 'hold-1', created: true, state: 'HELD', remainingAmountMinor: 100n };
+  }
+
+  public async commitHold(): Promise<{
+    holdId: string;
+    state: 'HELD' | 'APPLIED';
+    remainingAmountMinor: bigint;
+    transactionId: string;
+    created: boolean;
+  }> {
+    return {
+      holdId: 'hold-1',
+      state: 'APPLIED',
+      remainingAmountMinor: 0n,
+      transactionId: 'tx-commit-1',
+      created: true,
+    };
+  }
+
+  public async voidHold(): Promise<{
+    holdId: string;
+    state: 'VOIDED';
+    remainingAmountMinor: bigint;
+    voided: boolean;
+  }> {
+    return { holdId: 'hold-1', state: 'VOIDED', remainingAmountMinor: 0n, voided: true };
+  }
+
   public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {
     const ledger = this.ledgers.get(input.ledgerId);
     if (!ledger || ledger.tenantId !== input.tenantId) {

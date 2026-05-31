@@ -27,6 +27,21 @@ export class TransactionNotFoundError extends DomainError {
   }
 }
 
+export class HoldNotFoundError extends DomainError {
+  public readonly holdId: string;
+
+  public constructor(holdId: string) {
+    super(`Hold not found: ${holdId}`, 'HOLD_NOT_FOUND', 404);
+    this.holdId = holdId;
+  }
+}
+
+export class InvalidHoldStateTransitionError extends DomainError {
+  public constructor(from: string, to: string) {
+    super(`Invalid hold state transition: ${from} -> ${to}`, 'INVALID_HOLD_STATE_TRANSITION', 409);
+  }
+}
+
 export class InvariantViolationError extends DomainError {
   public constructor(message: string, options?: ErrorOptions) {
     super(message, 'INVARIANT_VIOLATION', 400, options);
