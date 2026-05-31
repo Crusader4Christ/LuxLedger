@@ -11,6 +11,8 @@ import {
 import { validatePaginationQuery } from '../pagination-query';
 import type {
   AccountPaginationQuery,
+  BalanceHistoryQuery,
+  BalanceSnapshotEvent,
   CreateAccountInput,
   CreateLedgerInput,
   CreateHoldInput,
@@ -21,6 +23,8 @@ import type {
   CommitHoldResult,
   Ledger,
   LedgerRepository,
+  HistoricalBalance,
+  HistoricalBalanceQuery,
   PaginatedResult,
   PaginationQuery,
   TransactionPaginationQuery,
@@ -177,6 +181,33 @@ export class LedgerService {
     assertNonEmpty(query.ledgerId, 'ledgerId is required');
 
     return this.repository.getTrialBalance(query);
+  }
+
+  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+    assertNonEmpty(query.tenantId, 'tenantId is required');
+    assertNonEmpty(query.accountId, 'accountId is required');
+    if (!(query.at instanceof Date) || Number.isNaN(query.at.getTime())) {
+      throw new InvariantViolationError('at must be a valid ISO-8601 timestamp');
+    }
+    return this.repository.getHistoricalBalance(query);
+  }
+
+  public async getBalanceHistory(
+    query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    assertNonEmpty(query.tenantId, 'tenantId is required');
+    assertNonEmpty(query.accountId, 'accountId is required');
+    if (!(query.from instanceof Date) || Number.isNaN(query.from.getTime())) {
+      throw new InvariantViolationError('from must be a valid ISO-8601 timestamp');
+    }
+    if (!(query.to instanceof Date) || Number.isNaN(query.to.getTime())) {
+      throw new InvariantViolationError('to must be a valid ISO-8601 timestamp');
+    }
+    if (query.from.getTime() > query.to.getTime()) {
+      throw new InvariantViolationError('from must be less than or equal to to');
+    }
+    validatePaginationQuery({ tenantId: query.tenantId, limit: query.limit, cursor: query.cursor });
+    return this.repository.getBalanceHistory(query);
   }
 
   private assertAccountSide(side: string): void {

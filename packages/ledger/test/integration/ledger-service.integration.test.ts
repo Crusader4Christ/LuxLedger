@@ -8,12 +8,16 @@ import {
 } from '@lux/ledger';
 import type {
   AccountPaginationQuery,
+  BalanceHistoryQuery,
+  BalanceSnapshotEvent,
   CreateAccountInput,
   CreateLedgerInput,
   CreateTransactionInput,
   CreateTransactionResult,
   Ledger,
   LedgerRepository,
+  HistoricalBalance,
+  HistoricalBalanceQuery,
   PaginatedResult,
   PaginationQuery,
   TransactionPaginationQuery,
@@ -152,6 +156,24 @@ class InMemoryLedgerRepository implements LedgerRepository {
       totalDebitsMinor: 0n,
       totalCreditsMinor: 0n,
     };
+  }
+
+  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+    return {
+      tenantId: query.tenantId,
+      accountId: query.accountId,
+      at: query.at,
+      postedMinor: 0n,
+      inflightDebitMinor: 0n,
+      inflightCreditMinor: 0n,
+      availableMinor: 0n,
+    };
+  }
+
+  public async getBalanceHistory(
+    _query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    return { data: [], nextCursor: null };
   }
 }
 

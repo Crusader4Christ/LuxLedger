@@ -22,6 +22,20 @@
       "when": 1772899588554,
       "tag": "0002_inflight_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772899588555,
+      "tag": "0003_balance_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772899588556,
+      "tag": "0004_uuid_v7_defaults",
+      "breakpoints": true
     }
   ]
 }

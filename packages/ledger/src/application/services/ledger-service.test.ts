@@ -13,6 +13,8 @@ import {
 import {
   AccountNotFoundError,
   type AccountPaginationQuery,
+  type BalanceHistoryQuery,
+  type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateTransactionInput,
@@ -22,6 +24,8 @@ import {
   type Ledger,
   LedgerNotFoundError,
   type LedgerRepository,
+  type HistoricalBalance,
+  type HistoricalBalanceQuery,
   LedgerService,
   type PaginatedResult,
   type PaginationQuery,
@@ -207,6 +211,24 @@ class InMemoryLedgerRepository implements LedgerRepository {
       totalDebitsMinor: 0n,
       totalCreditsMinor: 0n,
     };
+  }
+
+  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+    return {
+      tenantId: query.tenantId,
+      accountId: query.accountId,
+      at: query.at,
+      postedMinor: 0n,
+      inflightDebitMinor: 0n,
+      inflightCreditMinor: 0n,
+      availableMinor: 0n,
+    };
+  }
+
+  public async getBalanceHistory(
+    _query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    return { data: [], nextCursor: null };
   }
 }
 

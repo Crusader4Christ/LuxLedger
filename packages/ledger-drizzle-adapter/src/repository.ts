@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   AccountEntity,
   AccountSide,
@@ -20,6 +19,8 @@ import {
 import {
   type AccountPaginationQuery,
   type ApiKeyRepository,
+  type BalanceHistoryQuery,
+  type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateHoldInput,
@@ -31,6 +32,8 @@ import {
   InvariantViolationError,
   LedgerNotFoundError,
   type LedgerRepository,
+  type HistoricalBalance,
+  type HistoricalBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
   RepositoryError,
@@ -90,10 +93,20 @@ const parseApiKeyRole = (role: string): ApiKeyRole => {
   throw new RepositoryError('Unable to parse api key role');
 };
 
+const generateUuidV7 = (): string => {
+  const timestampHex = Date.now().toString(16).padStart(12, '0').slice(-12);
+  const randomHex = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
+    .toString(16)
+    .padStart(20, '0')
+    .slice(-20);
+  return `${timestampHex.slice(0, 8)}-${timestampHex.slice(8, 12)}-7${randomHex.slice(0, 3)}-8${randomHex.slice(3, 6)}-${randomHex.slice(6, 18)}`;
+};
+
 type AccountRow = typeof schema.accounts.$inferSelect;
 type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
 type HoldRow = typeof schema.holds.$inferSelect;
+type BalanceSnapshotEventType = typeof schema.balanceSnapshots.$inferSelect.eventType;
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
@@ -501,13 +514,29 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 eq(schema.accounts.currency, input.currency),
               ),
             )
-            .returning({ id: schema.accounts.id });
+            .returning({
+              id: schema.accounts.id,
+              ledgerId: schema.accounts.ledgerId,
+              balanceMinor: schema.accounts.balanceMinor,
+              inflightDebitMinor: schema.accounts.inflightDebitMinor,
+              inflightCreditMinor: schema.accounts.inflightCreditMinor,
+            });
 
           if (!updatedAccount) {
             throw new InvariantViolationError(
               'Unable to create transaction: account ledger/currency mismatch',
             );
           }
+          await this.insertBalanceSnapshot(tx, {
+            tenantId: input.tenantId,
+            eventType: 'TX_APPLIED',
+            sourceId: insertedTransaction.id,
+            accountId: updatedAccount.id,
+            ledgerId: updatedAccount.ledgerId,
+            postedMinor: updatedAccount.balanceMinor,
+            inflightDebitMinor: updatedAccount.inflightDebitMinor,
+            inflightCreditMinor: updatedAccount.inflightCreditMinor,
+          });
         }
 
         return {
@@ -626,10 +655,6 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         );
 
         for (const entry of [...input.entries].sort((a, b) => a.accountId.localeCompare(b.accountId))) {
-          const field =
-            entry.direction === EntryDirection.DEBIT
-              ? schema.accounts.inflightDebitMinor
-              : schema.accounts.inflightCreditMinor;
           const [updatedAccount] = await tx
             .update(schema.accounts)
             .set({
@@ -651,10 +676,26 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 eq(schema.accounts.currency, input.currency),
               ),
             )
-            .returning({ id: schema.accounts.id, inflight: field });
+            .returning({
+              id: schema.accounts.id,
+              ledgerId: schema.accounts.ledgerId,
+              balanceMinor: schema.accounts.balanceMinor,
+              inflightDebitMinor: schema.accounts.inflightDebitMinor,
+              inflightCreditMinor: schema.accounts.inflightCreditMinor,
+            });
           if (!updatedAccount) {
             throw new InvariantViolationError('Unable to create hold: account ledger/currency mismatch');
           }
+          await this.insertBalanceSnapshot(tx, {
+            tenantId: input.tenantId,
+            eventType: 'HOLD_CREATED',
+            sourceId: insertedHold.id,
+            accountId: updatedAccount.id,
+            ledgerId: updatedAccount.ledgerId,
+            postedMinor: updatedAccount.balanceMinor,
+            inflightDebitMinor: updatedAccount.inflightDebitMinor,
+            inflightCreditMinor: updatedAccount.inflightCreditMinor,
+          });
         }
 
         return {
@@ -775,10 +816,26 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
               updatedAt: sql`now()`,
             })
             .where(and(eq(schema.accounts.id, entry.accountId), eq(schema.accounts.tenantId, input.tenantId)))
-            .returning({ id: schema.accounts.id });
+            .returning({
+              id: schema.accounts.id,
+              ledgerId: schema.accounts.ledgerId,
+              balanceMinor: schema.accounts.balanceMinor,
+              inflightDebitMinor: schema.accounts.inflightDebitMinor,
+              inflightCreditMinor: schema.accounts.inflightCreditMinor,
+            });
           if (!updatedAccount) {
             throw new InvariantViolationError('Unable to commit hold: account not found');
           }
+          await this.insertBalanceSnapshot(tx, {
+            tenantId: input.tenantId,
+            eventType: 'HOLD_COMMITTED',
+            sourceId: hold.id,
+            accountId: updatedAccount.id,
+            ledgerId: updatedAccount.ledgerId,
+            postedMinor: updatedAccount.balanceMinor,
+            inflightDebitMinor: updatedAccount.inflightDebitMinor,
+            inflightCreditMinor: updatedAccount.inflightCreditMinor,
+          });
         }
 
         const remainingAmountMinor = hold.remainingAmountMinor - commitAmount;
@@ -846,10 +903,26 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
               updatedAt: sql`now()`,
             })
             .where(and(eq(schema.accounts.id, entry.accountId), eq(schema.accounts.tenantId, input.tenantId)))
-            .returning({ id: schema.accounts.id });
+            .returning({
+              id: schema.accounts.id,
+              ledgerId: schema.accounts.ledgerId,
+              balanceMinor: schema.accounts.balanceMinor,
+              inflightDebitMinor: schema.accounts.inflightDebitMinor,
+              inflightCreditMinor: schema.accounts.inflightCreditMinor,
+            });
           if (!updated) {
             throw new InvariantViolationError('Unable to void hold: account not found');
           }
+          await this.insertBalanceSnapshot(tx, {
+            tenantId: input.tenantId,
+            eventType: 'HOLD_VOIDED',
+            sourceId: hold.id,
+            accountId: updated.id,
+            ledgerId: updated.ledgerId,
+            postedMinor: updated.balanceMinor,
+            inflightDebitMinor: updated.inflightDebitMinor,
+            inflightCreditMinor: updated.inflightCreditMinor,
+          });
         }
 
         await tx
@@ -907,7 +980,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     try {
       await useCase.execute({
         tenantId: input.tenantId,
-        id: randomUUID(),
+        id: generateUuidV7(),
         ledgerId: input.ledgerId,
         reference: input.reference,
         currency: input.currency,
@@ -1204,6 +1277,89 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
+  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+    try {
+      return await this.withTenantContext(query.tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(schema.balanceSnapshots)
+          .where(
+            and(
+              eq(schema.balanceSnapshots.tenantId, query.tenantId),
+              eq(schema.balanceSnapshots.accountId, query.accountId),
+              sql`${schema.balanceSnapshots.effectiveAt} <= ${query.at}`,
+            ),
+          )
+          .orderBy(sql`${schema.balanceSnapshots.effectiveAt} desc`, sql`${schema.balanceSnapshots.id} desc`)
+          .limit(1);
+
+        const postedMinor = row?.postedMinor ?? 0n;
+        const inflightDebitMinor = row?.inflightDebitMinor ?? 0n;
+        const inflightCreditMinor = row?.inflightCreditMinor ?? 0n;
+        return {
+          tenantId: query.tenantId,
+          accountId: query.accountId,
+          at: query.at,
+          postedMinor,
+          inflightDebitMinor,
+          inflightCreditMinor,
+          availableMinor: postedMinor - inflightDebitMinor + inflightCreditMinor,
+        };
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'get historical balance');
+    }
+  }
+
+  public async getBalanceHistory(
+    query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    try {
+      return await this.withTenantContext(query.tenantId, async (tx) => {
+        const cursor = this.decodeSnapshotCursor(query.cursor);
+        const rows = await tx
+          .select()
+          .from(schema.balanceSnapshots)
+          .where(
+            and(
+              eq(schema.balanceSnapshots.tenantId, query.tenantId),
+              eq(schema.balanceSnapshots.accountId, query.accountId),
+              sql`${schema.balanceSnapshots.effectiveAt} >= ${query.from}`,
+              sql`${schema.balanceSnapshots.effectiveAt} <= ${query.to}`,
+              cursor
+                ? sql`(${schema.balanceSnapshots.effectiveAt}, ${schema.balanceSnapshots.id}) > (${cursor.effectiveAt}, ${cursor.id})`
+                : sql`true`,
+            ),
+          )
+          .orderBy(asc(schema.balanceSnapshots.effectiveAt), asc(schema.balanceSnapshots.id))
+          .limit(query.limit + 1);
+
+        const hasMore = rows.length > query.limit;
+        const dataRows = hasMore ? rows.slice(0, query.limit) : rows;
+        const data = dataRows.map((row) => ({
+          id: row.id,
+          tenantId: row.tenantId,
+          ledgerId: row.ledgerId,
+          accountId: row.accountId,
+          eventType: row.eventType as BalanceSnapshotEvent['eventType'],
+          sourceId: row.sourceId,
+          postedMinor: row.postedMinor,
+          inflightDebitMinor: row.inflightDebitMinor,
+          inflightCreditMinor: row.inflightCreditMinor,
+          effectiveAt: row.effectiveAt,
+          createdAt: row.createdAt,
+        }));
+        const last = data[data.length - 1];
+        return {
+          data,
+          nextCursor: hasMore && last ? this.encodeSnapshotCursor(last.effectiveAt, last.id) : null,
+        };
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'get balance history');
+    }
+  }
+
   private async loadEntriesByTransactionIds(
     tx: PostgresJsDatabase<typeof schema>,
     tenantId: string,
@@ -1242,6 +1398,62 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
 
     return entriesByTransactionId;
+  }
+
+  private async insertBalanceSnapshot(
+    tx: PostgresJsDatabase<typeof schema>,
+    row: {
+      tenantId: string;
+      ledgerId: string;
+      accountId: string;
+      eventType: BalanceSnapshotEventType;
+      sourceId: string;
+      postedMinor: bigint;
+      inflightDebitMinor: bigint;
+      inflightCreditMinor: bigint;
+    },
+  ): Promise<void> {
+    await tx
+      .insert(schema.balanceSnapshots)
+      .values({
+        tenantId: row.tenantId,
+        ledgerId: row.ledgerId,
+        accountId: row.accountId,
+        eventType: row.eventType,
+        sourceId: row.sourceId,
+        postedMinor: row.postedMinor,
+        inflightDebitMinor: row.inflightDebitMinor,
+        inflightCreditMinor: row.inflightCreditMinor,
+      })
+      .onConflictDoNothing({
+        target: [
+          schema.balanceSnapshots.tenantId,
+          schema.balanceSnapshots.eventType,
+          schema.balanceSnapshots.sourceId,
+          schema.balanceSnapshots.accountId,
+        ],
+      });
+  }
+
+  private encodeSnapshotCursor(effectiveAt: Date, id: string): string {
+    return Buffer.from(JSON.stringify({ effectiveAt: effectiveAt.toISOString(), id })).toString(
+      'base64url',
+    );
+  }
+
+  private decodeSnapshotCursor(cursor: string | undefined): { effectiveAt: Date; id: string } | null {
+    if (!cursor) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+        effectiveAt: string;
+        id: string;
+      };
+      return { effectiveAt: new Date(parsed.effectiveAt), id: parsed.id };
+    } catch {
+      throw new InvariantViolationError('Invalid cursor');
+    }
   }
 
   private resolveTotalDebit(

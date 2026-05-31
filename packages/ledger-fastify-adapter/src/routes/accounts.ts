@@ -2,11 +2,17 @@ import {
   type AccountByIdParams,
   type AccountResponse,
   accountByIdParamsSchema,
+  balanceAsOfQuerySchema,
+  balanceAsOfResponseSchema,
+  balanceHistoryQuerySchema,
+  balanceHistoryResponseSchema,
   accountResponseSchema,
   accountsPageResponseSchema,
   type CreateAccountRequest,
   createAccountBodySchema,
   type ListAccountsQuery,
+  type BalanceAsOfQuery,
+  type BalanceHistoryQuery,
   listAccountsQuerySchemaExtra,
 } from '@lux/ledger-http/contracts';
 import { toAccountResponse } from '@lux/ledger-http/mappers';
@@ -30,6 +36,8 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     this.registerCreateAccount(server);
     this.registerGetAccountById(server);
     this.registerListAccounts(server);
+    this.registerGetBalanceAsOf(server);
+    this.registerGetBalanceHistory(server);
   }
 
   private registerCreateAccount(server: FastifyInstance): void {
@@ -108,6 +116,75 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
           });
         });
       },
+    );
+  }
+
+  private registerGetBalanceAsOf(server: FastifyInstance): void {
+    server.get<{ Params: AccountByIdParams; Querystring: BalanceAsOfQuery }>(
+      '/v1/accounts/:id/balance-as-of',
+      {
+        schema: {
+          params: accountByIdParamsSchema,
+          querystring: balanceAsOfQuerySchema,
+          response: { 200: balanceAsOfResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.ledgerService.getHistoricalBalance({
+            tenantId: request.tenantId as string,
+            accountId: request.params.id,
+            at: new Date(request.query.at),
+          });
+          return reply.status(200).send({
+            account_id: result.accountId,
+            timestamp: result.at.toISOString(),
+            posted_minor: result.postedMinor.toString(),
+            inflight_debit_minor: result.inflightDebitMinor.toString(),
+            inflight_credit_minor: result.inflightCreditMinor.toString(),
+            available_minor: result.availableMinor.toString(),
+          });
+        }),
+    );
+  }
+
+  private registerGetBalanceHistory(server: FastifyInstance): void {
+    server.get<{ Params: AccountByIdParams; Querystring: BalanceHistoryQuery }>(
+      '/v1/accounts/:id/balance-history',
+      {
+        schema: {
+          params: accountByIdParamsSchema,
+          querystring: balanceHistoryQuerySchema,
+          response: { 200: balanceHistoryResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const page = await this.ledgerService.getBalanceHistory({
+            tenantId: request.tenantId as string,
+            accountId: request.params.id,
+            from: new Date(request.query.from),
+            to: new Date(request.query.to),
+            limit: resolveLimit(request.query.limit),
+            cursor: request.query.cursor,
+          });
+          return reply.status(200).send({
+            data: page.data.map((item) => ({
+              id: item.id,
+              tenant_id: item.tenantId,
+              ledger_id: item.ledgerId,
+              account_id: item.accountId,
+              event_type: item.eventType,
+              source_id: item.sourceId,
+              posted_minor: item.postedMinor.toString(),
+              inflight_debit_minor: item.inflightDebitMinor.toString(),
+              inflight_credit_minor: item.inflightCreditMinor.toString(),
+              effective_at: item.effectiveAt.toISOString(),
+              created_at: item.createdAt.toISOString(),
+            })),
+            next_cursor: page.nextCursor,
+          });
+        }),
     );
   }
 }

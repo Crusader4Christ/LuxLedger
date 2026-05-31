@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
-  id: uuid('id').primaryKey().defaultRandom(),
+  id: uuid('id').primaryKey().default(sql`uuid_v7()`),
   name: text('name').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -30,7 +30,7 @@ export const entryDirectionEnum = pgEnum(
 export const apiKeys = pgTable(
   'api_keys',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -50,7 +50,7 @@ export const apiKeys = pgTable(
 export const ledgers = pgTable(
   'ledgers',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -66,7 +66,7 @@ export const ledgers = pgTable(
 export const accounts = pgTable(
   'accounts',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -91,11 +91,18 @@ export const accounts = pgTable(
 );
 
 export const holdStateEnum = pgEnum('hold_state', ['HELD', 'APPLIED', 'VOIDED']);
+export const balanceSnapshotEventTypeEnum = pgEnum('balance_snapshot_event_type', [
+  'TX_APPLIED',
+  'HOLD_CREATED',
+  'HOLD_COMMITTED',
+  'HOLD_VOIDED',
+  'ADJUSTMENT',
+]);
 
 export const holds = pgTable(
   'holds',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -121,7 +128,7 @@ export const holds = pgTable(
 export const holdEntries = pgTable(
   'hold_entries',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -146,7 +153,7 @@ export const holdEntries = pgTable(
 export const transactions = pgTable(
   'transactions',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -172,7 +179,7 @@ export const transactions = pgTable(
 export const entries = pgTable(
   'entries',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -191,5 +198,46 @@ export const entries = pgTable(
     entriesTenantIdIdx: index('entries_tenant_id_idx').on(table.tenantId),
     entriesTransactionIdIdx: index('entries_transaction_id_idx').on(table.transactionId),
     entriesAccountIdIdx: index('entries_account_id_idx').on(table.accountId),
+  }),
+);
+
+export const balanceSnapshots = pgTable(
+  'balance_snapshots',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    ledgerId: uuid('ledger_id')
+      .notNull()
+      .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    eventType: balanceSnapshotEventTypeEnum('event_type').notNull(),
+    sourceId: uuid('source_id').notNull(),
+    postedMinor: bigint('posted_minor', { mode: 'bigint' }).notNull(),
+    inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' }).notNull(),
+    inflightCreditMinor: bigint('inflight_credit_minor', { mode: 'bigint' }).notNull(),
+    effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    balanceSnapshotsAsOfIdx: index('balance_snapshots_as_of_idx').on(
+      table.tenantId,
+      table.accountId,
+      table.effectiveAt,
+    ),
+    balanceSnapshotsSourceIdx: index('balance_snapshots_source_idx').on(
+      table.tenantId,
+      table.sourceId,
+      table.eventType,
+    ),
+    balanceSnapshotsDedupUq: uniqueIndex('balance_snapshots_dedup_uq').on(
+      table.tenantId,
+      table.eventType,
+      table.sourceId,
+      table.accountId,
+    ),
   }),
 );

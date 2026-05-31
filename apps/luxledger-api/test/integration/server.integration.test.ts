@@ -34,6 +34,8 @@ import {
   type AccountPaginationQuery,
   type ApiKeyRepository,
   ApiKeyService,
+  type BalanceHistoryQuery,
+  type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateTransactionInput,
@@ -44,6 +46,8 @@ import {
   LedgerNotFoundError,
   type LedgerRepository,
   LedgerService,
+  type HistoricalBalance,
+  type HistoricalBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
   RepositoryError,
@@ -78,6 +82,15 @@ import {
   createTransactionRequestFactory,
 } from './transactions-contract.fixtures';
 
+const makeUuidV7 = (seed: number): string => {
+  const timestampHex = (Date.UTC(2026, 0, 1) + seed).toString(16).padStart(12, '0').slice(-12);
+  const rand = (seed * 2654435761).toString(16).padStart(20, '0').slice(-20);
+  return `${timestampHex.slice(0, 8)}-${timestampHex.slice(8, 12)}-7${rand.slice(0, 3)}-8${rand.slice(3, 6)}-${rand.slice(6, 18)}`;
+};
+
+const isUuidV7 = (value: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
 class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
   private readonly accounts = new Map<string, AccountEntity>();
@@ -90,7 +103,7 @@ class InMemoryLedgerRepository {
     }
 
     const now = new Date();
-    const id = `00000000-0000-4000-8000-${String(this.ledgers.size + 1).padStart(12, '0')}`;
+    const id = makeUuidV7(this.ledgers.size + 1);
     const ledger: Ledger = {
       id,
       tenantId: input.tenantId,
@@ -131,7 +144,7 @@ class InMemoryLedgerRepository {
       };
     }
 
-    const transactionId = `00000000-0000-4000-8000-${String(this.transactionsByReference.size + 300).padStart(12, '0')}`;
+    const transactionId = makeUuidV7(this.transactionsByReference.size + 300);
     this.transactionsByReference.set(key, transactionId);
 
     return {
@@ -146,7 +159,7 @@ class InMemoryLedgerRepository {
       throw new LedgerNotFoundError(input.ledgerId);
     }
 
-    const id = `00000000-0000-4000-8000-${String(this.accounts.size + 101).padStart(12, '0')}`;
+    const id = makeUuidV7(this.accounts.size + 101);
     const account: AccountEntity = {
       id,
       tenantId: input.tenantId,
@@ -168,7 +181,7 @@ class InMemoryLedgerRepository {
     reference: string;
     entries: Array<{ amountMinor: bigint }>;
   }): Promise<{ holdId: string; created: boolean; state: 'HELD' | 'APPLIED' | 'VOIDED'; remainingAmountMinor: bigint }> {
-    const holdId = `00000000-0000-4000-8000-${String(this.holdsById.size + 600).padStart(12, '0')}`;
+    const holdId = makeUuidV7(this.holdsById.size + 600);
     const remainingAmountMinor = input.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n) / 2n;
     this.holdsById.set(holdId, { tenantId: input.tenantId, remainingAmountMinor, state: 'HELD' });
     return { holdId, created: true, state: 'HELD', remainingAmountMinor };
@@ -205,8 +218,7 @@ class InMemoryLedgerRepository {
     const remainingAmountMinor = hold.remainingAmountMinor - amount;
     hold.remainingAmountMinor = remainingAmountMinor;
     hold.state = remainingAmountMinor === 0n ? 'APPLIED' : 'HELD';
-    const transactionId =
-      `00000000-0000-4000-8000-${String(this.transactionsByReference.size + 500).padStart(12, '0')}`;
+    const transactionId = makeUuidV7(this.transactionsByReference.size + 500);
     this.transactionsByReference.set(key, transactionId);
     return { holdId: input.holdId, state: hold.state as 'HELD' | 'APPLIED', remainingAmountMinor, transactionId, created: true };
   }
@@ -485,6 +497,24 @@ class InMemoryLedgerReadRepository {
       totalCreditsMinor: 100n,
     };
   }
+
+  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+    return {
+      tenantId: query.tenantId,
+      accountId: query.accountId,
+      at: query.at,
+      postedMinor: 100n,
+      inflightDebitMinor: 10n,
+      inflightCreditMinor: 5n,
+      availableMinor: 95n,
+    };
+  }
+
+  public async getBalanceHistory(
+    _query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    return { data: [], nextCursor: null };
+  }
 }
 
 class InMemoryApiKeyRepository implements ApiKeyRepository {
@@ -555,7 +585,7 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     keyHash: string;
   }): Promise<ApiKeyEntity> {
     const createdAt = new Date();
-    const id = `00000000-0000-4000-8000-${String(this.keys.size + 904).padStart(12, '0')}`;
+    const id = makeUuidV7(this.keys.size + 904);
     const created: ApiKeyEntity = {
       id,
       tenantId: input.tenantId,
@@ -601,6 +631,8 @@ interface ReadRepositoryPort {
   listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
   getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
+  getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance>;
+  getBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
 }
 
 const createServer = (
@@ -626,6 +658,8 @@ const createServer = (
     listTransactions: readRepository.listTransactions.bind(readRepository),
     listEntries: readRepository.listEntries.bind(readRepository),
     getTrialBalance: readRepository.getTrialBalance.bind(readRepository),
+    getHistoricalBalance: readRepository.getHistoricalBalance.bind(readRepository),
+    getBalanceHistory: readRepository.getBalanceHistory.bind(readRepository),
   };
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);
@@ -1332,10 +1366,8 @@ describe('server', () => {
       response.body,
     );
     assertCreateTransactionResponseShape(createResponse);
-    expect(createResponse).toEqual({
-      transaction_id: '00000000-0000-4000-8000-000000000300',
-      created: true,
-    });
+    expect(createResponse.created).toBe(true);
+    expect(isUuidV7(createResponse.transaction_id)).toBe(true);
 
     await server.close();
   });
@@ -2193,6 +2225,20 @@ describe('server', () => {
         totalDebitsMinor: 0n,
         totalCreditsMinor: 0n,
       }),
+      getHistoricalBalance: async (
+        query: HistoricalBalanceQuery,
+      ): Promise<HistoricalBalance> => ({
+        tenantId: query.tenantId,
+        accountId: query.accountId,
+        at: query.at,
+        postedMinor: 0n,
+        inflightDebitMinor: 0n,
+        inflightCreditMinor: 0n,
+        availableMinor: 0n,
+      }),
+      getBalanceHistory: async (
+        _query: BalanceHistoryQuery,
+      ): Promise<PaginatedResult<BalanceSnapshotEvent>> => ({ data: [], nextCursor: null }),
     };
 
     const server = createServer(async () => {}, invalidReadRepository);

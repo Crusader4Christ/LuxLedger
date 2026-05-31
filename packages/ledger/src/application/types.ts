@@ -113,6 +113,45 @@ export interface TrialBalanceQuery {
   ledgerId: string;
 }
 
+export interface HistoricalBalanceQuery {
+  tenantId: string;
+  accountId: string;
+  at: Date;
+}
+
+export interface HistoricalBalance {
+  tenantId: string;
+  accountId: string;
+  at: Date;
+  postedMinor: bigint;
+  inflightDebitMinor: bigint;
+  inflightCreditMinor: bigint;
+  availableMinor: bigint;
+}
+
+export interface BalanceSnapshotEvent {
+  id: string;
+  tenantId: string;
+  ledgerId: string;
+  accountId: string;
+  eventType: 'TX_APPLIED' | 'HOLD_CREATED' | 'HOLD_COMMITTED' | 'HOLD_VOIDED' | 'ADJUSTMENT';
+  sourceId: string;
+  postedMinor: bigint;
+  inflightDebitMinor: bigint;
+  inflightCreditMinor: bigint;
+  effectiveAt: Date;
+  createdAt: Date;
+}
+
+export interface BalanceHistoryQuery {
+  tenantId: string;
+  accountId: string;
+  from: Date;
+  to: Date;
+  limit: number;
+  cursor?: string;
+}
+
 export interface AuthContext {
   apiKeyId: string;
   tenantId: string;
@@ -153,6 +192,8 @@ export interface LedgerRepository extends BaseLedgerRepository {
   listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
   getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
+  getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance>;
+  getBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
 }
 
 export interface ApiKeyRepository {
