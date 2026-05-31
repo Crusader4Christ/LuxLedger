@@ -13,6 +13,8 @@ import {
 import {
   AccountNotFoundError,
   type AccountPaginationQuery,
+  type BalanceHistoryQuery,
+  type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateTransactionInput,
@@ -22,13 +24,15 @@ import {
   type Ledger,
   LedgerNotFoundError,
   type LedgerRepository,
+  type HistoricalBalance,
+  type BalanceAtQuery,
   LedgerService,
   type PaginatedResult,
   type PaginationQuery,
   TransactionNotFoundError,
   type TransactionPaginationQuery,
   type TrialBalance,
-  type TrialBalanceQuery,
+  type LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 
 class InMemoryLedgerRepository implements LedgerRepository {
@@ -36,6 +40,8 @@ class InMemoryLedgerRepository implements LedgerRepository {
   private readonly accounts = new Map<string, AccountEntity>();
   private readonly transactions = new Map<string, TransactionEntity>();
   public createTransactionCalls: CreateTransactionInput[] = [];
+  public getBalanceAtCalls: BalanceAtQuery[] = [];
+  public listBalanceHistoryCalls: BalanceHistoryQuery[] = [];
 
   public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
     const now = new Date();
@@ -200,13 +206,33 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { data: [], nextCursor: null };
   }
 
-  public async getTrialBalance(_query: TrialBalanceQuery): Promise<TrialBalance> {
+  public async getLedgerTrialBalance(_query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
     return {
       ledgerId: 'ledger-1',
       accounts: [],
       totalDebitsMinor: 0n,
       totalCreditsMinor: 0n,
     };
+  }
+
+  public async getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
+    this.getBalanceAtCalls.push(query);
+    return {
+      tenantId: query.tenantId,
+      accountId: query.accountId,
+      at: query.at,
+      postedMinor: 0n,
+      inflightDebitMinor: 0n,
+      inflightCreditMinor: 0n,
+      availableMinor: 0n,
+    };
+  }
+
+  public async listBalanceHistory(
+    query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    this.listBalanceHistoryCalls.push(query);
+    return { data: [], nextCursor: null };
   }
 }
 
@@ -665,6 +691,103 @@ describe('LedgerService', () => {
         holdId: 'hold-1',
         reference: 'ref-1',
         amountMinor: 0n,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('getBalanceAt delegates to repository and preserves timestamp', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const at = new Date('2026-01-01T00:00:00.000Z');
+
+    const result = await service.getBalanceAt({
+      tenantId: 'tenant-1',
+      accountId: 'account-1',
+      at,
+    });
+
+    expect(result.accountId).toBe('account-1');
+    expect(repository.getBalanceAtCalls).toHaveLength(1);
+    expect(repository.getBalanceAtCalls[0]?.at.toISOString()).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('getBalanceAt validates timestamp and required fields', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.getBalanceAt({
+        tenantId: 'tenant-1',
+        accountId: 'account-1',
+        at: new Date('not-a-date'),
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    await expect(
+      service.getBalanceAt({
+        tenantId: 'tenant-1',
+        accountId: ' ',
+        at: new Date(),
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('listBalanceHistory delegates with pagination args', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const from = new Date('2026-01-01T00:00:00.000Z');
+    const to = new Date('2026-01-02T00:00:00.000Z');
+
+    await service.listBalanceHistory({
+      tenantId: 'tenant-1',
+      accountId: 'account-1',
+      from,
+      to,
+      limit: 25,
+      cursor: 'cursor-1',
+    });
+
+    expect(repository.listBalanceHistoryCalls).toHaveLength(1);
+    expect(repository.listBalanceHistoryCalls[0]?.limit).toBe(25);
+    expect(repository.listBalanceHistoryCalls[0]?.cursor).toBe('cursor-1');
+  });
+
+  it('listBalanceHistory validates dates and range', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.listBalanceHistory({
+        tenantId: 'tenant-1',
+        accountId: 'account-1',
+        from: new Date('not-a-date'),
+        to: new Date('2026-01-02T00:00:00.000Z'),
+        limit: 10,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    await expect(
+      service.listBalanceHistory({
+        tenantId: 'tenant-1',
+        accountId: 'account-1',
+        from: new Date('2026-01-03T00:00:00.000Z'),
+        to: new Date('2026-01-02T00:00:00.000Z'),
+        limit: 10,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('listBalanceHistory validates pagination limits', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.listBalanceHistory({
+        tenantId: 'tenant-1',
+        accountId: 'account-1',
+        from: new Date('2026-01-01T00:00:00.000Z'),
+        to: new Date('2026-01-02T00:00:00.000Z'),
+        limit: 0,
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });

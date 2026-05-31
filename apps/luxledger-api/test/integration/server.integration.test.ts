@@ -25,6 +25,7 @@ import {
   type ApiKeyEntity,
   ApiKeyRole,
   EntryEntity,
+  isUuidV7,
   LedgerId,
   Money,
   TransactionEntity,
@@ -34,6 +35,8 @@ import {
   type AccountPaginationQuery,
   type ApiKeyRepository,
   ApiKeyService,
+  type BalanceHistoryQuery,
+  type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateTransactionInput,
@@ -44,12 +47,14 @@ import {
   LedgerNotFoundError,
   type LedgerRepository,
   LedgerService,
+  type HistoricalBalance,
+  type BalanceAtQuery,
   type PaginatedResult,
   type PaginationQuery,
   RepositoryError,
   type TransactionPaginationQuery,
   type TrialBalance,
-  type TrialBalanceQuery,
+  type LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 import type { FastifyServerOptions } from 'fastify';
 import {
@@ -78,6 +83,12 @@ import {
   createTransactionRequestFactory,
 } from './transactions-contract.fixtures';
 
+const makeUuidV7 = (seed: number): string => {
+  const timestampHex = (Date.UTC(2026, 0, 1) + seed).toString(16).padStart(12, '0').slice(-12);
+  const rand = (seed * 2654435761).toString(16).padStart(20, '0').slice(-20);
+  return `${timestampHex.slice(0, 8)}-${timestampHex.slice(8, 12)}-7${rand.slice(0, 3)}-8${rand.slice(3, 6)}-${rand.slice(6, 18)}`;
+};
+
 class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
   private readonly accounts = new Map<string, AccountEntity>();
@@ -90,7 +101,7 @@ class InMemoryLedgerRepository {
     }
 
     const now = new Date();
-    const id = `00000000-0000-4000-8000-${String(this.ledgers.size + 1).padStart(12, '0')}`;
+    const id = makeUuidV7(this.ledgers.size + 1);
     const ledger: Ledger = {
       id,
       tenantId: input.tenantId,
@@ -131,7 +142,7 @@ class InMemoryLedgerRepository {
       };
     }
 
-    const transactionId = `00000000-0000-4000-8000-${String(this.transactionsByReference.size + 300).padStart(12, '0')}`;
+    const transactionId = makeUuidV7(this.transactionsByReference.size + 300);
     this.transactionsByReference.set(key, transactionId);
 
     return {
@@ -146,7 +157,7 @@ class InMemoryLedgerRepository {
       throw new LedgerNotFoundError(input.ledgerId);
     }
 
-    const id = `00000000-0000-4000-8000-${String(this.accounts.size + 101).padStart(12, '0')}`;
+    const id = makeUuidV7(this.accounts.size + 101);
     const account: AccountEntity = {
       id,
       tenantId: input.tenantId,
@@ -168,7 +179,7 @@ class InMemoryLedgerRepository {
     reference: string;
     entries: Array<{ amountMinor: bigint }>;
   }): Promise<{ holdId: string; created: boolean; state: 'HELD' | 'APPLIED' | 'VOIDED'; remainingAmountMinor: bigint }> {
-    const holdId = `00000000-0000-4000-8000-${String(this.holdsById.size + 600).padStart(12, '0')}`;
+    const holdId = makeUuidV7(this.holdsById.size + 600);
     const remainingAmountMinor = input.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n) / 2n;
     this.holdsById.set(holdId, { tenantId: input.tenantId, remainingAmountMinor, state: 'HELD' });
     return { holdId, created: true, state: 'HELD', remainingAmountMinor };
@@ -205,8 +216,7 @@ class InMemoryLedgerRepository {
     const remainingAmountMinor = hold.remainingAmountMinor - amount;
     hold.remainingAmountMinor = remainingAmountMinor;
     hold.state = remainingAmountMinor === 0n ? 'APPLIED' : 'HELD';
-    const transactionId =
-      `00000000-0000-4000-8000-${String(this.transactionsByReference.size + 500).padStart(12, '0')}`;
+    const transactionId = makeUuidV7(this.transactionsByReference.size + 500);
     this.transactionsByReference.set(key, transactionId);
     return { holdId: input.holdId, state: hold.state as 'HELD' | 'APPLIED', remainingAmountMinor, transactionId, created: true };
   }
@@ -456,7 +466,7 @@ class InMemoryLedgerReadRepository {
     return { data: [entry1], nextCursor: 'next-entries' };
   }
 
-  public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
+  public async getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
     if (query.tenantId !== VALID_TENANT_ID || query.ledgerId === UNKNOWN_LEDGER_ID) {
       throw new LedgerNotFoundError(query.ledgerId);
     }
@@ -484,6 +494,85 @@ class InMemoryLedgerReadRepository {
       totalDebitsMinor: 100n,
       totalCreditsMinor: 100n,
     };
+  }
+
+  public async getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
+    return {
+      tenantId: query.tenantId,
+      accountId: query.accountId,
+      at: query.at,
+      postedMinor: 100n,
+      inflightDebitMinor: 10n,
+      inflightCreditMinor: 5n,
+      availableMinor: 95n,
+    };
+  }
+
+  public async listBalanceHistory(
+    query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    if (query.tenantId !== VALID_TENANT_ID) {
+      return { data: [], nextCursor: null };
+    }
+
+    const all: BalanceSnapshotEvent[] = [
+      {
+        id: makeUuidV7(7001),
+        tenantId: VALID_TENANT_ID,
+        ledgerId: TEST_MAIN_LEDGER_ID,
+        accountId: TEST_DEBIT_ACCOUNT_ID,
+        eventType: 'HOLD_CREATED',
+        sourceId: makeUuidV7(7101),
+        postedMinor: 0n,
+        inflightDebitMinor: 50n,
+        inflightCreditMinor: 0n,
+        effectiveAt: new Date('2026-01-01T00:00:00.000Z'),
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+      {
+        id: makeUuidV7(7002),
+        tenantId: VALID_TENANT_ID,
+        ledgerId: TEST_MAIN_LEDGER_ID,
+        accountId: TEST_DEBIT_ACCOUNT_ID,
+        eventType: 'HOLD_COMMITTED',
+        sourceId: makeUuidV7(7102),
+        postedMinor: -50n,
+        inflightDebitMinor: 0n,
+        inflightCreditMinor: 0n,
+        effectiveAt: new Date('2026-01-01T00:05:00.000Z'),
+        createdAt: new Date('2026-01-01T00:05:00.000Z'),
+      },
+      {
+        id: makeUuidV7(7003),
+        tenantId: VALID_TENANT_ID,
+        ledgerId: TEST_MAIN_LEDGER_ID,
+        accountId: TEST_DEBIT_ACCOUNT_ID,
+        eventType: 'TX_APPLIED',
+        sourceId: makeUuidV7(7103),
+        postedMinor: -100n,
+        inflightDebitMinor: 0n,
+        inflightCreditMinor: 0n,
+        effectiveAt: new Date('2026-01-01T00:10:00.000Z'),
+        createdAt: new Date('2026-01-01T00:10:00.000Z'),
+      },
+    ];
+
+    const inRange = all.filter(
+      (item) => item.effectiveAt.getTime() >= query.from.getTime() && item.effectiveAt.getTime() <= query.to.getTime(),
+    );
+    if (query.cursor === undefined) {
+      return {
+        data: inRange.slice(0, query.limit),
+        nextCursor: inRange.length > query.limit ? 'hist-cursor-1' : null,
+      };
+    }
+    if (query.cursor === 'hist-cursor-1') {
+      return {
+        data: inRange.slice(query.limit, query.limit * 2),
+        nextCursor: inRange.length > query.limit * 2 ? 'hist-cursor-2' : null,
+      };
+    }
+    return { data: [], nextCursor: null };
   }
 }
 
@@ -555,7 +644,7 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     keyHash: string;
   }): Promise<ApiKeyEntity> {
     const createdAt = new Date();
-    const id = `00000000-0000-4000-8000-${String(this.keys.size + 904).padStart(12, '0')}`;
+    const id = makeUuidV7(this.keys.size + 904);
     const created: ApiKeyEntity = {
       id,
       tenantId: input.tenantId,
@@ -600,7 +689,9 @@ interface ReadRepositoryPort {
   listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
   listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
-  getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
+  getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
+  getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
+  listBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
 }
 
 const createServer = (
@@ -625,7 +716,9 @@ const createServer = (
     listAccounts: readRepository.listAccounts.bind(readRepository),
     listTransactions: readRepository.listTransactions.bind(readRepository),
     listEntries: readRepository.listEntries.bind(readRepository),
-    getTrialBalance: readRepository.getTrialBalance.bind(readRepository),
+    getLedgerTrialBalance: readRepository.getLedgerTrialBalance.bind(readRepository),
+    getBalanceAt: readRepository.getBalanceAt.bind(readRepository),
+    listBalanceHistory: readRepository.listBalanceHistory.bind(readRepository),
   };
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);
@@ -1332,10 +1425,8 @@ describe('server', () => {
       response.body,
     );
     assertCreateTransactionResponseShape(createResponse);
-    expect(createResponse).toEqual({
-      transaction_id: '00000000-0000-4000-8000-000000000300',
-      created: true,
-    });
+    expect(createResponse.created).toBe(true);
+    expect(isUuidV7(createResponse.transaction_id)).toBe(true);
 
     await server.close();
   });
@@ -2187,12 +2278,26 @@ describe('server', () => {
         ],
         nextCursor: null,
       }),
-      getTrialBalance: async (_query: TrialBalanceQuery): Promise<TrialBalance> => ({
+      getLedgerTrialBalance: async (_query: LedgerTrialBalanceQuery): Promise<TrialBalance> => ({
         ledgerId: '00000000-0000-4000-8000-000000000001',
         accounts: [],
         totalDebitsMinor: 0n,
         totalCreditsMinor: 0n,
       }),
+      getBalanceAt: async (
+        query: BalanceAtQuery,
+      ): Promise<HistoricalBalance> => ({
+        tenantId: query.tenantId,
+        accountId: query.accountId,
+        at: query.at,
+        postedMinor: 0n,
+        inflightDebitMinor: 0n,
+        inflightCreditMinor: 0n,
+        availableMinor: 0n,
+      }),
+      listBalanceHistory: async (
+        _query: BalanceHistoryQuery,
+      ): Promise<PaginatedResult<BalanceSnapshotEvent>> => ({ data: [], nextCursor: null }),
     };
 
     const server = createServer(async () => {}, invalidReadRepository);
@@ -2237,6 +2342,73 @@ describe('server', () => {
     expect(response.statusCode).toBe(401);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
     expect(payload.error).toBe('UNAUTHORIZED');
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id/balance-history returns first page and next cursor', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2026-01-01T00:00:00.000Z&to=2026-01-01T00:20:00.000Z&limit=2`,
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      data: Array<{ event_type: string; effective_at: string }>;
+      next_cursor: string | null;
+    }>(response.body);
+    expect(payload.data.length).toBe(2);
+    expect(payload.data[0]?.event_type).toBe('HOLD_CREATED');
+    expect(payload.data[1]?.event_type).toBe('HOLD_COMMITTED');
+    expect(payload.next_cursor).toBe('hist-cursor-1');
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id/balance-history supports cursor pagination end-to-end', async () => {
+    const server = createServer();
+
+    const first = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2026-01-01T00:00:00.000Z&to=2026-01-01T00:20:00.000Z&limit=2`,
+      headers: await authHeaders(server),
+    });
+    const firstPayload = parsePayload<{ next_cursor: string | null }>(first.body);
+
+    const second = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2026-01-01T00:00:00.000Z&to=2026-01-01T00:20:00.000Z&limit=2&cursor=${firstPayload.next_cursor}`,
+      headers: await authHeaders(server),
+    });
+
+    expect(second.statusCode).toBe(200);
+    const secondPayload = parsePayload<{
+      data: Array<{ event_type: string }>;
+      next_cursor: string | null;
+    }>(second.body);
+    expect(secondPayload.data.length).toBe(1);
+    expect(secondPayload.data[0]?.event_type).toBe('TX_APPLIED');
+    expect(secondPayload.next_cursor).toBeNull();
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id/balance-history returns empty list for range before snapshots', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2025-01-01T00:00:00.000Z&to=2025-01-01T00:05:00.000Z&limit=10`,
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{ data: unknown[]; next_cursor: string | null }>(response.body);
+    expect(payload.data.length).toBe(0);
+    expect(payload.next_cursor).toBeNull();
 
     await server.close();
   });

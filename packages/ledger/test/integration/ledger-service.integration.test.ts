@@ -8,17 +8,21 @@ import {
 } from '@lux/ledger';
 import type {
   AccountPaginationQuery,
+  BalanceHistoryQuery,
+  BalanceSnapshotEvent,
   CreateAccountInput,
   CreateLedgerInput,
   CreateTransactionInput,
   CreateTransactionResult,
   Ledger,
   LedgerRepository,
+  HistoricalBalance,
+  BalanceAtQuery,
   PaginatedResult,
   PaginationQuery,
   TransactionPaginationQuery,
   TrialBalance,
-  TrialBalanceQuery,
+  LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 import { LedgerService } from '@lux/ledger/application';
 
@@ -145,13 +149,31 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { data: [], nextCursor: null };
   }
 
-  public async getTrialBalance(_query: TrialBalanceQuery): Promise<TrialBalance> {
+  public async getLedgerTrialBalance(_query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
     return {
       ledgerId: 'ledger-1',
       accounts: [],
       totalDebitsMinor: 0n,
       totalCreditsMinor: 0n,
     };
+  }
+
+  public async getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
+    return {
+      tenantId: query.tenantId,
+      accountId: query.accountId,
+      at: query.at,
+      postedMinor: 0n,
+      inflightDebitMinor: 0n,
+      inflightCreditMinor: 0n,
+      availableMinor: 0n,
+    };
+  }
+
+  public async listBalanceHistory(
+    _query: BalanceHistoryQuery,
+  ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    return { data: [], nextCursor: null };
   }
 }
 
