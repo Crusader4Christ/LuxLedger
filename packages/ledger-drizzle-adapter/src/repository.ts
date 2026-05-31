@@ -14,6 +14,7 @@ import {
   Money,
   parseAccountSide,
   parseEntryDirection,
+  isUuidV7,
   TransactionEntity,
 } from '@lux/ledger';
 import {
@@ -1456,7 +1457,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       if (
         typeof parsed.effectiveAt !== 'string' ||
         typeof parsed.id !== 'string' ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.id)
+        !isUuidV7(parsed.id)
       ) {
         throw new InvariantViolationError('Invalid cursor');
       }

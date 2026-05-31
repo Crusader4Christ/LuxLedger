@@ -25,6 +25,7 @@ import {
   type ApiKeyEntity,
   ApiKeyRole,
   EntryEntity,
+  isUuidV7,
   LedgerId,
   Money,
   TransactionEntity,
@@ -87,9 +88,6 @@ const makeUuidV7 = (seed: number): string => {
   const rand = (seed * 2654435761).toString(16).padStart(20, '0').slice(-20);
   return `${timestampHex.slice(0, 8)}-${timestampHex.slice(8, 12)}-7${rand.slice(0, 3)}-8${rand.slice(3, 6)}-${rand.slice(6, 18)}`;
 };
-
-const isUuidV7 = (value: string): boolean =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
