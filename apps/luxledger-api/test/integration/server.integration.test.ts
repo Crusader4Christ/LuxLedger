@@ -184,13 +184,28 @@ class InMemoryLedgerRepository {
     if (!hold || hold.tenantId !== input.tenantId) {
       throw new InvariantViolationError('hold not found');
     }
+    const key = `${input.tenantId}:${input.reference}`;
+    const existingTransactionId = this.transactionsByReference.get(key);
+    if (existingTransactionId) {
+      return {
+        holdId: input.holdId,
+        state: hold.state === 'APPLIED' ? 'APPLIED' : 'HELD',
+        remainingAmountMinor: hold.remainingAmountMinor,
+        transactionId: existingTransactionId,
+        created: false,
+      };
+    }
+    if (hold.state !== 'HELD') {
+      throw new InvariantViolationError('hold cannot be committed from current state');
+    }
     const amount = input.amountMinor ?? hold.remainingAmountMinor;
+    if (amount <= 0n || amount > hold.remainingAmountMinor) {
+      throw new InvariantViolationError('invalid commit amount');
+    }
     const remainingAmountMinor = hold.remainingAmountMinor - amount;
     hold.remainingAmountMinor = remainingAmountMinor;
     hold.state = remainingAmountMinor === 0n ? 'APPLIED' : 'HELD';
-    const key = `${input.tenantId}:${input.reference}`;
     const transactionId =
-      this.transactionsByReference.get(key) ??
       `00000000-0000-4000-8000-${String(this.transactionsByReference.size + 500).padStart(12, '0')}`;
     this.transactionsByReference.set(key, transactionId);
     return { holdId: input.holdId, state: hold.state as 'HELD' | 'APPLIED', remainingAmountMinor, transactionId, created: true };
@@ -1525,6 +1540,162 @@ describe('server', () => {
     expect(commitResponse.statusCode).toBe(201);
     expect(commitBody.state).toBe('APPLIED');
     expect(commitBody.remaining_amount_minor).toBe('0');
+
+    await server.close();
+  });
+
+  it('POST /v1/holds/:id/commit supports partial commit with remaining hold amount', async () => {
+    const server = createServer();
+    const headers = await authHeaders(server);
+    const createHoldResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/holds',
+      headers,
+      payload: {
+        ledger_id: TEST_MAIN_LEDGER_ID,
+        reference: 'hold-ref-partial',
+        currency: 'USD',
+        entries: [
+          {
+            account_id: TEST_DEBIT_ACCOUNT_ID,
+            direction: EntryDirection.DEBIT,
+            amount_minor: '200',
+            currency: 'USD',
+          },
+          {
+            account_id: TEST_CREDIT_ACCOUNT_ID,
+            direction: EntryDirection.CREDIT,
+            amount_minor: '200',
+            currency: 'USD',
+          },
+        ],
+      },
+    });
+    const hold = parsePayload<{ hold_id: string }>(createHoldResponse.body);
+
+    const commitResponse = await server.inject({
+      method: 'POST',
+      url: `/v1/holds/${hold.hold_id}/commit`,
+      headers,
+      payload: {
+        reference: 'hold-ref-partial-commit-1',
+        amount_minor: '100',
+      },
+    });
+    const commitBody = parsePayload<{ state: string; remaining_amount_minor: string }>(
+      commitResponse.body,
+    );
+    expect(commitResponse.statusCode).toBe(201);
+    expect(commitBody.state).toBe('HELD');
+    expect(commitBody.remaining_amount_minor).toBe('100');
+
+    await server.close();
+  });
+
+  it('POST /v1/holds/:id/commit is idempotent for concurrent same-reference retries', async () => {
+    const server = createServer();
+    const headers = await authHeaders(server);
+    const createHoldResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/holds',
+      headers,
+      payload: {
+        ledger_id: TEST_MAIN_LEDGER_ID,
+        reference: 'hold-ref-concurrent',
+        currency: 'USD',
+        entries: [
+          {
+            account_id: TEST_DEBIT_ACCOUNT_ID,
+            direction: EntryDirection.DEBIT,
+            amount_minor: '120',
+            currency: 'USD',
+          },
+          {
+            account_id: TEST_CREDIT_ACCOUNT_ID,
+            direction: EntryDirection.CREDIT,
+            amount_minor: '120',
+            currency: 'USD',
+          },
+        ],
+      },
+    });
+    const hold = parsePayload<{ hold_id: string }>(createHoldResponse.body);
+
+    const [first, second] = await Promise.all([
+      server.inject({
+        method: 'POST',
+        url: `/v1/holds/${hold.hold_id}/commit`,
+        headers,
+        payload: {
+          reference: 'hold-ref-concurrent-commit',
+        },
+      }),
+      server.inject({
+        method: 'POST',
+        url: `/v1/holds/${hold.hold_id}/commit`,
+        headers,
+        payload: {
+          reference: 'hold-ref-concurrent-commit',
+        },
+      }),
+    ]);
+
+    const statuses = [first.statusCode, second.statusCode].sort((a, b) => a - b);
+    expect(statuses).toEqual([200, 201]);
+    const firstBody = parsePayload<{ transaction_id: string }>(first.body);
+    const secondBody = parsePayload<{ transaction_id: string }>(second.body);
+    expect(firstBody.transaction_id).toBe(secondBody.transaction_id);
+
+    await server.close();
+  });
+
+  it('POST /v1/holds/:id/void voids remaining hold after partial commit', async () => {
+    const server = createServer();
+    const headers = await authHeaders(server);
+    const createHoldResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/holds',
+      headers,
+      payload: {
+        ledger_id: TEST_MAIN_LEDGER_ID,
+        reference: 'hold-ref-partial-void',
+        currency: 'USD',
+        entries: [
+          {
+            account_id: TEST_DEBIT_ACCOUNT_ID,
+            direction: EntryDirection.DEBIT,
+            amount_minor: '200',
+            currency: 'USD',
+          },
+          {
+            account_id: TEST_CREDIT_ACCOUNT_ID,
+            direction: EntryDirection.CREDIT,
+            amount_minor: '200',
+            currency: 'USD',
+          },
+        ],
+      },
+    });
+    const hold = parsePayload<{ hold_id: string }>(createHoldResponse.body);
+    await server.inject({
+      method: 'POST',
+      url: `/v1/holds/${hold.hold_id}/commit`,
+      headers,
+      payload: {
+        reference: 'hold-ref-partial-void-commit',
+        amount_minor: '100',
+      },
+    });
+
+    const voidResponse = await server.inject({
+      method: 'POST',
+      url: `/v1/holds/${hold.hold_id}/void`,
+      headers,
+    });
+    const voidBody = parsePayload<{ state: string; remaining_amount_minor: string }>(voidResponse.body);
+    expect(voidResponse.statusCode).toBe(200);
+    expect(voidBody.state).toBe('VOIDED');
+    expect(voidBody.remaining_amount_minor).toBe('0');
 
     await server.close();
   });
