@@ -47,13 +47,13 @@ import {
   type LedgerRepository,
   LedgerService,
   type HistoricalBalance,
-  type HistoricalBalanceQuery,
+  type BalanceAtQuery,
   type PaginatedResult,
   type PaginationQuery,
   RepositoryError,
   type TransactionPaginationQuery,
   type TrialBalance,
-  type TrialBalanceQuery,
+  type LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 import type { FastifyServerOptions } from 'fastify';
 import {
@@ -468,7 +468,7 @@ class InMemoryLedgerReadRepository {
     return { data: [entry1], nextCursor: 'next-entries' };
   }
 
-  public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
+  public async getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
     if (query.tenantId !== VALID_TENANT_ID || query.ledgerId === UNKNOWN_LEDGER_ID) {
       throw new LedgerNotFoundError(query.ledgerId);
     }
@@ -498,7 +498,7 @@ class InMemoryLedgerReadRepository {
     };
   }
 
-  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+  public async getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
     return {
       tenantId: query.tenantId,
       accountId: query.accountId,
@@ -510,7 +510,7 @@ class InMemoryLedgerReadRepository {
     };
   }
 
-  public async getBalanceHistory(
+  public async listBalanceHistory(
     _query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     return { data: [], nextCursor: null };
@@ -630,9 +630,9 @@ interface ReadRepositoryPort {
   listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
   listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
-  getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance>;
-  getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance>;
-  getBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
+  getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
+  getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
+  listBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
 }
 
 const createServer = (
@@ -657,9 +657,9 @@ const createServer = (
     listAccounts: readRepository.listAccounts.bind(readRepository),
     listTransactions: readRepository.listTransactions.bind(readRepository),
     listEntries: readRepository.listEntries.bind(readRepository),
-    getTrialBalance: readRepository.getTrialBalance.bind(readRepository),
-    getHistoricalBalance: readRepository.getHistoricalBalance.bind(readRepository),
-    getBalanceHistory: readRepository.getBalanceHistory.bind(readRepository),
+    getLedgerTrialBalance: readRepository.getLedgerTrialBalance.bind(readRepository),
+    getBalanceAt: readRepository.getBalanceAt.bind(readRepository),
+    listBalanceHistory: readRepository.listBalanceHistory.bind(readRepository),
   };
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);
@@ -2219,14 +2219,14 @@ describe('server', () => {
         ],
         nextCursor: null,
       }),
-      getTrialBalance: async (_query: TrialBalanceQuery): Promise<TrialBalance> => ({
+      getLedgerTrialBalance: async (_query: LedgerTrialBalanceQuery): Promise<TrialBalance> => ({
         ledgerId: '00000000-0000-4000-8000-000000000001',
         accounts: [],
         totalDebitsMinor: 0n,
         totalCreditsMinor: 0n,
       }),
-      getHistoricalBalance: async (
-        query: HistoricalBalanceQuery,
+      getBalanceAt: async (
+        query: BalanceAtQuery,
       ): Promise<HistoricalBalance> => ({
         tenantId: query.tenantId,
         accountId: query.accountId,
@@ -2236,7 +2236,7 @@ describe('server', () => {
         inflightCreditMinor: 0n,
         availableMinor: 0n,
       }),
-      getBalanceHistory: async (
+      listBalanceHistory: async (
         _query: BalanceHistoryQuery,
       ): Promise<PaginatedResult<BalanceSnapshotEvent>> => ({ data: [], nextCursor: null }),
     };

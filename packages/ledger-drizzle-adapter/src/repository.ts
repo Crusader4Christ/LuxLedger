@@ -33,14 +33,14 @@ import {
   LedgerNotFoundError,
   type LedgerRepository,
   type HistoricalBalance,
-  type HistoricalBalanceQuery,
+  type BalanceAtQuery,
   type PaginatedResult,
   type PaginationQuery,
   RepositoryError,
   type TransactionPaginationQuery,
   type TrialBalance,
   type TrialBalanceAccount,
-  type TrialBalanceQuery,
+  type LedgerTrialBalanceQuery,
   type VoidHoldInput,
   type VoidHoldResult,
 } from '@lux/ledger/application';
@@ -1210,7 +1210,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
+  public async getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
     try {
       return await this.withTenantContext(query.tenantId, async (tx) => {
         const [ledger] = await tx
@@ -1277,7 +1277,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+  public async getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
     try {
       return await this.withTenantContext(query.tenantId, async (tx) => {
         const [row] = await tx
@@ -1311,7 +1311,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async getBalanceHistory(
+  public async listBalanceHistory(
     query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     try {

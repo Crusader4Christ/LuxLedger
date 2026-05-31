@@ -145,7 +145,7 @@ export class LedgerRoutes extends BaseRoute {
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
-          const trialBalance = await this.ledgerService.getTrialBalance({
+          const trialBalance = await this.ledgerService.getLedgerTrialBalance({
             tenantId: request.tenantId as string,
             ledgerId: request.params.ledger_id,
           });

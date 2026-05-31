@@ -160,7 +160,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const trialBalance = await dependencies.ledgerService.getTrialBalance({
+      const trialBalance = await dependencies.ledgerService.getLedgerTrialBalance({
         tenantId: context.tenantId,
         ledgerId: params.ledger_id,
       });

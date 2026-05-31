@@ -24,12 +24,12 @@ import type {
   Ledger,
   LedgerRepository,
   HistoricalBalance,
-  HistoricalBalanceQuery,
+  BalanceAtQuery,
   PaginatedResult,
   PaginationQuery,
   TransactionPaginationQuery,
   TrialBalance,
-  TrialBalanceQuery,
+  LedgerTrialBalanceQuery,
   VoidHoldInput,
   VoidHoldResult,
 } from '../types';
@@ -176,23 +176,23 @@ export class LedgerService {
     return this.repository.listEntries(query);
   }
 
-  public async getTrialBalance(query: TrialBalanceQuery): Promise<TrialBalance> {
+  public async getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
     assertNonEmpty(query.tenantId, 'tenantId is required');
     assertNonEmpty(query.ledgerId, 'ledgerId is required');
 
-    return this.repository.getTrialBalance(query);
+    return this.repository.getLedgerTrialBalance(query);
   }
 
-  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+  public async getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
     assertNonEmpty(query.tenantId, 'tenantId is required');
     assertNonEmpty(query.accountId, 'accountId is required');
     if (!(query.at instanceof Date) || Number.isNaN(query.at.getTime())) {
       throw new InvariantViolationError('at must be a valid ISO-8601 timestamp');
     }
-    return this.repository.getHistoricalBalance(query);
+    return this.repository.getBalanceAt(query);
   }
 
-  public async getBalanceHistory(
+  public async listBalanceHistory(
     query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     assertNonEmpty(query.tenantId, 'tenantId is required');
@@ -207,7 +207,7 @@ export class LedgerService {
       throw new InvariantViolationError('from must be less than or equal to to');
     }
     validatePaginationQuery({ tenantId: query.tenantId, limit: query.limit, cursor: query.cursor });
-    return this.repository.getBalanceHistory(query);
+    return this.repository.listBalanceHistory(query);
   }
 
   private assertAccountSide(side: string): void {

@@ -131,7 +131,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.getHistoricalBalance({
+          const result = await this.ledgerService.getBalanceAt({
             tenantId: request.tenantId as string,
             accountId: request.params.id,
             at: new Date(request.query.at),
@@ -160,7 +160,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const page = await this.ledgerService.getBalanceHistory({
+          const page = await this.ledgerService.listBalanceHistory({
             tenantId: request.tenantId as string,
             accountId: request.params.id,
             from: new Date(request.query.from),

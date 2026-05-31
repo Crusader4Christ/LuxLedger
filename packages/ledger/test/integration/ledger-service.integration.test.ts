@@ -17,12 +17,12 @@ import type {
   Ledger,
   LedgerRepository,
   HistoricalBalance,
-  HistoricalBalanceQuery,
+  BalanceAtQuery,
   PaginatedResult,
   PaginationQuery,
   TransactionPaginationQuery,
   TrialBalance,
-  TrialBalanceQuery,
+  LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 import { LedgerService } from '@lux/ledger/application';
 
@@ -149,7 +149,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { data: [], nextCursor: null };
   }
 
-  public async getTrialBalance(_query: TrialBalanceQuery): Promise<TrialBalance> {
+  public async getLedgerTrialBalance(_query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
     return {
       ledgerId: 'ledger-1',
       accounts: [],
@@ -158,7 +158,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async getHistoricalBalance(query: HistoricalBalanceQuery): Promise<HistoricalBalance> {
+  public async getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
     return {
       tenantId: query.tenantId,
       accountId: query.accountId,
@@ -170,7 +170,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async getBalanceHistory(
+  public async listBalanceHistory(
     _query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     return { data: [], nextCursor: null };

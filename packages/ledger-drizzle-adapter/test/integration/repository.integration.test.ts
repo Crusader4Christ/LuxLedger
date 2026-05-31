@@ -1317,7 +1317,7 @@ describe('DrizzleLedgerRepository', () => {
     ).toBeTrue();
   });
 
-  it('getTrialBalance returns balanced totals and account rows', async () => {
+  it('getLedgerTrialBalance returns balanced totals and account rows', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
     const debitAccountId = await createAccount({
@@ -1337,7 +1337,7 @@ describe('DrizzleLedgerRepository', () => {
       balanceMinor: 100n,
     });
 
-    const trialBalance = await repository.getTrialBalance({ tenantId, ledgerId });
+    const trialBalance = await repository.getLedgerTrialBalance({ tenantId, ledgerId });
 
     expect(trialBalance.ledgerId).toBe(ledgerId);
     expect(trialBalance.totalDebitsMinor).toBe(100n);
@@ -1359,7 +1359,7 @@ describe('DrizzleLedgerRepository', () => {
     expect(creditAccount?.isContra).toBeFalse();
   });
 
-  it('getTrialBalance marks contra accounts and computes totals by signed balance', async () => {
+  it('getLedgerTrialBalance marks contra accounts and computes totals by signed balance', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
     const debitAccountId = await createAccount({
@@ -1379,7 +1379,7 @@ describe('DrizzleLedgerRepository', () => {
       balanceMinor: -60n,
     });
 
-    const trialBalance = await repository.getTrialBalance({ tenantId, ledgerId });
+    const trialBalance = await repository.getLedgerTrialBalance({ tenantId, ledgerId });
 
     expect(trialBalance.totalDebitsMinor).toBe(60n);
     expect(trialBalance.totalCreditsMinor).toBe(60n);
@@ -1395,7 +1395,7 @@ describe('DrizzleLedgerRepository', () => {
     expect(creditAccount?.isContra).toBeTrue();
   });
 
-  it('getTrialBalance throws when totals mismatch', async () => {
+  it('getLedgerTrialBalance throws when totals mismatch', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
 
@@ -1414,27 +1414,27 @@ describe('DrizzleLedgerRepository', () => {
       balanceMinor: 50n,
     });
 
-    await expect(repository.getTrialBalance({ tenantId, ledgerId })).rejects.toBeInstanceOf(
+    await expect(repository.getLedgerTrialBalance({ tenantId, ledgerId })).rejects.toBeInstanceOf(
       RepositoryError,
     );
   });
 
-  it('getTrialBalance throws LedgerNotFoundError for missing ledger', async () => {
+  it('getLedgerTrialBalance throws LedgerNotFoundError for missing ledger', async () => {
     await expect(
-      repository.getTrialBalance({
+      repository.getLedgerTrialBalance({
         tenantId: '11111111-1111-4111-8111-111111111111',
         ledgerId: '00000000-0000-4000-8000-000000000999',
       }),
     ).rejects.toBeInstanceOf(LedgerNotFoundError);
   });
 
-  it('getTrialBalance throws LedgerNotFoundError for ledger of another tenant', async () => {
+  it('getLedgerTrialBalance throws LedgerNotFoundError for ledger of another tenant', async () => {
     const tenantA = await createTenant('Tenant A');
     const tenantB = await createTenant('Tenant B');
     const ledgerB = await createLedger(tenantB, 'Ledger B');
 
     await expect(
-      repository.getTrialBalance({
+      repository.getLedgerTrialBalance({
         tenantId: tenantA,
         ledgerId: ledgerB,
       }),
