@@ -77,12 +77,69 @@ export const accounts = pgTable(
     side: accountSideEnum('side').notNull(),
     currency: text('currency').notNull(),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+    inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+    inflightCreditMinor: bigint('inflight_credit_minor', { mode: 'bigint' })
+      .notNull()
+      .default(sql`0`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     accountsTenantIdIdx: index('accounts_tenant_id_idx').on(table.tenantId),
     accountsLedgerIdIdx: index('accounts_ledger_id_idx').on(table.ledgerId),
+  }),
+);
+
+export const holdStateEnum = pgEnum('hold_state', ['HELD', 'APPLIED', 'VOIDED']);
+
+export const holds = pgTable(
+  'holds',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    ledgerId: uuid('ledger_id')
+      .notNull()
+      .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    reference: text('reference').notNull(),
+    currency: text('currency').notNull(),
+    description: text('description'),
+    state: holdStateEnum('state').notNull().default('HELD'),
+    originalAmountMinor: bigint('original_amount_minor', { mode: 'bigint' }).notNull(),
+    remainingAmountMinor: bigint('remaining_amount_minor', { mode: 'bigint' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    appliedAt: timestamp('applied_at', { withTimezone: true }),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+  },
+  (table) => ({
+    holdsTenantReferenceUq: uniqueIndex('holds_tenant_reference_uq').on(table.tenantId, table.reference),
+    holdsLedgerIdIdx: index('holds_ledger_id_idx').on(table.ledgerId),
+  }),
+);
+
+export const holdEntries = pgTable(
+  'hold_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    holdId: uuid('hold_id')
+      .notNull()
+      .references(() => holds.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    direction: entryDirectionEnum('direction').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    currency: text('currency').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    holdEntriesTenantIdIdx: index('hold_entries_tenant_id_idx').on(table.tenantId),
+    holdEntriesHoldIdIdx: index('hold_entries_hold_id_idx').on(table.holdId),
+    holdEntriesAccountIdIdx: index('hold_entries_account_id_idx').on(table.accountId),
   }),
 );
 
@@ -96,6 +153,7 @@ export const transactions = pgTable(
     ledgerId: uuid('ledger_id')
       .notNull()
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    holdId: uuid('hold_id').references(() => holds.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
     description: text('description'),
@@ -107,6 +165,7 @@ export const transactions = pgTable(
       table.reference,
     ),
     transactionsLedgerIdIdx: index('transactions_ledger_id_idx').on(table.ledgerId),
+    transactionsHoldIdIdx: index('transactions_hold_id_idx').on(table.holdId),
   }),
 );
 

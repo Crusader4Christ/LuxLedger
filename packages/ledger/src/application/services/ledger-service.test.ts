@@ -89,6 +89,40 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
+  public async createHold(): Promise<{
+    holdId: string;
+    created: boolean;
+    state: 'HELD' | 'APPLIED' | 'VOIDED';
+    remainingAmountMinor: bigint;
+  }> {
+    return { holdId: 'hold-1', created: true, state: 'HELD', remainingAmountMinor: 100n };
+  }
+
+  public async commitHold(): Promise<{
+    holdId: string;
+    state: 'HELD' | 'APPLIED';
+    remainingAmountMinor: bigint;
+    transactionId: string;
+    created: boolean;
+  }> {
+    return {
+      holdId: 'hold-1',
+      state: 'APPLIED',
+      remainingAmountMinor: 0n,
+      transactionId: 'tx-commit-1',
+      created: true,
+    };
+  }
+
+  public async voidHold(): Promise<{
+    holdId: string;
+    state: 'VOIDED';
+    remainingAmountMinor: bigint;
+    voided: boolean;
+  }> {
+    return { holdId: 'hold-1', state: 'VOIDED', remainingAmountMinor: 0n, voided: true };
+  }
+
   public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {
     const ledger = this.ledgers.get(input.ledgerId);
     if (!ledger || ledger.tenantId !== input.tenantId) {
@@ -596,6 +630,41 @@ describe('LedgerService', () => {
         tenantId: 'tenant-1',
         limit: 10,
         ledgerId: '   ',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('commitHold validates required holdId and reference', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.commitHold({
+        tenantId: 'tenant-1',
+        holdId: ' ',
+        reference: 'ref-1',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    await expect(
+      service.commitHold({
+        tenantId: 'tenant-1',
+        holdId: 'hold-1',
+        reference: ' ',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('commitHold rejects non-positive explicit amount', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.commitHold({
+        tenantId: 'tenant-1',
+        holdId: 'hold-1',
+        reference: 'ref-1',
+        amountMinor: 0n,
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });

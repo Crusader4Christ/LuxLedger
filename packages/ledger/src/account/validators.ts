@@ -6,3 +6,8 @@ export function validateAccountSide(side: string): void {
     throw new InvalidAccountSideError();
   }
 }
+
+export function parseAccountSide(side: string): AccountSide {
+  validateAccountSide(side);
+  return side as AccountSide;
+}
