@@ -46,6 +46,7 @@ import {
 } from '@lux/ledger/application';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import stringify from 'safe-stable-stringify';
 import { paginateByCursor } from './paginate-by-cursor';
 import type { DatabaseErrorLike } from './repository-types';
 import * as schema from './schema';
@@ -1436,9 +1437,11 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
   }
 
   private encodeSnapshotCursor(effectiveAt: Date, id: string): string {
-    return Buffer.from(JSON.stringify({ effectiveAt: effectiveAt.toISOString(), id })).toString(
-      'base64url',
-    );
+    const serialized = stringify({ effectiveAt: effectiveAt.toISOString(), id });
+    if (serialized === undefined) {
+      throw new InvariantViolationError('Invalid cursor');
+    }
+    return Buffer.from(serialized, 'utf8').toString('base64url');
   }
 
   private decodeSnapshotCursor(cursor: string | undefined): { effectiveAt: Date; id: string } | null {
@@ -1446,11 +1449,22 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       return null;
     }
     try {
-      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
-        effectiveAt: string;
-        id: string;
-      };
-      return { effectiveAt: new Date(parsed.effectiveAt), id: parsed.id };
+      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof parsed.effectiveAt !== 'string' ||
+        typeof parsed.id !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.id)
+      ) {
+        throw new InvariantViolationError('Invalid cursor');
+      }
+      const effectiveAt = new Date(parsed.effectiveAt);
+      if (Number.isNaN(effectiveAt.getTime())) {
+        throw new InvariantViolationError('Invalid cursor');
+      }
+      return { effectiveAt, id: parsed.id };
     } catch {
       throw new InvariantViolationError('Invalid cursor');
     }

@@ -511,8 +511,69 @@ class InMemoryLedgerReadRepository {
   }
 
   public async listBalanceHistory(
-    _query: BalanceHistoryQuery,
+    query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
+    if (query.tenantId !== VALID_TENANT_ID) {
+      return { data: [], nextCursor: null };
+    }
+
+    const all: BalanceSnapshotEvent[] = [
+      {
+        id: makeUuidV7(7001),
+        tenantId: VALID_TENANT_ID,
+        ledgerId: TEST_MAIN_LEDGER_ID,
+        accountId: TEST_DEBIT_ACCOUNT_ID,
+        eventType: 'HOLD_CREATED',
+        sourceId: makeUuidV7(7101),
+        postedMinor: 0n,
+        inflightDebitMinor: 50n,
+        inflightCreditMinor: 0n,
+        effectiveAt: new Date('2026-01-01T00:00:00.000Z'),
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+      {
+        id: makeUuidV7(7002),
+        tenantId: VALID_TENANT_ID,
+        ledgerId: TEST_MAIN_LEDGER_ID,
+        accountId: TEST_DEBIT_ACCOUNT_ID,
+        eventType: 'HOLD_COMMITTED',
+        sourceId: makeUuidV7(7102),
+        postedMinor: -50n,
+        inflightDebitMinor: 0n,
+        inflightCreditMinor: 0n,
+        effectiveAt: new Date('2026-01-01T00:05:00.000Z'),
+        createdAt: new Date('2026-01-01T00:05:00.000Z'),
+      },
+      {
+        id: makeUuidV7(7003),
+        tenantId: VALID_TENANT_ID,
+        ledgerId: TEST_MAIN_LEDGER_ID,
+        accountId: TEST_DEBIT_ACCOUNT_ID,
+        eventType: 'TX_APPLIED',
+        sourceId: makeUuidV7(7103),
+        postedMinor: -100n,
+        inflightDebitMinor: 0n,
+        inflightCreditMinor: 0n,
+        effectiveAt: new Date('2026-01-01T00:10:00.000Z'),
+        createdAt: new Date('2026-01-01T00:10:00.000Z'),
+      },
+    ];
+
+    const inRange = all.filter(
+      (item) => item.effectiveAt.getTime() >= query.from.getTime() && item.effectiveAt.getTime() <= query.to.getTime(),
+    );
+    if (query.cursor === undefined) {
+      return {
+        data: inRange.slice(0, query.limit),
+        nextCursor: inRange.length > query.limit ? 'hist-cursor-1' : null,
+      };
+    }
+    if (query.cursor === 'hist-cursor-1') {
+      return {
+        data: inRange.slice(query.limit, query.limit * 2),
+        nextCursor: inRange.length > query.limit * 2 ? 'hist-cursor-2' : null,
+      };
+    }
     return { data: [], nextCursor: null };
   }
 }
@@ -2283,6 +2344,73 @@ describe('server', () => {
     expect(response.statusCode).toBe(401);
     const payload = parsePayload<{ error: string; message: string }>(response.body);
     expect(payload.error).toBe('UNAUTHORIZED');
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id/balance-history returns first page and next cursor', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2026-01-01T00:00:00.000Z&to=2026-01-01T00:20:00.000Z&limit=2`,
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{
+      data: Array<{ event_type: string; effective_at: string }>;
+      next_cursor: string | null;
+    }>(response.body);
+    expect(payload.data.length).toBe(2);
+    expect(payload.data[0]?.event_type).toBe('HOLD_CREATED');
+    expect(payload.data[1]?.event_type).toBe('HOLD_COMMITTED');
+    expect(payload.next_cursor).toBe('hist-cursor-1');
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id/balance-history supports cursor pagination end-to-end', async () => {
+    const server = createServer();
+
+    const first = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2026-01-01T00:00:00.000Z&to=2026-01-01T00:20:00.000Z&limit=2`,
+      headers: await authHeaders(server),
+    });
+    const firstPayload = parsePayload<{ next_cursor: string | null }>(first.body);
+
+    const second = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2026-01-01T00:00:00.000Z&to=2026-01-01T00:20:00.000Z&limit=2&cursor=${firstPayload.next_cursor}`,
+      headers: await authHeaders(server),
+    });
+
+    expect(second.statusCode).toBe(200);
+    const secondPayload = parsePayload<{
+      data: Array<{ event_type: string }>;
+      next_cursor: string | null;
+    }>(second.body);
+    expect(secondPayload.data.length).toBe(1);
+    expect(secondPayload.data[0]?.event_type).toBe('TX_APPLIED');
+    expect(secondPayload.next_cursor).toBeNull();
+
+    await server.close();
+  });
+
+  it('GET /v1/accounts/:id/balance-history returns empty list for range before snapshots', async () => {
+    const server = createServer();
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/v1/accounts/${TEST_DEBIT_ACCOUNT_ID}/balance-history?from=2025-01-01T00:00:00.000Z&to=2025-01-01T00:05:00.000Z&limit=10`,
+      headers: await authHeaders(server),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parsePayload<{ data: unknown[]; next_cursor: string | null }>(response.body);
+    expect(payload.data.length).toBe(0);
+    expect(payload.next_cursor).toBeNull();
 
     await server.close();
   });

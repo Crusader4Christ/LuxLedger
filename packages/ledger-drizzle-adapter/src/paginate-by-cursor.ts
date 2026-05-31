@@ -1,6 +1,7 @@
 import { InvariantViolationError, type PaginationQuery } from '@lux/ledger/application';
 import type { AnyColumn } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, lt, or, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
+import stringify from 'safe-stable-stringify';
 import type { CursorPage } from './repository-types';
 
 type CursorDirection = 'asc' | 'desc';
@@ -124,7 +125,11 @@ const encodeCursor = <Row>(
     payload[field.key] = serializeCursorValue(field.getValue(row), field.type);
   }
 
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const serialized = stringify(payload);
+  if (serialized === undefined) {
+    throw new InvariantViolationError('Invalid cursor');
+  }
+  return Buffer.from(serialized, 'utf8').toString('base64url');
 };
 
 const buildCursorPredicate = <Row>(

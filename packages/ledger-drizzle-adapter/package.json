@@ -7,6 +7,7 @@
   "dependencies": {
     "@lux/ledger": "workspace:*",
     "drizzle-orm": "^0.45.1",
-    "postgres": "^3.4.8"
+    "postgres": "^3.4.8",
+    "safe-stable-stringify": "^2.5.0"
   }
 }

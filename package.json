@@ -31,7 +31,8 @@
   "dependencies": {
     "fastify": "^5.7.4",
     "drizzle-orm": "^0.45.1",
-    "postgres": "^3.4.8"
+    "postgres": "^3.4.8",
+    "safe-stable-stringify": "^2.5.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
