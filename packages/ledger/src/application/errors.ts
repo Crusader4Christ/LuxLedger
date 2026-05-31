@@ -48,6 +48,21 @@ export class InvariantViolationError extends DomainError {
   }
 }
 
+export class OverdraftPolicyViolationError extends DomainError {
+  public readonly accountId: string;
+  public readonly attemptedBalanceMinor: bigint;
+
+  public constructor(accountId: string, attemptedBalanceMinor: bigint) {
+    super(
+      `Overdraft is not allowed for account ${accountId}: attempted balance ${attemptedBalanceMinor.toString()}`,
+      'OVERDRAFT_POLICY_VIOLATION',
+      409,
+    );
+    this.accountId = accountId;
+    this.attemptedBalanceMinor = attemptedBalanceMinor;
+  }
+}
+
 export class RepositoryError extends DomainError {
   public constructor(message = 'Persistence operation failed', options?: ErrorOptions) {
     const cause =

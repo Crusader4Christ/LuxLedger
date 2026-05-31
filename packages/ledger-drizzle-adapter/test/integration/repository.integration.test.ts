@@ -4,6 +4,7 @@ import { EntryDirection } from '@lux/ledger';
 import {
   InvariantViolationError,
   LedgerNotFoundError,
+  OverdraftPolicyViolationError,
   RepositoryError,
 } from '@lux/ledger/application';
 import { and, eq, sql } from 'drizzle-orm';
@@ -62,6 +63,7 @@ const createAccount = async (input: {
   ledgerId: string;
   name: string;
   side?: EntryDirection;
+  overdraftPolicy?: 'ALLOW' | 'DISALLOW';
   currency: string;
   balanceMinor?: bigint;
   createdAt?: Date;
@@ -73,6 +75,7 @@ const createAccount = async (input: {
       ledgerId: input.ledgerId,
       name: input.name,
       side: input.side ?? EntryDirection.DEBIT,
+      overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
       currency: input.currency,
       balanceMinor: input.balanceMinor ?? 0n,
       createdAt: input.createdAt,
@@ -227,7 +230,30 @@ describe('DrizzleLedgerRepository', () => {
     expect(row?.ledgerId).toBe(ledgerId);
     expect(row?.name).toBe('Cash');
     expect(row?.side).toBe(EntryDirection.DEBIT);
+    expect(row?.overdraftPolicy).toBe('ALLOW');
     expect(row?.currency).toBe('USD');
+  });
+
+  it('createAccount persists explicit DISALLOW overdraft policy', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    const created = await repository.createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      side: EntryDirection.DEBIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+    });
+
+    const [row] = await client.db
+      .select()
+      .from(accounts)
+      .where(eq(accounts.id, created.id))
+      .limit(1);
+
+    expect(row?.overdraftPolicy).toBe('DISALLOW');
   });
 
   it('createAccount throws LedgerNotFoundError when ledger is missing for tenant', async () => {
@@ -395,6 +421,112 @@ describe('DrizzleLedgerRepository', () => {
       .limit(1);
     expect(debitBalance?.balanceMinor).toBe(0n);
     expect(creditBalance?.balanceMinor).toBe(0n);
+  });
+
+  it('createTransaction rejects posting that would overdraft a DISALLOW account', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+
+    await expect(
+      repository.createTransaction({
+        tenantId,
+        ledgerId,
+        reference: 'overdraft-ref',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: debitAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+          {
+            accountId: creditAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(OverdraftPolicyViolationError);
+
+    const [debitBalance] = await client.db
+      .select({ balanceMinor: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, debitAccountId))
+      .limit(1);
+    const [creditBalance] = await client.db
+      .select({ balanceMinor: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, creditAccountId))
+      .limit(1);
+    expect(debitBalance?.balanceMinor).toBe(0n);
+    expect(creditBalance?.balanceMinor).toBe(0n);
+  });
+
+  it('createTransaction allows posting that would overdraft when policy is ALLOW', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      overdraftPolicy: 'ALLOW',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+      balanceMinor: 0n,
+    });
+
+    const result = await repository.createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'allow-overdraft-ref',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    expect(result.created).toBeTrue();
+
+    const [debitBalance] = await client.db
+      .select({ balanceMinor: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, debitAccountId))
+      .limit(1);
+    expect(debitBalance?.balanceMinor).toBe(-100n);
   });
 
   it('createTransaction handles idempotency conflict without duplicate effects and keeps original description', async () => {

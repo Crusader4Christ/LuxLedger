@@ -6,6 +6,7 @@ export type CreateAccountRequest = {
   ledger_id: string;
   name: string;
   side: string;
+  overdraft_policy?: 'ALLOW' | 'DISALLOW';
   currency: string;
 };
 
@@ -15,6 +16,7 @@ export type AccountResponse = {
   ledger_id: string;
   name: string;
   side: string;
+  overdraft_policy: 'ALLOW' | 'DISALLOW';
   currency: string;
   balance_minor: string;
   created_at: string;
@@ -75,6 +77,10 @@ export const createAccountBodySchema = {
       type: 'string',
       enum: ['DEBIT', 'CREDIT'],
     },
+    overdraft_policy: {
+      type: 'string',
+      enum: ['ALLOW', 'DISALLOW'],
+    },
     currency: NonEmptyTrimmedStringSchema,
   },
 } as const;
@@ -87,6 +93,7 @@ export const accountResponseSchema = {
     'ledger_id',
     'name',
     'side',
+    'overdraft_policy',
     'currency',
     'balance_minor',
     'created_at',
@@ -110,6 +117,10 @@ export const accountResponseSchema = {
     side: {
       type: 'string',
       enum: ['DEBIT', 'CREDIT'],
+    },
+    overdraft_policy: {
+      type: 'string',
+      enum: ['ALLOW', 'DISALLOW'],
     },
     currency: {
       type: 'string',

@@ -22,6 +22,7 @@ export const accountSideEnum = pgEnum(
   'account_side',
   Object.values(AccountSide) as [string, ...string[]],
 );
+export const overdraftPolicyEnum = pgEnum('overdraft_policy', ['ALLOW', 'DISALLOW']);
 export const entryDirectionEnum = pgEnum(
   'entry_direction',
   Object.values(EntryDirection) as [string, ...string[]],
@@ -75,6 +76,7 @@ export const accounts = pgTable(
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     name: text('name').notNull(),
     side: accountSideEnum('side').notNull(),
+    overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
     currency: text('currency').notNull(),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' }).notNull().default(sql`0`),

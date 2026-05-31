@@ -110,6 +110,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
       ledgerId: input.ledgerId,
       name: input.name,
       side: input.side,
+      overdraftPolicy: 'ALLOW',
       currency: input.currency,
       balanceMinor: 0n,
       createdAt: new Date(),
@@ -233,6 +234,7 @@ describe('LedgerService integration (service + in-memory repository)', () => {
       ledgerId: ledger.id,
       name: 'Cash',
       side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
     const found = await service.getAccountById('tenant-a', created.id);
