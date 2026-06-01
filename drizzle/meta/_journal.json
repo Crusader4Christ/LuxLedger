@@ -43,6 +43,13 @@
       "when": 1772899588557,
       "tag": "0005_overdraft_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772899588558,
+      "tag": "0006_transaction_reversals",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,33 @@ export interface CreateTransactionResult {
   created: boolean;
 }
 
+export interface ReverseTransactionInput {
+  tenantId: string;
+  transactionId: string;
+  reference: string;
+  description?: string;
+}
+
+export interface ReverseTransactionResult {
+  transactionId: string;
+  created: boolean;
+}
+
+export interface CorrectTransactionInput {
+  tenantId: string;
+  transactionId: string;
+  reversalReference: string;
+  correctedReference: string;
+  description?: string;
+  entries: HoldEntryInput[];
+}
+
+export interface CorrectTransactionResult {
+  reversalTransactionId: string;
+  correctedTransactionId: string;
+  created: boolean;
+}
+
 export interface HoldEntryInput {
   accountId: string;
   direction: EntryDirection;
@@ -185,6 +212,8 @@ export interface LedgerRepository extends BaseLedgerRepository {
     transactionId: string,
   ): Promise<TransactionEntity | null>;
   createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult>;
+  reverseTransaction(input: ReverseTransactionInput): Promise<ReverseTransactionResult>;
+  correctTransaction(input: CorrectTransactionInput): Promise<CorrectTransactionResult>;
   createHold(input: CreateHoldInput): Promise<CreateHoldResult>;
   commitHold(input: CommitHoldInput): Promise<CommitHoldResult>;
   voidHold(input: VoidHoldInput): Promise<VoidHoldResult>;

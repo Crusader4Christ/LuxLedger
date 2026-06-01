@@ -14,6 +14,7 @@ export class TransactionEntity {
   public readonly reference: string;
   public readonly currency: string;
   public readonly description: string | null;
+  public readonly reversalOfTransactionId: string | null;
   public readonly createdAt: Date | null;
   public readonly entries: EntryEntity[];
 
@@ -24,6 +25,7 @@ export class TransactionEntity {
     reference: string;
     currency: string;
     description?: string | null;
+    reversalOfTransactionId?: string | null;
     createdAt?: Date | null;
     entries: EntryEntity[];
   }) {
@@ -33,6 +35,7 @@ export class TransactionEntity {
     this.reference = input.reference;
     this.currency = input.currency;
     this.description = input.description ?? null;
+    this.reversalOfTransactionId = input.reversalOfTransactionId ?? null;
     this.createdAt = input.createdAt ?? null;
     this.entries = input.entries;
 

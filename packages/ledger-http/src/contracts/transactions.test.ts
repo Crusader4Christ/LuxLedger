@@ -37,6 +37,7 @@ describe('transaction contract migration parity', () => {
       'id',
       'ledger_id',
       'reference',
+      'reversal_of_transaction_id',
       'tenant_id',
     ]);
   });

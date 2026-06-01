@@ -29,6 +29,8 @@ import {
   type CreateHoldResult,
   type CommitHoldInput,
   type CommitHoldResult,
+  type CorrectTransactionInput,
+  type CorrectTransactionResult,
   type CreateTransactionInput,
   type CreateTransactionResult,
   InvariantViolationError,
@@ -44,6 +46,8 @@ import {
   type TrialBalance,
   type TrialBalanceAccount,
   type LedgerTrialBalanceQuery,
+  type ReverseTransactionInput,
+  type ReverseTransactionResult,
   type VoidHoldInput,
   type VoidHoldResult,
 } from '@lux/ledger/application';
@@ -730,6 +734,128 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
+  public async reverseTransaction(
+    input: ReverseTransactionInput,
+  ): Promise<ReverseTransactionResult> {
+    try {
+      return await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+        const original = await this.lockTransaction(tx, input.tenantId, input.transactionId);
+        if (!original) {
+          throw new InvariantViolationError('Unable to reverse transaction: original not found');
+        }
+        if (original.reversalOfTransactionId) {
+          throw new InvariantViolationError('Unable to reverse transaction: cannot reverse a reversal');
+        }
+
+        const [byReference] = await tx
+          .select({
+            id: schema.transactions.id,
+            reversalOfTransactionId: schema.transactions.reversalOfTransactionId,
+          })
+          .from(schema.transactions)
+          .where(
+            and(
+              eq(schema.transactions.tenantId, input.tenantId),
+              eq(schema.transactions.reference, input.reference),
+            ),
+          )
+          .limit(1);
+        if (byReference) {
+          if (byReference.reversalOfTransactionId !== input.transactionId) {
+            throw new InvariantViolationError(
+              'Unable to reverse transaction: reference payload mismatch',
+            );
+          }
+          return { transactionId: byReference.id, created: false };
+        }
+
+        const originalEntries = await this.loadEntriesByTransactionIds(tx, input.tenantId, [
+          input.transactionId,
+        ]);
+        const entries = originalEntries.get(input.transactionId) ?? [];
+        if (entries.length < 2) {
+          throw new InvariantViolationError('Unable to reverse transaction: original entries are missing');
+        }
+
+        const created = await this.createPostedTransaction(tx, {
+          tenantId: input.tenantId,
+          ledgerId: original.ledgerId,
+          reference: input.reference,
+          currency: original.currency,
+          description: input.description ?? null,
+          reversalOfTransactionId: original.id,
+          entries: entries.map((entry) => ({
+            accountId: entry.accountId.value,
+            direction:
+              entry.direction === EntryDirection.DEBIT
+                ? EntryDirection.CREDIT
+                : EntryDirection.DEBIT,
+            amountMinor: entry.money.amountMinor,
+            currency: entry.money.currency,
+          })),
+        });
+        return { transactionId: created, created: true };
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'reverse transaction');
+    }
+  }
+
+  public async correctTransaction(
+    input: CorrectTransactionInput,
+  ): Promise<CorrectTransactionResult> {
+    try {
+      return await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+        const original = await this.lockTransaction(tx, input.tenantId, input.transactionId);
+        if (!original) {
+          throw new InvariantViolationError('Unable to correct transaction: original not found');
+        }
+        if (original.reversalOfTransactionId) {
+          throw new InvariantViolationError('Unable to correct transaction: cannot correct a reversal');
+        }
+        this.validateHoldEntriesInput(input.entries, original.currency);
+        const originalEntries = await this.loadEntriesByTransactionIds(tx, input.tenantId, [
+          input.transactionId,
+        ]);
+        const reversalEntries = (originalEntries.get(input.transactionId) ?? []).map((entry) => ({
+          accountId: entry.accountId.value,
+          direction:
+            entry.direction === EntryDirection.DEBIT ? EntryDirection.CREDIT : EntryDirection.DEBIT,
+          amountMinor: entry.money.amountMinor,
+          currency: entry.money.currency,
+        }));
+        const reversal = await this.createOrResolveReversal(tx, {
+          tenantId: input.tenantId,
+          originalTransactionId: input.transactionId,
+          ledgerId: original.ledgerId,
+          currency: original.currency,
+          reference: input.reversalReference,
+          description: input.description ?? null,
+          entries: reversalEntries,
+        });
+
+        const corrected = await this.createOrResolvePostedTransaction(tx, {
+          tenantId: input.tenantId,
+          ledgerId: original.ledgerId,
+          reference: input.correctedReference,
+          currency: original.currency,
+          description: input.description ?? null,
+          entries: input.entries,
+          payloadMismatchMessage: 'Unable to correct transaction: reference payload mismatch',
+        });
+        return {
+          reversalTransactionId: reversal.transactionId,
+          correctedTransactionId: corrected.transactionId,
+          created: reversal.created || corrected.created,
+        };
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'correct transaction');
+    }
+  }
+
   public async commitHold(input: CommitHoldInput): Promise<CommitHoldResult> {
     try {
       const result = await this.db.transaction(async (tx) => {
@@ -1136,6 +1262,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 reference: row.reference,
                 currency: row.currency,
                 description: row.description,
+                reversalOfTransactionId: row.reversalOfTransactionId,
                 createdAt: row.createdAt,
                 entries: entriesByTransactionId.get(row.id) ?? [],
               }),
@@ -1180,6 +1307,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           reference: row.reference,
           currency: row.currency,
           description: row.description,
+          reversalOfTransactionId: row.reversalOfTransactionId,
           createdAt: row.createdAt,
           entries: entriesByTransactionId.get(row.id) ?? [],
         });
@@ -1507,6 +1635,199 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     );
   }
 
+  private async createOrResolvePostedTransaction(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: {
+      tenantId: string;
+      ledgerId: string;
+      reference: string;
+      currency: string;
+      description: string | null;
+      reversalOfTransactionId?: string | null;
+      entries: Array<{
+        accountId: string;
+        direction: EntryDirection;
+        amountMinor: bigint;
+        currency: string;
+      }>;
+      payloadMismatchMessage: string;
+    },
+  ): Promise<{ transactionId: string; created: boolean }> {
+    const [existing] = await tx
+      .select({
+        id: schema.transactions.id,
+        ledgerId: schema.transactions.ledgerId,
+        currency: schema.transactions.currency,
+        description: schema.transactions.description,
+        reversalOfTransactionId: schema.transactions.reversalOfTransactionId,
+      })
+      .from(schema.transactions)
+      .where(
+        and(
+          eq(schema.transactions.tenantId, input.tenantId),
+          eq(schema.transactions.reference, input.reference),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      if (
+        existing.ledgerId !== input.ledgerId ||
+        existing.currency !== input.currency ||
+        (existing.description ?? null) !== (input.description ?? null) ||
+        (existing.reversalOfTransactionId ?? null) !== (input.reversalOfTransactionId ?? null)
+      ) {
+        throw new InvariantViolationError(input.payloadMismatchMessage);
+      }
+      const existingEntriesByTransactionId = await this.loadEntriesByTransactionIds(tx, input.tenantId, [
+        existing.id,
+      ]);
+      const existingEntries = existingEntriesByTransactionId.get(existing.id) ?? [];
+      if (!this.areEquivalentTransactionEntries(existingEntries, input.entries)) {
+        throw new InvariantViolationError(input.payloadMismatchMessage);
+      }
+      return { transactionId: existing.id, created: false };
+    }
+    const transactionId = await this.createPostedTransaction(tx, input);
+    return { transactionId, created: true };
+  }
+
+  private async createOrResolveReversal(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: {
+      tenantId: string;
+      originalTransactionId: string;
+      ledgerId: string;
+      currency: string;
+      reference: string;
+      description: string | null;
+      entries: Array<{
+        accountId: string;
+        direction: EntryDirection;
+        amountMinor: bigint;
+        currency: string;
+      }>;
+    },
+  ): Promise<{ transactionId: string; created: boolean }> {
+    const [existing] = await tx
+      .select({
+        id: schema.transactions.id,
+        reversalOfTransactionId: schema.transactions.reversalOfTransactionId,
+      })
+      .from(schema.transactions)
+      .where(
+        and(
+          eq(schema.transactions.tenantId, input.tenantId),
+          eq(schema.transactions.reference, input.reference),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      if (existing.reversalOfTransactionId !== input.originalTransactionId) {
+        throw new InvariantViolationError('Unable to reverse transaction: reference payload mismatch');
+      }
+      return { transactionId: existing.id, created: false };
+    }
+
+    const transactionId = await this.createPostedTransaction(tx, {
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      reference: input.reference,
+      currency: input.currency,
+      description: input.description,
+      reversalOfTransactionId: input.originalTransactionId,
+      entries: input.entries,
+    });
+    return { transactionId, created: true };
+  }
+
+  private async createPostedTransaction(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: {
+      tenantId: string;
+      ledgerId: string;
+      reference: string;
+      currency: string;
+      description: string | null;
+      reversalOfTransactionId?: string | null;
+      entries: Array<{
+        accountId: string;
+        direction: EntryDirection;
+        amountMinor: bigint;
+        currency: string;
+      }>;
+    },
+  ): Promise<string> {
+    await this.validateCreateTransactionInvariants(tx, input);
+    const [insertedTransaction] = await tx
+      .insert(schema.transactions)
+      .values({
+        tenantId: input.tenantId,
+        ledgerId: input.ledgerId,
+        reference: input.reference,
+        currency: input.currency,
+        description: input.description,
+        reversalOfTransactionId: input.reversalOfTransactionId ?? null,
+      })
+      .returning({ id: schema.transactions.id });
+    await tx.insert(schema.entries).values(
+      input.entries.map((entry) => ({
+        tenantId: input.tenantId,
+        transactionId: insertedTransaction.id,
+        accountId: entry.accountId,
+        direction: entry.direction,
+        amountMinor: entry.amountMinor,
+        currency: entry.currency,
+      })),
+    );
+    const entriesForBalanceUpdate = [...input.entries].sort((a, b) =>
+      a.accountId.localeCompare(b.accountId),
+    );
+    for (const entry of entriesForBalanceUpdate) {
+      const delta = entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
+      const [updatedAccount] = await tx
+        .update(schema.accounts)
+        .set({
+          balanceMinor: sql`${schema.accounts.balanceMinor} + ${delta}`,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(schema.accounts.id, entry.accountId),
+            eq(schema.accounts.tenantId, input.tenantId),
+            eq(schema.accounts.ledgerId, input.ledgerId),
+            eq(schema.accounts.currency, input.currency),
+          ),
+        )
+        .returning({
+          id: schema.accounts.id,
+          ledgerId: schema.accounts.ledgerId,
+          overdraftPolicy: schema.accounts.overdraftPolicy,
+          balanceMinor: schema.accounts.balanceMinor,
+          inflightDebitMinor: schema.accounts.inflightDebitMinor,
+          inflightCreditMinor: schema.accounts.inflightCreditMinor,
+        });
+      if (!updatedAccount) {
+        throw new InvariantViolationError(
+          'Unable to create transaction: account ledger/currency mismatch',
+        );
+      }
+      if (updatedAccount.overdraftPolicy === 'DISALLOW' && updatedAccount.balanceMinor < 0n) {
+        throw new OverdraftPolicyViolationError(updatedAccount.id, updatedAccount.balanceMinor);
+      }
+      await this.insertBalanceSnapshot(tx, {
+        tenantId: input.tenantId,
+        eventType: 'TX_APPLIED',
+        sourceId: insertedTransaction.id,
+        accountId: updatedAccount.id,
+        ledgerId: updatedAccount.ledgerId,
+        postedMinor: updatedAccount.balanceMinor,
+        inflightDebitMinor: updatedAccount.inflightDebitMinor,
+        inflightCreditMinor: updatedAccount.inflightCreditMinor,
+      });
+    }
+    return insertedTransaction.id;
+  }
+
   private validateHoldEntriesInput(
     entries: Array<{
       direction: EntryDirection;
@@ -1568,6 +1889,34 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     return existing.every((value, index) => value === input[index]);
   }
 
+  private areEquivalentTransactionEntries(
+    existingEntries: EntryEntity[],
+    inputEntries: Array<{
+      accountId: string;
+      direction: EntryDirection;
+      amountMinor: bigint;
+      currency: string;
+    }>,
+  ): boolean {
+    if (existingEntries.length !== inputEntries.length) {
+      return false;
+    }
+    const normalize = (entries: string[]) => entries.sort();
+    const existing = normalize(
+      existingEntries.map(
+        (entry) =>
+          `${entry.accountId.value}:${entry.direction}:${entry.money.amountMinor.toString()}:${entry.money.currency}`,
+      ),
+    );
+    const input = normalize(
+      inputEntries.map(
+        (entry) =>
+          `${entry.accountId}:${entry.direction}:${entry.amountMinor.toString()}:${entry.currency}`,
+      ),
+    );
+    return existing.every((value, index) => value === input[index]);
+  }
+
   private async lockHold(
     tx: PostgresJsDatabase<typeof schema>,
     tenantId: string,
@@ -1580,6 +1929,20 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       return null;
     }
     return rows[0] as HoldRow;
+  }
+
+  private async lockTransaction(
+    tx: PostgresJsDatabase<typeof schema>,
+    tenantId: string,
+    transactionId: string,
+  ): Promise<TransactionRow | null> {
+    const rows = await tx.execute(
+      sql`select * from transactions where tenant_id = ${tenantId} and id = ${transactionId} for update`,
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return rows[0] as TransactionRow;
   }
 
   private async withTenantContext<T>(

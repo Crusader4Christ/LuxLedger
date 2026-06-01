@@ -229,6 +229,7 @@ paths:
                         reference: tx-ref-1
                         currency: USD
                         description: Payment settlement
+                        reversal_of_transaction_id: null
                         created_at: '2026-01-01T00:01:00.000Z'
                     next_cursor: eyJjcmVhdGVkX2F0IjoiMjAyNi0wMS0wMVQwMDowMTowMC4wMDBaIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAyMDEifQ
         '400':
@@ -261,6 +262,7 @@ paths:
                     reference: tx-ref-1
                     currency: USD
                     description: Payment settlement
+                    reversal_of_transaction_id: null
                     created_at: '2026-01-01T00:01:00.000Z'
         '400':
           $ref: '#/components/responses/BadRequestError'
@@ -268,6 +270,84 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+  /v1/transactions/{id}/reverse:
+    post:
+      summary: Reverse transaction (idempotent by tenant+reference)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseTransactionRequest'
+            examples:
+              default:
+                value:
+                  reference: tx-ref-1-reversal
+                  description: Reverse invalid posting
+      responses:
+        '201':
+          description: Reversal created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransactionResponse'
+        '200':
+          description: Idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransactionResponse'
+  /v1/transactions/{id}/correct:
+    post:
+      summary: Correct transaction by creating reversal + replacement (atomic, idempotent)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectTransactionRequest'
+            examples:
+              default:
+                value:
+                  reversal_reference: tx-ref-1-reversal
+                  corrected_reference: tx-ref-1-corrected
+                  description: Correct account allocation
+                  entries:
+                    - account_id: 00000000-0000-4000-8000-000000000101
+                      direction: DEBIT
+                      amount_minor: '100'
+                      currency: USD
+                    - account_id: 00000000-0000-4000-8000-000000000102
+                      direction: CREDIT
+                      amount_minor: '100'
+                      currency: USD
+      responses:
+        '201':
+          description: Correction flow created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectTransactionResponse'
+        '200':
+          description: Idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectTransactionResponse'
   /v1/accounts:
     post:
       summary: Create account
@@ -564,6 +644,63 @@ components:
           format: uuid
         created:
           type: boolean
+    CorrectTransactionResponse:
+      type: object
+      required: [reversal_transaction_id, corrected_transaction_id, created]
+      properties:
+        reversal_transaction_id:
+          type: string
+          format: uuid
+        corrected_transaction_id:
+          type: string
+          format: uuid
+        created:
+          type: boolean
+    ReverseTransactionRequest:
+      type: object
+      additionalProperties: false
+      required: [reference]
+      properties:
+        reference:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+    CorrectTransactionRequest:
+      type: object
+      additionalProperties: false
+      required: [reversal_reference, corrected_reference, entries]
+      properties:
+        reversal_reference:
+          type: string
+          minLength: 1
+        corrected_reference:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+        entries:
+          type: array
+          minItems: 2
+          items:
+            type: object
+            additionalProperties: false
+            required: [account_id, direction, amount_minor, currency]
+            properties:
+              account_id:
+                type: string
+                format: uuid
+              direction:
+                type: string
+                enum: [DEBIT, CREDIT]
+              amount_minor:
+                type: string
+                pattern: '^[1-9][0-9]*$'
+              currency:
+                type: string
+                minLength: 1
     CreateAccountRequest:
       type: object
       additionalProperties: false
@@ -652,7 +789,7 @@ components:
           nullable: true
     Transaction:
       type: object
-      required: [id, tenant_id, ledger_id, reference, currency, description, created_at]
+      required: [id, tenant_id, ledger_id, reference, currency, description, reversal_of_transaction_id, created_at]
       properties:
         id:
           type: string
@@ -670,6 +807,10 @@ components:
         description:
           type: string
           nullable: true
+        reversal_of_transaction_id:
+          type: string
+          format: uuid
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -680,6 +821,7 @@ components:
         reference: tx-ref-1
         currency: USD
         description: Payment settlement
+        reversal_of_transaction_id: null
         created_at: '2026-01-01T00:01:00.000Z'
     EntriesPage:
       type: object

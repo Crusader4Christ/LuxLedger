@@ -34,7 +34,31 @@ export type TransactionResponse = {
   reference: string;
   currency: string;
   description: string | null;
+  reversal_of_transaction_id: string | null;
   created_at: string;
+};
+
+export type ReverseTransactionRequest = {
+  reference: string;
+  description?: string;
+};
+
+export type ReverseTransactionResponse = {
+  transaction_id: string;
+  created: boolean;
+};
+
+export type CorrectTransactionRequest = {
+  reversal_reference: string;
+  corrected_reference: string;
+  description?: string;
+  entries: TransactionEntryRequest[];
+};
+
+export type CorrectTransactionResponse = {
+  reversal_transaction_id: string;
+  corrected_transaction_id: string;
+  created: boolean;
 };
 
 export type ListTransactionsQuery = {
@@ -95,7 +119,16 @@ export const createTransactionRequestSchema = {
 
 export const transactionResponseSchema = {
   type: 'object',
-  required: ['id', 'tenant_id', 'ledger_id', 'reference', 'currency', 'description', 'created_at'],
+  required: [
+    'id',
+    'tenant_id',
+    'ledger_id',
+    'reference',
+    'currency',
+    'description',
+    'reversal_of_transaction_id',
+    'created_at',
+  ],
   properties: {
     id: {
       type: 'string',
@@ -119,9 +152,40 @@ export const transactionResponseSchema = {
       type: 'string',
       nullable: true,
     },
+    reversal_of_transaction_id: {
+      type: 'string',
+      format: 'uuid',
+      nullable: true,
+    },
     created_at: {
       type: 'string',
       format: 'date-time',
+    },
+  },
+} as const;
+
+export const reverseTransactionRequestSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reference'],
+  properties: {
+    reference: nonEmptyTrimmedStringSchema,
+    description: nonEmptyTrimmedStringSchema,
+  },
+} as const;
+
+export const correctTransactionRequestSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reversal_reference', 'corrected_reference', 'entries'],
+  properties: {
+    reversal_reference: nonEmptyTrimmedStringSchema,
+    corrected_reference: nonEmptyTrimmedStringSchema,
+    description: nonEmptyTrimmedStringSchema,
+    entries: {
+      type: 'array',
+      minItems: 2,
+      items: transactionEntryRequestSchema,
     },
   },
 } as const;
