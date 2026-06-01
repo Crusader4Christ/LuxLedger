@@ -2007,7 +2007,7 @@ describe('server', () => {
         ledger_id: UNKNOWN_LEDGER_ID,
         name: 'Cash',
         side: AccountSide.DEBIT,
-        overdraftPolicy: 'ALLOW',
+        overdraft_policy: 'ALLOW',
         currency: 'USD',
       },
     });
@@ -2041,7 +2041,7 @@ describe('server', () => {
         ledger_id: createdLedger.id,
         name: ' ',
         side: AccountSide.DEBIT,
-        overdraftPolicy: 'ALLOW',
+        overdraft_policy: 'ALLOW',
         currency: '',
       },
     });
@@ -2075,7 +2075,7 @@ describe('server', () => {
         ledger_id: createdLedger.id,
         name: 'Cash',
         side: 'INVALID',
-        overdraftPolicy: 'ALLOW',
+        overdraft_policy: 'ALLOW',
         currency: 'USD',
       },
     });
@@ -2656,7 +2656,7 @@ describe('server', () => {
         payload: {
           name: 'Broken request',
           side: 'DEBIT',
-          overdraftPolicy: 'ALLOW',
+          overdraft_policy: 'ALLOW',
           currency: 'USD',
         },
       });
