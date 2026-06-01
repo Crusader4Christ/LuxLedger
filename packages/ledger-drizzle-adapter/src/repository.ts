@@ -13,6 +13,7 @@ import {
   TransactionId as LedgerTransactionId,
   Money,
   parseAccountSide,
+  parseOverdraftPolicy,
   parseEntryDirection,
   isUuidV7,
   TransactionEntity,
@@ -32,6 +33,7 @@ import {
   type CreateTransactionResult,
   InvariantViolationError,
   LedgerNotFoundError,
+  OverdraftPolicyViolationError,
   type LedgerRepository,
   type HistoricalBalance,
   type BalanceAtQuery,
@@ -380,6 +382,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             ledgerId: input.ledgerId,
             name: input.name,
             side: input.side,
+            overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
             currency: input.currency,
           })
           .returning();
@@ -390,6 +393,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           ledgerId: created.ledgerId,
           name: created.name,
           side: parseAccountSide(created.side),
+          overdraftPolicy: parseOverdraftPolicy(created.overdraftPolicy),
           currency: created.currency,
           balanceMinor: created.balanceMinor,
           createdAt: created.createdAt,
@@ -422,6 +426,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           ledgerId: row.ledgerId,
           name: row.name,
           side: parseAccountSide(row.side),
+          overdraftPolicy: parseOverdraftPolicy(row.overdraftPolicy),
           currency: row.currency,
           balanceMinor: row.balanceMinor,
           createdAt: row.createdAt,
@@ -519,6 +524,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             .returning({
               id: schema.accounts.id,
               ledgerId: schema.accounts.ledgerId,
+              overdraftPolicy: schema.accounts.overdraftPolicy,
               balanceMinor: schema.accounts.balanceMinor,
               inflightDebitMinor: schema.accounts.inflightDebitMinor,
               inflightCreditMinor: schema.accounts.inflightCreditMinor,
@@ -527,6 +533,15 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           if (!updatedAccount) {
             throw new InvariantViolationError(
               'Unable to create transaction: account ledger/currency mismatch',
+            );
+          }
+          if (
+            updatedAccount.overdraftPolicy === 'DISALLOW' &&
+            updatedAccount.balanceMinor < 0n
+          ) {
+            throw new OverdraftPolicyViolationError(
+              updatedAccount.id,
+              updatedAccount.balanceMinor,
             );
           }
           await this.insertBalanceSnapshot(tx, {
@@ -681,6 +696,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             .returning({
               id: schema.accounts.id,
               ledgerId: schema.accounts.ledgerId,
+              overdraftPolicy: schema.accounts.overdraftPolicy,
               balanceMinor: schema.accounts.balanceMinor,
               inflightDebitMinor: schema.accounts.inflightDebitMinor,
               inflightCreditMinor: schema.accounts.inflightCreditMinor,
@@ -821,12 +837,22 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             .returning({
               id: schema.accounts.id,
               ledgerId: schema.accounts.ledgerId,
+              overdraftPolicy: schema.accounts.overdraftPolicy,
               balanceMinor: schema.accounts.balanceMinor,
               inflightDebitMinor: schema.accounts.inflightDebitMinor,
               inflightCreditMinor: schema.accounts.inflightCreditMinor,
             });
           if (!updatedAccount) {
             throw new InvariantViolationError('Unable to commit hold: account not found');
+          }
+          if (
+            updatedAccount.overdraftPolicy === 'DISALLOW' &&
+            updatedAccount.balanceMinor < 0n
+          ) {
+            throw new OverdraftPolicyViolationError(
+              updatedAccount.id,
+              updatedAccount.balanceMinor,
+            );
           }
           await this.insertBalanceSnapshot(tx, {
             tenantId: input.tenantId,
@@ -1044,6 +1070,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 ledgerId: row.ledgerId,
                 name: row.name,
                 side: parseAccountSide(row.side),
+                overdraftPolicy: parseOverdraftPolicy(row.overdraftPolicy),
                 currency: row.currency,
                 balanceMinor: row.balanceMinor,
                 createdAt: row.createdAt,

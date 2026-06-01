@@ -577,7 +577,10 @@ components:
           minLength: 1
         side:
           type: string
-          pattern: '^(?=.*\S).+$'
+          enum: [DEBIT, CREDIT]
+        overdraft_policy:
+          type: string
+          enum: [ALLOW, DISALLOW]
         currency:
           type: string
           minLength: 1
@@ -585,10 +588,11 @@ components:
         ledger_id: 00000000-0000-4000-8000-000000000001
         name: Cash
         side: DEBIT
+        overdraft_policy: ALLOW
         currency: USD
     Account:
       type: object
-      required: [id, tenant_id, ledger_id, name, side, currency, balance_minor, created_at]
+      required: [id, tenant_id, ledger_id, name, side, overdraft_policy, currency, balance_minor, created_at]
       properties:
         id:
           type: string
@@ -604,6 +608,9 @@ components:
         side:
           type: string
           enum: [DEBIT, CREDIT]
+        overdraft_policy:
+          type: string
+          enum: [ALLOW, DISALLOW]
         currency:
           type: string
         balance_minor:
@@ -617,6 +624,7 @@ components:
         ledger_id: 00000000-0000-4000-8000-000000000001
         name: Cash
         side: DEBIT
+        overdraft_policy: ALLOW
         currency: USD
         balance_minor: '100'
         created_at: '2026-01-01T00:00:00.000Z'

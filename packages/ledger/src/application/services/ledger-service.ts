@@ -1,4 +1,4 @@
-import { type AccountEntity, AccountSide } from '../../account/entity';
+import { type AccountEntity, AccountSide, OverdraftPolicy } from '../../account/entity';
 import type { EntryEntity } from '../../entry/entity';
 import type { TransactionEntity } from '../../transaction/entity';
 import { assertNonEmpty } from '../../utils';
@@ -118,6 +118,9 @@ export class LedgerService {
     assertNonEmpty(input.name, 'name is required');
     assertNonEmpty(input.currency, 'currency is required');
     this.assertAccountSide(input.side);
+    if (input.overdraftPolicy !== undefined) {
+      this.assertOverdraftPolicy(input.overdraftPolicy);
+    }
 
     return this.repository.createAccount(input);
   }
@@ -213,6 +216,12 @@ export class LedgerService {
   private assertAccountSide(side: string): void {
     if (!(Object.values(AccountSide) as string[]).includes(side)) {
       throw new InvariantViolationError('account side must be DEBIT or CREDIT');
+    }
+  }
+
+  private assertOverdraftPolicy(policy: string): void {
+    if (!(Object.values(OverdraftPolicy) as string[]).includes(policy)) {
+      throw new InvariantViolationError('overdraft policy must be ALLOW or DISALLOW');
     }
   }
 }

@@ -142,6 +142,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
       ledgerId: input.ledgerId,
       name: input.name,
       side: input.side,
+      overdraftPolicy: 'ALLOW',
       currency: input.currency,
       balanceMinor: 0n,
       createdAt: new Date(),
@@ -393,6 +394,7 @@ describe('LedgerService', () => {
       ledgerId: ledger.id,
       name: 'Cash',
       side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
 
@@ -415,6 +417,7 @@ describe('LedgerService', () => {
         ledgerId: tenantALedger.id,
         name: 'Cash',
         side: AccountSide.DEBIT,
+        overdraftPolicy: 'ALLOW',
         currency: 'USD',
       }),
     ).rejects.toBeInstanceOf(LedgerNotFoundError);
@@ -434,6 +437,7 @@ describe('LedgerService', () => {
         ledgerId: ledger.id,
         name: 'Cash',
         side: 'INVALID' as AccountSide,
+        overdraftPolicy: 'ALLOW',
         currency: 'USD',
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
@@ -451,6 +455,7 @@ describe('LedgerService', () => {
       ledgerId: ledger.id,
       name: 'Cash',
       side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
 
@@ -470,6 +475,7 @@ describe('LedgerService', () => {
       ledgerId: ledger.id,
       name: 'Cash',
       side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
 
@@ -494,6 +500,7 @@ describe('LedgerService', () => {
       ledgerId: tenantLedger.id,
       name: 'Cash',
       side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
     await service.createAccount({
@@ -501,6 +508,7 @@ describe('LedgerService', () => {
       ledgerId: otherLedger.id,
       name: 'Revenue',
       side: AccountSide.CREDIT,
+      overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
 

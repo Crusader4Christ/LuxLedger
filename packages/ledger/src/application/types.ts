@@ -1,4 +1,4 @@
-import type { AccountEntity, AccountSide } from '../account/entity';
+import type { AccountEntity, AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
@@ -11,7 +11,7 @@ import type { TransactionEntity } from '../transaction/entity';
 import type { CreateTransactionCommand } from '../transaction/use-cases/create-transaction.command';
 
 export type Tenant = TenantEntity;
-export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection };
+export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = Awaited<ReturnType<BaseLedgerRepository['createLedger']>>;
 
 export type CreateTransactionInput = Omit<CreateTransactionCommand, 'id'>;
