@@ -21,6 +21,8 @@ import type {
   CreateTransactionResult,
   CommitHoldInput,
   CommitHoldResult,
+  CorrectTransactionInput,
+  CorrectTransactionResult,
   Ledger,
   LedgerRepository,
   HistoricalBalance,
@@ -30,6 +32,8 @@ import type {
   TransactionPaginationQuery,
   TrialBalance,
   LedgerTrialBalanceQuery,
+  ReverseTransactionInput,
+  ReverseTransactionResult,
   VoidHoldInput,
   VoidHoldResult,
 } from '../types';
@@ -80,6 +84,31 @@ export class LedgerService {
     }
 
     return this.repository.createTransaction(input);
+  }
+
+  public async reverseTransaction(
+    input: ReverseTransactionInput,
+  ): Promise<ReverseTransactionResult> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.transactionId, 'transactionId is required');
+    assertNonEmpty(input.reference, 'reference is required');
+    if (typeof input.description === 'string') {
+      assertNonEmpty(input.description, 'description must be a non-empty string');
+    }
+    return this.repository.reverseTransaction(input);
+  }
+
+  public async correctTransaction(
+    input: CorrectTransactionInput,
+  ): Promise<CorrectTransactionResult> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.transactionId, 'transactionId is required');
+    assertNonEmpty(input.reversalReference, 'reversalReference is required');
+    assertNonEmpty(input.correctedReference, 'correctedReference is required');
+    if (typeof input.description === 'string') {
+      assertNonEmpty(input.description, 'description must be a non-empty string');
+    }
+    return this.repository.correctTransaction(input);
   }
 
   public async createHold(input: CreateHoldInput): Promise<CreateHoldResult> {

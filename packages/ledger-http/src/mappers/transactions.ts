@@ -16,6 +16,8 @@ export const toTransactionResponse = (transaction: TransactionEntity): Transacti
     reference: transaction.reference,
     currency: transaction.currency,
     description: transaction.description,
+    related_transaction_id: transaction.relatedTransactionId,
+    relation_type: transaction.relationType,
     created_at: transaction.createdAt.toISOString(),
   };
 };

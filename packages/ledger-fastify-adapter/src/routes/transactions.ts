@@ -1,6 +1,10 @@
 import {
+  type CorrectTransactionRequest,
   type ListTransactionsQuery,
+  reverseTransactionRequestSchema,
+  correctTransactionRequestSchema,
   listTransactionsQuerySchemaExtra,
+  type ReverseTransactionRequest,
   type TransactionByIdParams,
   type TransactionResponse,
   transactionByIdParamsSchema,
@@ -25,6 +29,8 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   public register(server: FastifyInstance): void {
     super.register(server);
     this.registerGetTransactionById(server);
+    this.registerReverseTransaction(server);
+    this.registerCorrectTransaction(server);
   }
 
   protected querystringSchema() {
@@ -59,6 +65,63 @@ export class TransactionsRoutes extends BasePaginatedRoute<
             request.params.id,
           );
           return reply.status(200).send(this.dto(transaction));
+        }),
+    );
+  }
+
+  private registerReverseTransaction(server: FastifyInstance): void {
+    server.post<{ Params: TransactionByIdParams; Body: ReverseTransactionRequest }>(
+      '/v1/transactions/:id/reverse',
+      {
+        schema: {
+          params: transactionByIdParamsSchema,
+          body: reverseTransactionRequestSchema,
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.ledgerService.reverseTransaction({
+            tenantId: request.tenantId as string,
+            transactionId: request.params.id,
+            reference: request.body.reference,
+            description: request.body.description,
+          });
+          return reply
+            .status(result.created ? 201 : 200)
+            .send({ transaction_id: result.transactionId, created: result.created });
+        }),
+    );
+  }
+
+  private registerCorrectTransaction(server: FastifyInstance): void {
+    server.post<{ Params: TransactionByIdParams; Body: CorrectTransactionRequest }>(
+      '/v1/transactions/:id/correct',
+      {
+        schema: {
+          params: transactionByIdParamsSchema,
+          body: correctTransactionRequestSchema,
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.ledgerService.correctTransaction({
+            tenantId: request.tenantId as string,
+            transactionId: request.params.id,
+            reversalReference: request.body.reversal_reference,
+            correctedReference: request.body.corrected_reference,
+            description: request.body.description,
+            entries: request.body.entries.map((entry) => ({
+              accountId: entry.account_id,
+              direction: entry.direction,
+              amountMinor: BigInt(entry.amount_minor),
+              currency: entry.currency,
+            })),
+          });
+          return reply.status(result.created ? 201 : 200).send({
+            reversal_transaction_id: result.reversalTransactionId,
+            corrected_transaction_id: result.correctedTransactionId,
+            created: result.created,
+          });
         }),
     );
   }

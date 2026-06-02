@@ -151,6 +151,35 @@ class InMemoryLedgerRepository {
     };
   }
 
+  public async reverseTransaction(input: {
+    tenantId: string;
+    transactionId: string;
+    reference: string;
+    description?: string;
+  }): Promise<{ transactionId: string; created: boolean }> {
+    return { transactionId: `${input.transactionId}-reversal`, created: true };
+  }
+
+  public async correctTransaction(input: {
+    tenantId: string;
+    transactionId: string;
+    reversalReference: string;
+    correctedReference: string;
+    description?: string;
+    entries: Array<{
+      accountId: string;
+      direction: EntryDirection;
+      amountMinor: bigint;
+      currency: string;
+    }>;
+  }): Promise<{ reversalTransactionId: string; correctedTransactionId: string; created: boolean }> {
+    return {
+      reversalTransactionId: `${input.transactionId}-reversal`,
+      correctedTransactionId: `${input.transactionId}-corrected`,
+      created: true,
+    };
+  }
+
   public async createAccount(input: CreateAccountInput): Promise<AccountEntity> {
     const ledger = this.ledgers.get(input.ledgerId);
     if (!ledger || ledger.tenantId !== input.tenantId) {
@@ -717,6 +746,8 @@ const createServer = (
     findAccountByIdForTenant: readRepository.findAccountByIdForTenant.bind(readRepository),
     findTransactionByIdForTenant: readRepository.findTransactionByIdForTenant.bind(readRepository),
     createTransaction: writeRepository.createTransaction.bind(writeRepository),
+    reverseTransaction: writeRepository.reverseTransaction.bind(writeRepository),
+    correctTransaction: writeRepository.correctTransaction.bind(writeRepository),
     createHold: writeRepository.createHold.bind(writeRepository),
     commitHold: writeRepository.commitHold.bind(writeRepository),
     voidHold: writeRepository.voidHold.bind(writeRepository),

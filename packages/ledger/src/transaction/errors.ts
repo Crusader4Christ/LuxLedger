@@ -36,6 +36,12 @@ export class MissingReferenceError extends DomainError {
   }
 }
 
+export class InvalidTransactionRelationError extends DomainError {
+  public constructor() {
+    super('transaction relation id and relation type must be provided together', 'INVALID_TRANSACTION_RELATION');
+  }
+}
+
 export class AccountNotFoundError extends DomainError {
   public constructor(accountId: string) {
     super(`account not found: ${accountId}`, 'ACCOUNT_NOT_FOUND');

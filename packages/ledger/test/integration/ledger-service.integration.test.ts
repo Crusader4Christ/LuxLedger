@@ -63,6 +63,22 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
+  public async reverseTransaction(): Promise<{ transactionId: string; created: boolean }> {
+    return { transactionId: 'tx-reversal-1', created: true };
+  }
+
+  public async correctTransaction(): Promise<{
+    reversalTransactionId: string;
+    correctedTransactionId: string;
+    created: boolean;
+  }> {
+    return {
+      reversalTransactionId: 'tx-reversal-1',
+      correctedTransactionId: 'tx-corrected-1',
+      created: true,
+    };
+  }
+
   public async createHold(): Promise<{
     holdId: string;
     created: boolean;
