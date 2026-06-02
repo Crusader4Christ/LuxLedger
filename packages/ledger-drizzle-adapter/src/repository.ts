@@ -1922,13 +1922,14 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     tenantId: string,
     holdId: string,
   ): Promise<HoldRow | null> {
-    const rows = await tx.execute(
-      sql`select * from holds where tenant_id = ${tenantId} and id = ${holdId} for update`,
-    );
-    if (rows.length === 0) {
-      return null;
-    }
-    return rows[0] as HoldRow;
+    const [row] = await tx
+      .select()
+      .from(schema.holds)
+      .where(and(eq(schema.holds.tenantId, tenantId), eq(schema.holds.id, holdId)))
+      .for('update')
+      .limit(1);
+
+    return row ?? null;
   }
 
   private async lockTransaction(
@@ -1936,27 +1937,14 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     tenantId: string,
     transactionId: string,
   ): Promise<TransactionRow | null> {
-    const rows = await tx.execute(
-      sql`
-        select
-          id,
-          tenant_id as "tenantId",
-          ledger_id as "ledgerId",
-          hold_id as "holdId",
-          reversal_of_transaction_id as "reversalOfTransactionId",
-          reference,
-          currency,
-          description,
-          created_at as "createdAt"
-        from transactions
-        where tenant_id = ${tenantId} and id = ${transactionId}
-        for update
-      `,
-    );
-    if (rows.length === 0) {
-      return null;
-    }
-    return rows[0] as TransactionRow;
+    const [row] = await tx
+      .select()
+      .from(schema.transactions)
+      .where(and(eq(schema.transactions.tenantId, tenantId), eq(schema.transactions.id, transactionId)))
+      .for('update')
+      .limit(1);
+
+    return row ?? null;
   }
 
   private async withTenantContext<T>(
