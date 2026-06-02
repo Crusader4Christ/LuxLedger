@@ -34,7 +34,8 @@ export type TransactionResponse = {
   reference: string;
   currency: string;
   description: string | null;
-  reversal_of_transaction_id: string | null;
+  related_transaction_id: string | null;
+  relation_type: 'REVERSAL' | 'CORRECTION' | null;
   created_at: string;
 };
 
@@ -126,7 +127,8 @@ export const transactionResponseSchema = {
     'reference',
     'currency',
     'description',
-    'reversal_of_transaction_id',
+    'related_transaction_id',
+    'relation_type',
     'created_at',
   ],
   properties: {
@@ -152,9 +154,14 @@ export const transactionResponseSchema = {
       type: 'string',
       nullable: true,
     },
-    reversal_of_transaction_id: {
+    related_transaction_id: {
       type: 'string',
       format: 'uuid',
+      nullable: true,
+    },
+    relation_type: {
+      type: 'string',
+      enum: ['REVERSAL', 'CORRECTION'],
       nullable: true,
     },
     created_at: {

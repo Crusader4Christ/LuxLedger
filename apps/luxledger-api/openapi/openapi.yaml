@@ -229,7 +229,8 @@ paths:
                         reference: tx-ref-1
                         currency: USD
                         description: Payment settlement
-                        reversal_of_transaction_id: null
+                        related_transaction_id: null
+                        relation_type: null
                         created_at: '2026-01-01T00:01:00.000Z'
                     next_cursor: eyJjcmVhdGVkX2F0IjoiMjAyNi0wMS0wMVQwMDowMTowMC4wMDBaIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAyMDEifQ
         '400':
@@ -262,7 +263,8 @@ paths:
                     reference: tx-ref-1
                     currency: USD
                     description: Payment settlement
-                    reversal_of_transaction_id: null
+                    related_transaction_id: null
+                    relation_type: null
                     created_at: '2026-01-01T00:01:00.000Z'
         '400':
           $ref: '#/components/responses/BadRequestError'
@@ -789,7 +791,7 @@ components:
           nullable: true
     Transaction:
       type: object
-      required: [id, tenant_id, ledger_id, reference, currency, description, reversal_of_transaction_id, created_at]
+      required: [id, tenant_id, ledger_id, reference, currency, description, related_transaction_id, relation_type, created_at]
       properties:
         id:
           type: string
@@ -807,9 +809,13 @@ components:
         description:
           type: string
           nullable: true
-        reversal_of_transaction_id:
+        related_transaction_id:
           type: string
           format: uuid
+          nullable: true
+        relation_type:
+          type: string
+          enum: [REVERSAL, CORRECTION]
           nullable: true
         created_at:
           type: string
@@ -821,7 +827,8 @@ components:
         reference: tx-ref-1
         currency: USD
         description: Payment settlement
-        reversal_of_transaction_id: null
+        related_transaction_id: null
+        relation_type: null
         created_at: '2026-01-01T00:01:00.000Z'
     EntriesPage:
       type: object

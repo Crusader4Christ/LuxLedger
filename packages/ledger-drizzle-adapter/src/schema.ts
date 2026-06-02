@@ -1,6 +1,7 @@
 import { AccountSide, EntryDirection } from '@lux/ledger';
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   check,
   index,
@@ -93,6 +94,10 @@ export const accounts = pgTable(
 );
 
 export const holdStateEnum = pgEnum('hold_state', ['HELD', 'APPLIED', 'VOIDED']);
+export const transactionRelationTypeEnum = pgEnum('transaction_relation_type', [
+  'REVERSAL',
+  'CORRECTION',
+]);
 export const balanceSnapshotEventTypeEnum = pgEnum('balance_snapshot_event_type', [
   'TX_APPLIED',
   'HOLD_CREATED',
@@ -163,7 +168,11 @@ export const transactions = pgTable(
       .notNull()
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     holdId: uuid('hold_id').references(() => holds.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    reversalOfTransactionId: uuid('reversal_of_transaction_id'),
+    relatedTransactionId: uuid('related_transaction_id').references((): AnyPgColumn => transactions.id, {
+      onDelete: 'restrict',
+      onUpdate: 'cascade',
+    }),
+    relationType: transactionRelationTypeEnum('relation_type'),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
     description: text('description'),
@@ -176,12 +185,17 @@ export const transactions = pgTable(
     ),
     transactionsLedgerIdIdx: index('transactions_ledger_id_idx').on(table.ledgerId),
     transactionsHoldIdIdx: index('transactions_hold_id_idx').on(table.holdId),
-    transactionsReversalOfIdIdx: index('transactions_reversal_of_transaction_id_idx').on(
-      table.reversalOfTransactionId,
+    transactionsRelatedIdIdx: index('transactions_related_transaction_id_idx').on(
+      table.relatedTransactionId,
     ),
-    transactionsReversalOfUq: uniqueIndex('transactions_reversal_of_transaction_id_uq').on(
+    transactionsRelationUq: uniqueIndex('transactions_relation_uq').on(
       table.tenantId,
-      table.reversalOfTransactionId,
+      table.relationType,
+      table.relatedTransactionId,
+    ).where(sql`${table.relatedTransactionId} is not null`),
+    transactionsRelationPairCk: check(
+      'transactions_relation_pair_ck',
+      sql`(${table.relatedTransactionId} is null and ${table.relationType} is null) or (${table.relatedTransactionId} is not null and ${table.relationType} is not null)`,
     ),
   }),
 );

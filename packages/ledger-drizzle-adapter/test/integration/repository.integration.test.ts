@@ -1618,8 +1618,10 @@ describe('DrizzleLedgerRepository', () => {
 
     const original = await repository.findTransactionByIdForTenant(tenantId, created.transactionId);
     const reversal = await repository.findTransactionByIdForTenant(tenantId, first.transactionId);
-    expect(original?.reversalOfTransactionId).toBeNull();
-    expect(reversal?.reversalOfTransactionId).toBe(created.transactionId);
+    expect(original?.relatedTransactionId).toBeNull();
+    expect(original?.relationType).toBeNull();
+    expect(reversal?.relatedTransactionId).toBe(created.transactionId);
+    expect(reversal?.relationType).toBe('REVERSAL');
   });
 
   it('reverseTransaction rejects reversing a reversal transaction', async () => {
@@ -1664,6 +1666,105 @@ describe('DrizzleLedgerRepository', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
+  it('reverseTransaction serializes concurrent idempotent reversal attempts', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      side: EntryDirection.CREDIT,
+      currency: 'USD',
+    });
+    const original = await repository.createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-concurrent-original',
+      currency: 'USD',
+      entries: [
+        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 10n, currency: 'USD' },
+        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 10n, currency: 'USD' },
+      ],
+    });
+    const clientA = createDbClient({ databaseUrl, max: 1, idleTimeoutSeconds: 5, connectTimeoutSeconds: 5 });
+    const clientB = createDbClient({ databaseUrl, max: 1, idleTimeoutSeconds: 5, connectTimeoutSeconds: 5 });
+    const repositoryA = new DrizzleLedgerRepository(clientA.db, { info: () => {} });
+    const repositoryB = new DrizzleLedgerRepository(clientB.db, { info: () => {} });
+
+    try {
+      const results = await Promise.all([
+        repositoryA.reverseTransaction({
+          tenantId,
+          transactionId: original.transactionId,
+          reference: 'tx-concurrent-reversal',
+        }),
+        repositoryB.reverseTransaction({
+          tenantId,
+          transactionId: original.transactionId,
+          reference: 'tx-concurrent-reversal',
+        }),
+      ]);
+
+      expect(new Set(results.map((result) => result.transactionId)).size).toBe(1);
+      expect(results.filter((result) => result.created).length).toBe(1);
+      expect(results.filter((result) => !result.created).length).toBe(1);
+    } finally {
+      await clientA.sql.end({ timeout: 5 });
+      await clientB.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('reverseTransaction rejects idempotent reference payload mismatch', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      side: EntryDirection.CREDIT,
+      currency: 'USD',
+    });
+    const original = await repository.createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-reverse-mismatch-original',
+      currency: 'USD',
+      entries: [
+        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 10n, currency: 'USD' },
+        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 10n, currency: 'USD' },
+      ],
+    });
+    await repository.reverseTransaction({
+      tenantId,
+      transactionId: original.transactionId,
+      reference: 'tx-reverse-mismatch-reversal',
+      description: 'first reason',
+    });
+
+    await expect(
+      repository.reverseTransaction({
+        tenantId,
+        transactionId: original.transactionId,
+        reference: 'tx-reverse-mismatch-reversal',
+        description: 'different reason',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
   it('correctTransaction returns created=true when reversal exists but corrected transaction is newly created', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
@@ -1688,8 +1789,8 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-correct-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 110n, currency: 'USD' },
+        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 110n, currency: 'USD' },
       ],
     });
 
@@ -1723,6 +1824,12 @@ describe('DrizzleLedgerRepository', () => {
       ],
     });
     expect(idempotentRetry.created).toBeFalse();
+    const correctedTransaction = await repository.findTransactionByIdForTenant(
+      tenantId,
+      corrected.correctedTransactionId,
+    );
+    expect(correctedTransaction?.relatedTransactionId).toBe(original.transactionId);
+    expect(correctedTransaction?.relationType).toBe('CORRECTION');
   });
 
   it('correctTransaction rejects correctedReference payload mismatch', async () => {
@@ -1749,8 +1856,8 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-mismatch-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 80n, currency: 'USD' },
+        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 80n, currency: 'USD' },
       ],
     });
 
@@ -1771,6 +1878,48 @@ describe('DrizzleLedgerRepository', () => {
         transactionId: original.transactionId,
         reversalReference: 'tx-mismatch-reversal',
         correctedReference: 'tx-mismatch-corrected',
+        entries: [
+          { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
+          { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('correctTransaction rejects no-op corrected entries', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      side: EntryDirection.CREDIT,
+      currency: 'USD',
+    });
+    const original = await repository.createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-noop-original',
+      currency: 'USD',
+      entries: [
+        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
+        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+      ],
+    });
+
+    await expect(
+      repository.correctTransaction({
+        tenantId,
+        transactionId: original.transactionId,
+        reversalReference: 'tx-noop-reversal',
+        correctedReference: 'tx-noop-corrected',
         entries: [
           { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
           { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },

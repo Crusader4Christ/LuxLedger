@@ -744,14 +744,16 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         if (!original) {
           throw new InvariantViolationError('Unable to reverse transaction: original not found');
         }
-        if (original.reversalOfTransactionId) {
+        if (original.relatedTransactionId) {
           throw new InvariantViolationError('Unable to reverse transaction: cannot reverse a reversal');
         }
 
         const [byReference] = await tx
           .select({
             id: schema.transactions.id,
-            reversalOfTransactionId: schema.transactions.reversalOfTransactionId,
+            relatedTransactionId: schema.transactions.relatedTransactionId,
+            relationType: schema.transactions.relationType,
+            description: schema.transactions.description,
           })
           .from(schema.transactions)
           .where(
@@ -762,7 +764,11 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           )
           .limit(1);
         if (byReference) {
-          if (byReference.reversalOfTransactionId !== input.transactionId) {
+          if (
+            byReference.relatedTransactionId !== input.transactionId ||
+            byReference.relationType !== 'REVERSAL' ||
+            (byReference.description ?? null) !== (input.description ?? null)
+          ) {
             throw new InvariantViolationError(
               'Unable to reverse transaction: reference payload mismatch',
             );
@@ -784,7 +790,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           reference: input.reference,
           currency: original.currency,
           description: input.description ?? null,
-          reversalOfTransactionId: original.id,
+          relatedTransactionId: original.id,
+          relationType: 'REVERSAL',
           entries: entries.map((entry) => ({
             accountId: entry.accountId.value,
             direction:
@@ -812,7 +819,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         if (!original) {
           throw new InvariantViolationError('Unable to correct transaction: original not found');
         }
-        if (original.reversalOfTransactionId) {
+        if (original.relatedTransactionId) {
           throw new InvariantViolationError('Unable to correct transaction: cannot correct a reversal');
         }
         this.validateHoldEntriesInput(input.entries, original.currency);
@@ -826,6 +833,13 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           amountMinor: entry.money.amountMinor,
           currency: entry.money.currency,
         }));
+        const persistedOriginalEntries = originalEntries.get(input.transactionId) ?? [];
+        if (persistedOriginalEntries.length < 2) {
+          throw new InvariantViolationError('Unable to correct transaction: original entries are missing');
+        }
+        if (this.areEquivalentTransactionEntries(persistedOriginalEntries, input.entries)) {
+          throw new InvariantViolationError('Unable to correct transaction: corrected entries must differ');
+        }
         const reversal = await this.createOrResolveReversal(tx, {
           tenantId: input.tenantId,
           originalTransactionId: input.transactionId,
@@ -842,6 +856,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           reference: input.correctedReference,
           currency: original.currency,
           description: input.description ?? null,
+          relatedTransactionId: input.transactionId,
+          relationType: 'CORRECTION',
           entries: input.entries,
           payloadMismatchMessage: 'Unable to correct transaction: reference payload mismatch',
         });
@@ -1262,7 +1278,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 reference: row.reference,
                 currency: row.currency,
                 description: row.description,
-                reversalOfTransactionId: row.reversalOfTransactionId,
+                relatedTransactionId: row.relatedTransactionId,
+                relationType: row.relationType,
                 createdAt: row.createdAt,
                 entries: entriesByTransactionId.get(row.id) ?? [],
               }),
@@ -1307,7 +1324,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           reference: row.reference,
           currency: row.currency,
           description: row.description,
-          reversalOfTransactionId: row.reversalOfTransactionId,
+          relatedTransactionId: row.relatedTransactionId,
+          relationType: row.relationType,
           createdAt: row.createdAt,
           entries: entriesByTransactionId.get(row.id) ?? [],
         });
@@ -1643,7 +1661,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       reference: string;
       currency: string;
       description: string | null;
-      reversalOfTransactionId?: string | null;
+      relatedTransactionId?: string | null;
+      relationType?: 'REVERSAL' | 'CORRECTION' | null;
       entries: Array<{
         accountId: string;
         direction: EntryDirection;
@@ -1659,7 +1678,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         ledgerId: schema.transactions.ledgerId,
         currency: schema.transactions.currency,
         description: schema.transactions.description,
-        reversalOfTransactionId: schema.transactions.reversalOfTransactionId,
+        relatedTransactionId: schema.transactions.relatedTransactionId,
+        relationType: schema.transactions.relationType,
       })
       .from(schema.transactions)
       .where(
@@ -1674,7 +1694,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         existing.ledgerId !== input.ledgerId ||
         existing.currency !== input.currency ||
         (existing.description ?? null) !== (input.description ?? null) ||
-        (existing.reversalOfTransactionId ?? null) !== (input.reversalOfTransactionId ?? null)
+        (existing.relatedTransactionId ?? null) !== (input.relatedTransactionId ?? null) ||
+        (existing.relationType ?? null) !== (input.relationType ?? null)
       ) {
         throw new InvariantViolationError(input.payloadMismatchMessage);
       }
@@ -1711,7 +1732,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     const [existing] = await tx
       .select({
         id: schema.transactions.id,
-        reversalOfTransactionId: schema.transactions.reversalOfTransactionId,
+        relatedTransactionId: schema.transactions.relatedTransactionId,
+        relationType: schema.transactions.relationType,
+        description: schema.transactions.description,
       })
       .from(schema.transactions)
       .where(
@@ -1722,7 +1745,11 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       )
       .limit(1);
     if (existing) {
-      if (existing.reversalOfTransactionId !== input.originalTransactionId) {
+      if (
+        existing.relatedTransactionId !== input.originalTransactionId ||
+        existing.relationType !== 'REVERSAL' ||
+        (existing.description ?? null) !== (input.description ?? null)
+      ) {
         throw new InvariantViolationError('Unable to reverse transaction: reference payload mismatch');
       }
       return { transactionId: existing.id, created: false };
@@ -1734,7 +1761,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       reference: input.reference,
       currency: input.currency,
       description: input.description,
-      reversalOfTransactionId: input.originalTransactionId,
+      relatedTransactionId: input.originalTransactionId,
+      relationType: 'REVERSAL',
       entries: input.entries,
     });
     return { transactionId, created: true };
@@ -1748,7 +1776,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       reference: string;
       currency: string;
       description: string | null;
-      reversalOfTransactionId?: string | null;
+      relatedTransactionId?: string | null;
+      relationType?: 'REVERSAL' | 'CORRECTION' | null;
       entries: Array<{
         accountId: string;
         direction: EntryDirection;
@@ -1766,7 +1795,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         reference: input.reference,
         currency: input.currency,
         description: input.description,
-        reversalOfTransactionId: input.reversalOfTransactionId ?? null,
+        relatedTransactionId: input.relatedTransactionId ?? null,
+        relationType: input.relationType ?? null,
       })
       .returning({ id: schema.transactions.id });
     await tx.insert(schema.entries).values(
