@@ -1937,7 +1937,21 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     transactionId: string,
   ): Promise<TransactionRow | null> {
     const rows = await tx.execute(
-      sql`select * from transactions where tenant_id = ${tenantId} and id = ${transactionId} for update`,
+      sql`
+        select
+          id,
+          tenant_id as "tenantId",
+          ledger_id as "ledgerId",
+          hold_id as "holdId",
+          reversal_of_transaction_id as "reversalOfTransactionId",
+          reference,
+          currency,
+          description,
+          created_at as "createdAt"
+        from transactions
+        where tenant_id = ${tenantId} and id = ${transactionId}
+        for update
+      `,
     );
     if (rows.length === 0) {
       return null;
