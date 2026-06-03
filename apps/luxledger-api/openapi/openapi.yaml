@@ -501,6 +501,112 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+  /v1/reconciliation/matching-rules:
+    post:
+      summary: Create reconciliation matching rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReconciliationMatchingRuleRequest'
+      responses:
+        '201':
+          description: Matching rule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationMatchingRule'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    get:
+      summary: List reconciliation matching rules
+      responses:
+        '200':
+          description: Matching rules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReconciliationMatchingRule'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/reconciliation/external-records:
+    post:
+      summary: Ingest external reconciliation records
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestExternalRecordsRequest'
+      responses:
+        '201':
+          description: External records accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalRecordsUpload'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/reconciliation/runs:
+    post:
+      summary: Run baseline reconciliation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunReconciliationRequest'
+      responses:
+        '201':
+          description: Reconciliation run persisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRun'
+        '200':
+          description: Dry-run report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRun'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/reconciliation/runs/{id}:
+    get:
+      summary: Get reconciliation run report
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Reconciliation run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRun'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -894,6 +1000,220 @@ components:
           type: string
         total_credits:
           type: string
+    ReconciliationCriterion:
+      type: object
+      additionalProperties: false
+      required: [field, operator]
+      properties:
+        field:
+          type: string
+          enum: [amount, currency, date, reference, description]
+        operator:
+          type: string
+          enum: [equals, contains]
+        amount_tolerance_minor:
+          type: string
+          pattern: '^[0-9]+$'
+        date_tolerance_seconds:
+          type: integer
+          minimum: 0
+    CreateReconciliationMatchingRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [name, criteria]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+        criteria:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReconciliationCriterion'
+    ReconciliationMatchingRule:
+      type: object
+      required: [id, tenant_id, name, description, criteria, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationCriterion'
+        created_at:
+          type: string
+          format: date-time
+    IngestExternalRecordsRequest:
+      type: object
+      additionalProperties: false
+      required: [source, records]
+      properties:
+        source:
+          type: string
+          minLength: 1
+        records:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, amount_minor, currency, reference, date]
+            properties:
+              id:
+                type: string
+                minLength: 1
+              amount_minor:
+                type: string
+                pattern: '^[1-9][0-9]*$'
+              currency:
+                type: string
+                minLength: 1
+              reference:
+                type: string
+                minLength: 1
+              description:
+                type: string
+                nullable: true
+              date:
+                type: string
+                format: date-time
+              raw:
+                type: object
+                nullable: true
+                additionalProperties: true
+    ExternalRecordsUpload:
+      type: object
+      required: [upload_id, tenant_id, source, record_count, created_at]
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        source:
+          type: string
+        record_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    RunReconciliationRequest:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, upload_id, strategy, matching_rule_ids]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        upload_id:
+          type: string
+          format: uuid
+        strategy:
+          type: string
+          enum: [one_to_one]
+        matching_rule_ids:
+          type: array
+          minItems: 1
+          description: Matching rules are evaluated as alternatives; criteria inside each rule are conjunctive.
+          items:
+            type: string
+            format: uuid
+        dry_run:
+          type: boolean
+    ReconciliationRun:
+      type: object
+      required:
+        [id, tenant_id, ledger_id, upload_id, strategy, status, dry_run, matched_count, unmatched_external_count, unmatched_internal_count, mismatched_count, conflict_count, started_at, completed_at, results]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        upload_id:
+          type: string
+          format: uuid
+        strategy:
+          type: string
+          enum: [one_to_one]
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        dry_run:
+          type: boolean
+        matched_count:
+          type: integer
+        unmatched_external_count:
+          type: integer
+        unmatched_internal_count:
+          type: integer
+        mismatched_count:
+          type: integer
+        conflict_count:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationResult'
+    ReconciliationResult:
+      type: object
+      required:
+        [id, run_id, external_record_id, external_id, transaction_id, status, reason, candidate_transaction_ids, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        run_id:
+          type: string
+          format: uuid
+        external_record_id:
+          type: string
+          format: uuid
+          nullable: true
+        external_id:
+          type: string
+          nullable: true
+        transaction_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [matched, unmatched_external, unmatched_internal, mismatched, conflict]
+        reason:
+          type: string
+        candidate_transaction_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        created_at:
+          type: string
+          format: date-time
     ApiKey:
       type: object
       required: [id, tenant_id, name, role, created_at, revoked_at]

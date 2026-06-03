@@ -8,21 +8,27 @@ import {
 } from '@lux/ledger';
 import type {
   AccountPaginationQuery,
+  BalanceAtQuery,
   BalanceHistoryQuery,
   BalanceSnapshotEvent,
   CreateAccountInput,
   CreateLedgerInput,
+  CreateReconRuleInput,
   CreateTransactionInput,
   CreateTransactionResult,
+  HistoricalBalance,
+  IngestReconRecordsInput,
   Ledger,
   LedgerRepository,
-  HistoricalBalance,
-  BalanceAtQuery,
+  LedgerTrialBalanceQuery,
   PaginatedResult,
   PaginationQuery,
+  ReconRule,
+  ReconRun,
+  ReconUpload,
+  RunReconInput,
   TransactionPaginationQuery,
   TrialBalance,
-  LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 import { LedgerService } from '@lux/ledger/application';
 
@@ -191,6 +197,60 @@ class InMemoryLedgerRepository implements LedgerRepository {
     _query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     return { data: [], nextCursor: null };
+  }
+
+  public async ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload> {
+    return {
+      id: 'upload-1',
+      tenantId: input.tenantId,
+      source: input.source,
+      recordCount: input.records.length,
+      createdAt: new Date(),
+    };
+  }
+
+  public async createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule> {
+    return {
+      id: 'rule-1',
+      tenantId: input.tenantId,
+      name: input.name,
+      description: input.description ?? null,
+      criteria: input.criteria,
+      createdAt: new Date(),
+    };
+  }
+
+  public async listReconciliationMatchingRules(): Promise<ReconRule[]> {
+    return [];
+  }
+
+  public async getReconciliationMatchingRule(): Promise<ReconRule | null> {
+    return null;
+  }
+
+  public async runReconciliation(input: RunReconInput): Promise<ReconRun> {
+    const now = new Date();
+    return {
+      id: 'run-1',
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      uploadId: input.uploadId,
+      strategy: input.strategy,
+      status: 'completed',
+      dryRun: input.dryRun ?? false,
+      matchedCount: 0,
+      unmatchedExternalCount: 0,
+      unmatchedInternalCount: 0,
+      mismatchedCount: 0,
+      conflictCount: 0,
+      startedAt: now,
+      completedAt: now,
+      results: [],
+    };
+  }
+
+  public async getReconciliationRun(): Promise<ReconRun | null> {
+    return null;
   }
 }
 

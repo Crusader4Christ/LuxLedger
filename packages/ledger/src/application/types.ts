@@ -5,6 +5,14 @@ import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { EntryDirection, EntryEntity } from '../entry/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type { LedgerRepository as BaseLedgerRepository } from '../ledger/repository.interface';
+import type {
+  ReconRecord,
+  ReconMatchCriterion,
+  ReconResultStatus,
+  ReconRule,
+  ReconRunStatus,
+  ReconStrategy,
+} from '../reconciliation';
 import type { TenantEntity } from '../tenant/entity';
 import type { CreateTenantInput } from '../tenant/input.interface';
 import type { TransactionEntity } from '../transaction/entity';
@@ -179,6 +187,76 @@ export interface BalanceHistoryQuery {
   cursor?: string;
 }
 
+export type ReconRecordInput = {
+  externalId: string;
+  amountMinor: bigint;
+  currency: string;
+  reference: string;
+  description?: string | null;
+  occurredAt: Date;
+  raw?: Record<string, unknown> | null;
+};
+
+export interface IngestReconRecordsInput {
+  tenantId: string;
+  source: string;
+  records: ReconRecordInput[];
+}
+
+export interface ReconUpload {
+  id: string;
+  tenantId: string;
+  source: string;
+  recordCount: number;
+  createdAt: Date;
+}
+
+export interface CreateReconRuleInput {
+  tenantId: string;
+  name: string;
+  description?: string | null;
+  criteria: ReconMatchCriterion[];
+}
+
+export interface RunReconInput {
+  tenantId: string;
+  ledgerId: string;
+  uploadId: string;
+  matchingRuleIds: string[];
+  strategy: ReconStrategy;
+  dryRun?: boolean;
+}
+
+export interface ReconResult {
+  id: string;
+  runId: string;
+  externalRecordId: string | null;
+  externalId: string | null;
+  transactionId: string | null;
+  status: ReconResultStatus;
+  reason: string;
+  candidateTransactionIds: string[];
+  createdAt: Date;
+}
+
+export interface ReconRun {
+  id: string;
+  tenantId: string;
+  ledgerId: string;
+  uploadId: string;
+  strategy: ReconStrategy;
+  status: ReconRunStatus;
+  dryRun: boolean;
+  matchedCount: number;
+  unmatchedExternalCount: number;
+  unmatchedInternalCount: number;
+  mismatchedCount: number;
+  conflictCount: number;
+  startedAt: Date;
+  completedAt: Date | null;
+  results: ReconResult[];
+}
+
 export interface AuthContext {
   apiKeyId: string;
   tenantId: string;
@@ -223,7 +301,22 @@ export interface LedgerRepository extends BaseLedgerRepository {
   getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
   getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
   listBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
+  ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload>;
+  createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule>;
+  listReconciliationMatchingRules(tenantId: string): Promise<ReconRule[]>;
+  getReconciliationMatchingRule(tenantId: string, ruleId: string): Promise<ReconRule | null>;
+  runReconciliation(input: RunReconInput): Promise<ReconRun>;
+  getReconciliationRun(tenantId: string, runId: string): Promise<ReconRun | null>;
 }
+
+export type {
+  ReconRecord,
+  ReconMatchCriterion,
+  ReconRule,
+  ReconResultStatus,
+  ReconRunStatus,
+  ReconStrategy,
+};
 
 export interface ApiKeyRepository {
   countApiKeys(): Promise<number>;

@@ -2,20 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import type { JwtAuthConfig } from '@api/auth/jwt';
 import { DEFAULT_JWT_ACCESS_TTL_SECONDS } from '@api/auth/policy';
-import type {
-  AccountResponse,
-  AccountsPageResponse,
-  AuthTokenResponse,
-  CreateAccountRequest,
-  CreateApiKeyRequest,
-  CreateApiKeyResponse,
-  EntriesPageResponse,
-  EntryResponse,
-  LedgerResponse,
-  TransactionResponse,
-  TransactionsPage,
-  TrialBalanceResponse,
-} from '@lux/ledger-http/contracts';
 import type { RateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
 import {
@@ -35,27 +21,47 @@ import {
   type AccountPaginationQuery,
   type ApiKeyRepository,
   ApiKeyService,
+  type BalanceAtQuery,
   type BalanceHistoryQuery,
   type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
+  type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
   EntryDirection,
+  type HistoricalBalance,
+  type IngestReconRecordsInput,
   InvariantViolationError,
   type Ledger,
   LedgerNotFoundError,
   type LedgerRepository,
   LedgerService,
-  type HistoricalBalance,
-  type BalanceAtQuery,
+  type LedgerTrialBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
+  type ReconRule,
+  type ReconRun,
+  type ReconUpload,
   RepositoryError,
+  type RunReconInput,
   type TransactionPaginationQuery,
   type TrialBalance,
-  type LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
+import type {
+  AccountResponse,
+  AccountsPageResponse,
+  AuthTokenResponse,
+  CreateAccountRequest,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+  EntriesPageResponse,
+  EntryResponse,
+  LedgerResponse,
+  TransactionResponse,
+  TransactionsPage,
+  TrialBalanceResponse,
+} from '@lux/ledger-http/contracts';
 import type { FastifyServerOptions } from 'fastify';
 import {
   assertAccountResponseShape,
@@ -93,7 +99,10 @@ class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
   private readonly accounts = new Map<string, AccountEntity>();
   private readonly transactionsByReference = new Map<string, string>();
-  private readonly holdsById = new Map<string, { tenantId: string; remainingAmountMinor: bigint; state: 'HELD' | 'APPLIED' | 'VOIDED' }>();
+  private readonly holdsById = new Map<
+    string,
+    { tenantId: string; remainingAmountMinor: bigint; state: 'HELD' | 'APPLIED' | 'VOIDED' }
+  >();
 
   public async createLedger(input: CreateLedgerInput): Promise<Ledger> {
     if (input.name === 'force-db-error') {
@@ -208,9 +217,15 @@ class InMemoryLedgerRepository {
     ledgerId: string;
     reference: string;
     entries: Array<{ amountMinor: bigint }>;
-  }): Promise<{ holdId: string; created: boolean; state: 'HELD' | 'APPLIED' | 'VOIDED'; remainingAmountMinor: bigint }> {
+  }): Promise<{
+    holdId: string;
+    created: boolean;
+    state: 'HELD' | 'APPLIED' | 'VOIDED';
+    remainingAmountMinor: bigint;
+  }> {
     const holdId = makeUuidV7(this.holdsById.size + 600);
-    const remainingAmountMinor = input.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n) / 2n;
+    const remainingAmountMinor =
+      input.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n) / 2n;
     this.holdsById.set(holdId, { tenantId: input.tenantId, remainingAmountMinor, state: 'HELD' });
     return { holdId, created: true, state: 'HELD', remainingAmountMinor };
   }
@@ -220,7 +235,13 @@ class InMemoryLedgerRepository {
     holdId: string;
     reference: string;
     amountMinor?: bigint;
-  }): Promise<{ holdId: string; state: 'HELD' | 'APPLIED'; remainingAmountMinor: bigint; transactionId: string; created: boolean }> {
+  }): Promise<{
+    holdId: string;
+    state: 'HELD' | 'APPLIED';
+    remainingAmountMinor: bigint;
+    transactionId: string;
+    created: boolean;
+  }> {
     const hold = this.holdsById.get(input.holdId);
     if (!hold || hold.tenantId !== input.tenantId) {
       throw new InvariantViolationError('hold not found');
@@ -248,7 +269,13 @@ class InMemoryLedgerRepository {
     hold.state = remainingAmountMinor === 0n ? 'APPLIED' : 'HELD';
     const transactionId = makeUuidV7(this.transactionsByReference.size + 500);
     this.transactionsByReference.set(key, transactionId);
-    return { holdId: input.holdId, state: hold.state as 'HELD' | 'APPLIED', remainingAmountMinor, transactionId, created: true };
+    return {
+      holdId: input.holdId,
+      state: hold.state as 'HELD' | 'APPLIED',
+      remainingAmountMinor,
+      transactionId,
+      created: true,
+    };
   }
 
   public async voidHold(input: {
@@ -594,7 +621,9 @@ class InMemoryLedgerReadRepository {
     ];
 
     const inRange = all.filter(
-      (item) => item.effectiveAt.getTime() >= query.from.getTime() && item.effectiveAt.getTime() <= query.to.getTime(),
+      (item) =>
+        item.effectiveAt.getTime() >= query.from.getTime() &&
+        item.effectiveAt.getTime() <= query.to.getTime(),
     );
     if (query.cursor === undefined) {
       return {
@@ -757,6 +786,44 @@ const createServer = (
     getLedgerTrialBalance: readRepository.getLedgerTrialBalance.bind(readRepository),
     getBalanceAt: readRepository.getBalanceAt.bind(readRepository),
     listBalanceHistory: readRepository.listBalanceHistory.bind(readRepository),
+    ingestExternalRecords: async (input: IngestReconRecordsInput): Promise<ReconUpload> => ({
+      id: makeUuidV7(910),
+      tenantId: input.tenantId,
+      source: input.source,
+      recordCount: input.records.length,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    }),
+    createReconciliationMatchingRule: async (input: CreateReconRuleInput): Promise<ReconRule> => ({
+      id: makeUuidV7(911),
+      tenantId: input.tenantId,
+      name: input.name,
+      description: input.description ?? null,
+      criteria: input.criteria,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    }),
+    listReconciliationMatchingRules: async (): Promise<ReconRule[]> => [],
+    getReconciliationMatchingRule: async (): Promise<ReconRule | null> => null,
+    runReconciliation: async (input: RunReconInput): Promise<ReconRun> => {
+      const now = new Date('2026-01-01T00:00:00.000Z');
+      return {
+        id: makeUuidV7(912),
+        tenantId: input.tenantId,
+        ledgerId: input.ledgerId,
+        uploadId: input.uploadId,
+        strategy: input.strategy,
+        status: 'completed',
+        dryRun: input.dryRun ?? false,
+        matchedCount: 0,
+        unmatchedExternalCount: 0,
+        unmatchedInternalCount: 0,
+        mismatchedCount: 0,
+        conflictCount: 0,
+        startedAt: now,
+        completedAt: now,
+        results: [],
+      };
+    },
+    getReconciliationRun: async (): Promise<ReconRun | null> => null,
   };
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);
@@ -1821,7 +1888,9 @@ describe('server', () => {
       url: `/v1/holds/${hold.hold_id}/void`,
       headers,
     });
-    const voidBody = parsePayload<{ state: string; remaining_amount_minor: string }>(voidResponse.body);
+    const voidBody = parsePayload<{ state: string; remaining_amount_minor: string }>(
+      voidResponse.body,
+    );
     expect(voidResponse.statusCode).toBe(200);
     expect(voidBody.state).toBe('VOIDED');
     expect(voidBody.remaining_amount_minor).toBe('0');
@@ -2325,9 +2394,7 @@ describe('server', () => {
         totalDebitsMinor: 0n,
         totalCreditsMinor: 0n,
       }),
-      getBalanceAt: async (
-        query: BalanceAtQuery,
-      ): Promise<HistoricalBalance> => ({
+      getBalanceAt: async (query: BalanceAtQuery): Promise<HistoricalBalance> => ({
         tenantId: query.tenantId,
         accountId: query.accountId,
         at: query.at,
