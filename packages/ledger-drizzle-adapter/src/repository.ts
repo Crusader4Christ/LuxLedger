@@ -175,10 +175,10 @@ type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
 type HoldRow = typeof schema.holds.$inferSelect;
 type BalanceSnapshotEventType = typeof schema.balanceSnapshots.$inferSelect.eventType;
-type ReconciliationExternalRecordRow = typeof schema.reconciliationExternalRecords.$inferSelect;
-type ReconciliationMatchingRuleRow = typeof schema.reconciliationMatchingRules.$inferSelect;
-type ReconciliationRunRow = typeof schema.reconciliationRuns.$inferSelect;
-type ReconciliationResultRow = typeof schema.reconciliationResults.$inferSelect;
+type ReconciliationExternalRecordRow = typeof schema.reconRecords.$inferSelect;
+type ReconciliationMatchingRuleRow = typeof schema.reconRules.$inferSelect;
+type ReconciliationRunRow = typeof schema.reconRuns.$inferSelect;
+type ReconciliationResultRow = typeof schema.reconResults.$inferSelect;
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
@@ -1658,7 +1658,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     try {
       return await this.withTenantContext(input.tenantId, async (tx) => {
         const [upload] = await tx
-          .insert(schema.reconciliationExternalUploads)
+          .insert(schema.reconUploads)
           .values({
             tenantId: input.tenantId,
             source: input.source,
@@ -1666,7 +1666,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           })
           .returning();
 
-        await tx.insert(schema.reconciliationExternalRecords).values(
+        await tx.insert(schema.reconRecords).values(
           input.records.map((record) => ({
             tenantId: input.tenantId,
             uploadId: upload.id,
@@ -1700,7 +1700,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     try {
       return await this.withTenantContext(input.tenantId, async (tx) => {
         const [row] = await tx
-          .insert(schema.reconciliationMatchingRules)
+          .insert(schema.reconRules)
           .values({
             tenantId: input.tenantId,
             name: input.name,
@@ -1723,12 +1723,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       return await this.withTenantContext(tenantId, async (tx) => {
         const rows = await tx
           .select()
-          .from(schema.reconciliationMatchingRules)
-          .where(eq(schema.reconciliationMatchingRules.tenantId, tenantId))
-          .orderBy(
-            asc(schema.reconciliationMatchingRules.createdAt),
-            asc(schema.reconciliationMatchingRules.id),
-          );
+          .from(schema.reconRules)
+          .where(eq(schema.reconRules.tenantId, tenantId))
+          .orderBy(asc(schema.reconRules.createdAt), asc(schema.reconRules.id));
 
         return rows.map(toMatchingRule);
       });
@@ -1745,13 +1742,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       return await this.withTenantContext(tenantId, async (tx) => {
         const [row] = await tx
           .select()
-          .from(schema.reconciliationMatchingRules)
-          .where(
-            and(
-              eq(schema.reconciliationMatchingRules.tenantId, tenantId),
-              eq(schema.reconciliationMatchingRules.id, ruleId),
-            ),
-          )
+          .from(schema.reconRules)
+          .where(and(eq(schema.reconRules.tenantId, tenantId), eq(schema.reconRules.id, ruleId)))
           .limit(1);
 
         return row ? toMatchingRule(row) : null;
@@ -1777,11 +1769,11 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
 
         const [upload] = await tx
           .select()
-          .from(schema.reconciliationExternalUploads)
+          .from(schema.reconUploads)
           .where(
             and(
-              eq(schema.reconciliationExternalUploads.tenantId, input.tenantId),
-              eq(schema.reconciliationExternalUploads.id, input.uploadId),
+              eq(schema.reconUploads.tenantId, input.tenantId),
+              eq(schema.reconUploads.id, input.uploadId),
             ),
           )
           .limit(1);
@@ -1791,17 +1783,14 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
 
         const ruleRows = await tx
           .select()
-          .from(schema.reconciliationMatchingRules)
+          .from(schema.reconRules)
           .where(
             and(
-              eq(schema.reconciliationMatchingRules.tenantId, input.tenantId),
-              inArray(schema.reconciliationMatchingRules.id, input.matchingRuleIds),
+              eq(schema.reconRules.tenantId, input.tenantId),
+              inArray(schema.reconRules.id, input.matchingRuleIds),
             ),
           )
-          .orderBy(
-            asc(schema.reconciliationMatchingRules.createdAt),
-            asc(schema.reconciliationMatchingRules.id),
-          );
+          .orderBy(asc(schema.reconRules.createdAt), asc(schema.reconRules.id));
         if (ruleRows.length !== input.matchingRuleIds.length) {
           throw new InvariantViolationError(
             'one or more reconciliation matching rules were not found',
@@ -1810,17 +1799,14 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
 
         const externalRows = await tx
           .select()
-          .from(schema.reconciliationExternalRecords)
+          .from(schema.reconRecords)
           .where(
             and(
-              eq(schema.reconciliationExternalRecords.tenantId, input.tenantId),
-              eq(schema.reconciliationExternalRecords.uploadId, input.uploadId),
+              eq(schema.reconRecords.tenantId, input.tenantId),
+              eq(schema.reconRecords.uploadId, input.uploadId),
             ),
           )
-          .orderBy(
-            asc(schema.reconciliationExternalRecords.occurredAt),
-            asc(schema.reconciliationExternalRecords.externalId),
-          );
+          .orderBy(asc(schema.reconRecords.occurredAt), asc(schema.reconRecords.externalId));
 
         const transactionRows = await tx
           .select()
@@ -1892,7 +1878,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           return run;
         }
 
-        await tx.insert(schema.reconciliationRuns).values({
+        await tx.insert(schema.reconRuns).values({
           id: run.id,
           tenantId: run.tenantId,
           ledgerId: run.ledgerId,
@@ -1909,7 +1895,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           completedAt: run.completedAt,
         });
         if (run.results.length > 0) {
-          await tx.insert(schema.reconciliationResults).values(
+          await tx.insert(schema.reconResults).values(
             run.results.map((result) => ({
               id: result.id,
               tenantId: input.tenantId,
@@ -1940,13 +1926,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       return await this.withTenantContext(tenantId, async (tx) => {
         const [run] = await tx
           .select()
-          .from(schema.reconciliationRuns)
-          .where(
-            and(
-              eq(schema.reconciliationRuns.tenantId, tenantId),
-              eq(schema.reconciliationRuns.id, runId),
-            ),
-          )
+          .from(schema.reconRuns)
+          .where(and(eq(schema.reconRuns.tenantId, tenantId), eq(schema.reconRuns.id, runId)))
           .limit(1);
         if (!run) {
           return null;
@@ -1954,12 +1935,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
 
         const results = await tx
           .select()
-          .from(schema.reconciliationResults)
-          .where(eq(schema.reconciliationResults.runId, runId))
-          .orderBy(
-            asc(schema.reconciliationResults.createdAt),
-            asc(schema.reconciliationResults.id),
-          );
+          .from(schema.reconResults)
+          .where(eq(schema.reconResults.runId, runId))
+          .orderBy(asc(schema.reconResults.createdAt), asc(schema.reconResults.id));
 
         return this.toReconciliationRun(run, results);
       });

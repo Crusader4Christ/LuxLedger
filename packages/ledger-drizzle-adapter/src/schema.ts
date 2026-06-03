@@ -110,13 +110,13 @@ export const balanceSnapshotEventTypeEnum = pgEnum('balance_snapshot_event_type'
   'ADJUSTMENT',
 ]);
 
-export const reconciliationRunStatusEnum = pgEnum('reconciliation_run_status', [
+export const reconRunStatusEnum = pgEnum('reconciliation_run_status', [
   'pending',
   'running',
   'completed',
   'failed',
 ]);
-export const reconciliationResultStatusEnum = pgEnum('reconciliation_result_status', [
+export const reconResultStatusEnum = pgEnum('reconciliation_result_status', [
   'matched',
   'unmatched_external',
   'unmatched_internal',
@@ -291,8 +291,8 @@ export const balanceSnapshots = pgTable(
   }),
 );
 
-export const reconciliationExternalUploads = pgTable(
-  'reconciliation_external_uploads',
+export const reconUploads = pgTable(
+  'recon_uploads',
   {
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
@@ -303,18 +303,13 @@ export const reconciliationExternalUploads = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    reconciliationUploadsTenantIdIdx: index('reconciliation_uploads_tenant_id_idx').on(
-      table.tenantId,
-    ),
-    reconciliationUploadsSourceIdx: index('reconciliation_uploads_source_idx').on(
-      table.tenantId,
-      table.source,
-    ),
+    reconUploadsTenantIdIdx: index('recon_uploads_tenant_idx').on(table.tenantId),
+    reconUploadsSourceIdx: index('recon_uploads_source_idx').on(table.tenantId, table.source),
   }),
 );
 
-export const reconciliationExternalRecords = pgTable(
-  'reconciliation_external_records',
+export const reconRecords = pgTable(
+  'recon_records',
   {
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
@@ -322,7 +317,7 @@ export const reconciliationExternalRecords = pgTable(
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     uploadId: uuid('upload_id')
       .notNull()
-      .references(() => reconciliationExternalUploads.id, {
+      .references(() => reconUploads.id, {
         onDelete: 'restrict',
         onUpdate: 'cascade',
       }),
@@ -337,18 +332,17 @@ export const reconciliationExternalRecords = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    reconciliationExternalRecordsUploadIdx: index('reconciliation_external_records_upload_idx').on(
+    reconRecordsUploadIdx: index('recon_records_upload_idx').on(table.tenantId, table.uploadId),
+    reconRecordsSourceExternalUq: uniqueIndex('recon_records_source_external_uq').on(
       table.tenantId,
-      table.uploadId,
+      table.source,
+      table.externalId,
     ),
-    reconciliationExternalRecordsSourceExternalUq: uniqueIndex(
-      'reconciliation_external_records_source_external_uq',
-    ).on(table.tenantId, table.source, table.externalId),
   }),
 );
 
-export const reconciliationMatchingRules = pgTable(
-  'reconciliation_matching_rules',
+export const reconRules = pgTable(
+  'recon_rules',
   {
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
@@ -369,17 +363,16 @@ export const reconciliationMatchingRules = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    reconciliationMatchingRulesTenantIdx: index('reconciliation_matching_rules_tenant_idx').on(
+    reconRulesTenantIdx: index('recon_rules_tenant_idx').on(table.tenantId),
+    reconRulesTenantNameUq: uniqueIndex('recon_rules_tenant_name_uq').on(
       table.tenantId,
+      table.name,
     ),
-    reconciliationMatchingRulesTenantNameUq: uniqueIndex(
-      'reconciliation_matching_rules_tenant_name_uq',
-    ).on(table.tenantId, table.name),
   }),
 );
 
-export const reconciliationRuns = pgTable(
-  'reconciliation_runs',
+export const reconRuns = pgTable(
+  'recon_runs',
   {
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
@@ -390,12 +383,12 @@ export const reconciliationRuns = pgTable(
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     uploadId: uuid('upload_id')
       .notNull()
-      .references(() => reconciliationExternalUploads.id, {
+      .references(() => reconUploads.id, {
         onDelete: 'restrict',
         onUpdate: 'cascade',
       }),
     strategy: text('strategy').notNull(),
-    status: reconciliationRunStatusEnum('status').notNull().default('pending'),
+    status: reconRunStatusEnum('status').notNull().default('pending'),
     dryRun: boolean('dry_run').notNull().default(false),
     matchedCount: bigint('matched_count', { mode: 'number' }).notNull().default(0),
     unmatchedExternalCount: bigint('unmatched_external_count', { mode: 'number' })
@@ -410,17 +403,14 @@ export const reconciliationRuns = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
   (table) => ({
-    reconciliationRunsTenantIdx: index('reconciliation_runs_tenant_idx').on(table.tenantId),
-    reconciliationRunsUploadIdx: index('reconciliation_runs_upload_idx').on(table.uploadId),
-    reconciliationRunsStrategyCk: check(
-      'reconciliation_runs_strategy_ck',
-      sql`${table.strategy} = 'one_to_one'`,
-    ),
+    reconRunsTenantIdx: index('recon_runs_tenant_idx').on(table.tenantId),
+    reconRunsUploadIdx: index('recon_runs_upload_idx').on(table.uploadId),
+    reconRunsStrategyCk: check('recon_runs_strategy_ck', sql`${table.strategy} = 'one_to_one'`),
   }),
 );
 
-export const reconciliationResults = pgTable(
-  'reconciliation_results',
+export const reconResults = pgTable(
+  'recon_results',
   {
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
@@ -428,27 +418,24 @@ export const reconciliationResults = pgTable(
       .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     runId: uuid('run_id')
       .notNull()
-      .references(() => reconciliationRuns.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    externalRecordId: uuid('external_record_id').references(
-      () => reconciliationExternalRecords.id,
-      {
-        onDelete: 'restrict',
-        onUpdate: 'cascade',
-      },
-    ),
+      .references(() => reconRuns.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    externalRecordId: uuid('external_record_id').references(() => reconRecords.id, {
+      onDelete: 'restrict',
+      onUpdate: 'cascade',
+    }),
     externalId: text('external_id'),
     transactionId: uuid('transaction_id').references(() => transactions.id, {
       onDelete: 'restrict',
       onUpdate: 'cascade',
     }),
-    status: reconciliationResultStatusEnum('status').notNull(),
+    status: reconResultStatusEnum('status').notNull(),
     reason: text('reason').notNull(),
     candidateTransactionIds: jsonb('candidate_transaction_ids').$type<string[]>().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    reconciliationResultsRunIdx: index('reconciliation_results_run_idx').on(table.runId),
-    reconciliationResultsTenantStatusIdx: index('reconciliation_results_tenant_status_idx').on(
+    reconResultsRunIdx: index('recon_results_run_idx').on(table.runId),
+    reconResultsTenantStatusIdx: index('recon_results_tenant_status_idx').on(
       table.tenantId,
       table.status,
     ),

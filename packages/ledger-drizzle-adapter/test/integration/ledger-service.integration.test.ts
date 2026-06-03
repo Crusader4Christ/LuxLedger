@@ -7,7 +7,7 @@ import {
   DrizzleLedgerRepository,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
-import { accounts, reconciliationRuns, transactions } from '@lux/ledger-drizzle-adapter/schema';
+import { accounts, reconRuns, transactions } from '@lux/ledger-drizzle-adapter/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
@@ -418,9 +418,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     const persisted = await service.getReconciliationRun(tenantId, run.id);
     expect(persisted.results).toHaveLength(run.results.length);
 
-    const beforeDryRunRows = await client.db
-      .select({ id: reconciliationRuns.id })
-      .from(reconciliationRuns);
+    const beforeDryRunRows = await client.db.select({ id: reconRuns.id }).from(reconRuns);
     const dryRun = await service.runReconciliation({
       tenantId,
       ledgerId: ledger.id,
@@ -429,9 +427,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       matchingRuleIds: [exactRule.id],
       dryRun: true,
     });
-    const afterDryRunRows = await client.db
-      .select({ id: reconciliationRuns.id })
-      .from(reconciliationRuns);
+    const afterDryRunRows = await client.db.select({ id: reconRuns.id }).from(reconRuns);
     expect(dryRun.dryRun).toBeTrue();
     expect(afterDryRunRows).toHaveLength(beforeDryRunRows.length);
   });
