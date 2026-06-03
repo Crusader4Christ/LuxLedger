@@ -137,7 +137,11 @@ describe('reconcileOneToOne', () => {
     const mismatch = decisions.find((decision) => decision.status === 'mismatched');
     expect(mismatch?.reason).toBe('amount_mismatch');
     expect(mismatch?.candidateTransactionIds).toEqual(['tx-1']);
-    expect(decisions.some((decision) => decision.status === 'unmatched_internal')).toBeFalse();
+    expect(
+      decisions.some(
+        (decision) => decision.status === 'unmatched_internal' && decision.transactionId === 'tx-1',
+      ),
+    ).toBeTrue();
   });
 
   it('does not choose arbitrarily when multiple internal candidates match', () => {
@@ -155,6 +159,31 @@ describe('reconcileOneToOne', () => {
     const conflict = decisions.find((decision) => decision.status === 'conflict');
     expect(conflict?.reason).toBe('multiple_internal_candidates');
     expect(conflict?.candidateTransactionIds).toEqual(['tx-1', 'tx-2']);
-    expect(decisions.some((decision) => decision.status === 'unmatched_internal')).toBeFalse();
+    expect(decisions.filter((decision) => decision.status === 'unmatched_internal')).toHaveLength(
+      2,
+    );
+  });
+
+  it('matches when any configured rule matches fully', () => {
+    const decisions = reconcileOneToOne({
+      externalRecords: [
+        externalRecord({ externalId: 'ext-1', reference: 'ref-1', amountMinor: 101n }),
+      ],
+      transactions: [transaction({ id: 'tx-1', reference: 'ref-1', amountMinor: 100n })],
+      rules: [
+        rule([
+          { field: 'reference', operator: 'equals' },
+          { field: 'amount', operator: 'equals' },
+        ]),
+        rule([
+          { field: 'reference', operator: 'equals' },
+          { field: 'amount', operator: 'equals', amountToleranceMinor: 1n },
+          { field: 'currency', operator: 'equals' },
+        ]),
+      ],
+    });
+
+    expect(decisions.filter((decision) => decision.status === 'matched')).toHaveLength(1);
+    expect(decisions.some((decision) => decision.status === 'mismatched')).toBeFalse();
   });
 });

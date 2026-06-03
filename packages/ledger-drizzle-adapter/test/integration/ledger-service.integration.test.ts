@@ -7,7 +7,12 @@ import {
   DrizzleLedgerRepository,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
-import { accounts, reconRuns, transactions } from '@lux/ledger-drizzle-adapter/schema';
+import {
+  accounts,
+  reconRuns,
+  reconUploads,
+  transactions,
+} from '@lux/ledger-drizzle-adapter/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
@@ -401,7 +406,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     expect(run.matchedCount).toBe(1);
     expect(run.mismatchedCount).toBe(1);
     expect(run.unmatchedExternalCount).toBe(1);
-    expect(run.unmatchedInternalCount).toBe(0);
+    expect(run.unmatchedInternalCount).toBe(3);
     expect(run.conflictCount).toBe(1);
     expect(
       run.results.some((result) => result.externalId === 'ext-1' && result.status === 'matched'),
@@ -430,5 +435,30 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     const afterDryRunRows = await client.db.select({ id: reconRuns.id }).from(reconRuns);
     expect(dryRun.dryRun).toBeTrue();
     expect(afterDryRunRows).toHaveLength(beforeDryRunRows.length);
+  });
+
+  it('rejects reconciliation when a persisted upload has no records', async () => {
+    const tenant = await repository.createTenant({ name: 'Empty Upload Tenant' });
+    const tenantId = tenant.id;
+    const ledger = await service.createLedger({ tenantId, name: 'Primary' });
+    const [upload] = await client.db
+      .insert(reconUploads)
+      .values({ tenantId, source: 'bank-feed', recordCount: 0 })
+      .returning({ id: reconUploads.id });
+    const rule = await service.createReconciliationMatchingRule({
+      tenantId,
+      name: 'Exact',
+      criteria: [{ field: 'reference', operator: 'equals' }],
+    });
+
+    await expect(
+      service.runReconciliation({
+        tenantId,
+        ledgerId: ledger.id,
+        uploadId: upload.id,
+        strategy: 'one_to_one',
+        matchingRuleIds: [rule.id],
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 });

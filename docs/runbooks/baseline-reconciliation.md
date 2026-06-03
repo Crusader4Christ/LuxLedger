@@ -29,12 +29,13 @@ Use baseline reconciliation to compare external provider records with posted Lux
 3. Run a dry-run first.
 
    Call `POST /v1/reconciliation/runs` with `dry_run: true`. Dry-run returns the same report shape as a committed run but does not persist run/results rows.
+   When multiple `matching_rule_ids` are supplied, rules are evaluated as alternatives: a transaction matches if it fully satisfies any one rule.
 
 4. Review statuses.
 
    - `matched`: one external record matched exactly one internal transaction.
    - `unmatched_external`: no internal transaction matched the external record.
-   - `unmatched_internal`: an internal transaction had no matched external record.
+   - `unmatched_internal`: an internal transaction was not successfully matched to an external record. A transaction can still appear here when it was only a mismatch/conflict candidate.
    - `mismatched`: reference matched, but another criterion failed.
    - `conflict`: multiple candidates matched; no arbitrary winner was selected.
 
@@ -95,5 +96,7 @@ Run reconciliation:
 - Reconciliation never mutates ledger transactions.
 - Committed runs persist immutable result rows for audit.
 - Dry-runs do not persist run/results rows.
+- Empty uploads are rejected before matching.
 - Matching is deterministic: conflicts are reported explicitly instead of selecting a candidate by order.
+- Multiple matching rules use OR semantics; criteria inside one rule use AND semantics.
 - Re-uploading the same provider record id for the same source is rejected by `(tenant_id, source, external_id)` idempotency.

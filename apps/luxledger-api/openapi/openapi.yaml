@@ -1127,6 +1127,7 @@ components:
         matching_rule_ids:
           type: array
           minItems: 1
+          description: Matching rules are evaluated as alternatives; criteria inside each rule are conjunctive.
           items:
             type: string
             format: uuid

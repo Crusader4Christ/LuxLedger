@@ -92,7 +92,7 @@ export type ReconRunByIdParams = {
   id: string;
 };
 
-export const reconciliationCriterionRequestSchema = {
+export const reconCriterionRequestSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['field', 'operator'],
@@ -126,7 +126,7 @@ export const createReconRuleRequestSchema = {
     criteria: {
       type: 'array',
       minItems: 1,
-      items: reconciliationCriterionRequestSchema,
+      items: reconCriterionRequestSchema,
     },
   },
 } as const;

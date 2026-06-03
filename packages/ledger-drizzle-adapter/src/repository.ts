@@ -1795,6 +1795,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             ),
           )
           .orderBy(asc(schema.reconRecords.occurredAt), asc(schema.reconRecords.externalId));
+        if (externalRows.length === 0) {
+          throw new InvariantViolationError('reconciliation upload has no records');
+        }
 
         const transactionRows = await tx
           .select()

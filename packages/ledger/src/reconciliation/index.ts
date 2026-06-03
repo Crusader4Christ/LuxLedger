@@ -110,25 +110,45 @@ const matchCriterion = (
   }
 };
 
+const matchRule = (
+  externalRecord: ReconRecord,
+  transaction: TransactionEntity,
+  rule: ReconRule,
+): boolean =>
+  rule.criteria.every((criterion) => matchCriterion(externalRecord, transaction, criterion));
+
 const candidateMismatchReasons = (
   externalRecord: ReconRecord,
   transaction: TransactionEntity,
-  criteria: ReconMatchCriterion[],
-): string[] =>
-  criteria
-    .filter((criterion) => !matchCriterion(externalRecord, transaction, criterion))
-    .map((criterion) => `${criterion.field}_mismatch`);
+  rules: ReconRule[],
+): string[] => {
+  const reasonSets = rules.map((rule) =>
+    rule.criteria
+      .filter((criterion) => !matchCriterion(externalRecord, transaction, criterion))
+      .map((criterion) => `${criterion.field}_mismatch`),
+  );
+  const shortestReasonCount = Math.min(...reasonSets.map((reasons) => reasons.length));
+
+  return [
+    ...new Set(
+      reasonSets
+        .filter((reasons) => reasons.length === shortestReasonCount)
+        .flat()
+        .sort(),
+    ),
+  ];
+};
 
 const findReferenceCandidates = (
   externalRecord: ReconRecord,
   transactions: TransactionEntity[],
-  criteria: ReconMatchCriterion[],
+  rules: ReconRule[],
 ): ReconMatchCandidate[] =>
   transactions
     .filter((transaction) => matchString(externalRecord.reference, transaction.reference, 'equals'))
     .map((transaction) => ({
       transactionId: transaction.id.value,
-      reasons: candidateMismatchReasons(externalRecord, transaction, criteria),
+      reasons: candidateMismatchReasons(externalRecord, transaction, rules),
     }));
 
 export const reconcileOneToOne = (input: {
@@ -136,7 +156,6 @@ export const reconcileOneToOne = (input: {
   transactions: TransactionEntity[];
   rules: ReconRule[];
 }): ReconMatchDecision[] => {
-  const criteria = input.rules.flatMap((rule) => rule.criteria);
   const decisionsByExternalRecordId = new Map<string, ReconMatchDecision>();
   const matchedByTransactionId = new Map<string, ReconMatchDecision[]>();
 
@@ -146,7 +165,7 @@ export const reconcileOneToOne = (input: {
   })) {
     const candidates = input.transactions
       .filter((transaction) =>
-        criteria.every((criterion) => matchCriterion(externalRecord, transaction, criterion)),
+        input.rules.some((rule) => matchRule(externalRecord, transaction, rule)),
       )
       .sort((left, right) => left.id.value.localeCompare(right.id.value));
 
@@ -180,7 +199,7 @@ export const reconcileOneToOne = (input: {
     const referenceCandidates = findReferenceCandidates(
       externalRecord,
       input.transactions,
-      criteria,
+      input.rules,
     );
     if (referenceCandidates.length > 0) {
       decisionsByExternalRecordId.set(externalRecord.id, {
@@ -224,19 +243,16 @@ export const reconcileOneToOne = (input: {
     }
   }
 
-  const referencedTransactionIds = new Set<string>();
+  const matchedTransactionIds = new Set<string>();
   for (const decision of decisionsByExternalRecordId.values()) {
-    if (decision.transactionId) {
-      referencedTransactionIds.add(decision.transactionId);
-    }
-    for (const candidateTransactionId of decision.candidateTransactionIds) {
-      referencedTransactionIds.add(candidateTransactionId);
+    if (decision.status === 'matched' && decision.transactionId) {
+      matchedTransactionIds.add(decision.transactionId);
     }
   }
 
   const externalDecisions = [...decisionsByExternalRecordId.values()];
   const unmatchedInternalDecisions = input.transactions
-    .filter((transaction) => !referencedTransactionIds.has(transaction.id.value))
+    .filter((transaction) => !matchedTransactionIds.has(transaction.id.value))
     .sort((left, right) => left.id.value.localeCompare(right.id.value))
     .map(
       (transaction): ReconMatchDecision => ({
