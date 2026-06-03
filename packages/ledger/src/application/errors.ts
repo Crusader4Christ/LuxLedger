@@ -27,6 +27,15 @@ export class TransactionNotFoundError extends DomainError {
   }
 }
 
+export class ReconciliationRunNotFoundError extends DomainError {
+  public readonly runId: string;
+
+  public constructor(runId: string) {
+    super(`Reconciliation run not found: ${runId}`, 'RECONCILIATION_RUN_NOT_FOUND', 404);
+    this.runId = runId;
+  }
+}
+
 export class HoldNotFoundError extends DomainError {
   public readonly holdId: string;
 

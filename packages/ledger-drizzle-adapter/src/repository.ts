@@ -6,6 +6,8 @@ import {
   CreateTransactionUseCase,
   EntryDirection,
   EntryEntity,
+  type ExternalReconciliationRecord,
+  isUuidV7,
   AccountId as LedgerAccountId,
   DomainError as LedgerDomainError,
   LedgerEntity,
@@ -13,41 +15,51 @@ import {
   TransactionId as LedgerTransactionId,
   Money,
   parseAccountSide,
-  parseOverdraftPolicy,
   parseEntryDirection,
-  isUuidV7,
+  parseOverdraftPolicy,
+  type ReconciliationMatchingCriterion,
+  type ReconciliationMatchingRule,
+  type ReconciliationResultStatus,
+  type ReconciliationStrategy,
+  reconcileOneToOne,
   TransactionEntity,
 } from '@lux/ledger';
 import {
   type AccountPaginationQuery,
   type ApiKeyRepository,
+  type BalanceAtQuery,
   type BalanceHistoryQuery,
   type BalanceSnapshotEvent,
-  type CreateAccountInput,
-  type CreateLedgerInput,
-  type CreateHoldInput,
-  type CreateHoldResult,
   type CommitHoldInput,
   type CommitHoldResult,
   type CorrectTransactionInput,
   type CorrectTransactionResult,
+  type CreateAccountInput,
+  type CreateHoldInput,
+  type CreateHoldResult,
+  type CreateLedgerInput,
+  type CreateReconciliationMatchingRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
+  type HistoricalBalance,
+  type IngestExternalRecordsInput,
   InvariantViolationError,
   LedgerNotFoundError,
-  OverdraftPolicyViolationError,
   type LedgerRepository,
-  type HistoricalBalance,
-  type BalanceAtQuery,
+  type LedgerTrialBalanceQuery,
+  OverdraftPolicyViolationError,
   type PaginatedResult,
   type PaginationQuery,
+  type ReconciliationExternalUpload,
+  type ReconciliationResult,
+  type ReconciliationRun,
   RepositoryError,
+  type ReverseTransactionInput,
+  type ReverseTransactionResult,
+  type RunReconciliationInput,
   type TransactionPaginationQuery,
   type TrialBalance,
   type TrialBalanceAccount,
-  type LedgerTrialBalanceQuery,
-  type ReverseTransactionInput,
-  type ReverseTransactionResult,
   type VoidHoldInput,
   type VoidHoldResult,
 } from '@lux/ledger/application';
@@ -110,11 +122,63 @@ const generateUuidV7 = (): string => {
   return `${timestampHex.slice(0, 8)}-${timestampHex.slice(8, 12)}-7${randomHex.slice(0, 3)}-8${randomHex.slice(3, 6)}-${randomHex.slice(6, 18)}`;
 };
 
+const serializeMatchingCriteria = (
+  criteria: ReconciliationMatchingCriterion[],
+): ReconciliationMatchingRuleRow['criteria'] =>
+  criteria.map((criterion) => ({
+    field: criterion.field,
+    operator: criterion.operator,
+    amountToleranceMinor: criterion.amountToleranceMinor?.toString(),
+    dateToleranceSeconds: criterion.dateToleranceSeconds,
+  }));
+
+const parseMatchingCriteria = (
+  criteria: ReconciliationMatchingRuleRow['criteria'],
+): ReconciliationMatchingCriterion[] =>
+  criteria.map((criterion) => ({
+    field: criterion.field as ReconciliationMatchingCriterion['field'],
+    operator: criterion.operator as ReconciliationMatchingCriterion['operator'],
+    amountToleranceMinor:
+      criterion.amountToleranceMinor === undefined
+        ? undefined
+        : BigInt(criterion.amountToleranceMinor),
+    dateToleranceSeconds: criterion.dateToleranceSeconds,
+  }));
+
+const toMatchingRule = (row: ReconciliationMatchingRuleRow): ReconciliationMatchingRule => ({
+  id: row.id,
+  tenantId: row.tenantId,
+  name: row.name,
+  description: row.description,
+  criteria: parseMatchingCriteria(row.criteria),
+  createdAt: row.createdAt,
+});
+
+const toExternalReconciliationRecord = (
+  row: ReconciliationExternalRecordRow,
+): ExternalReconciliationRecord => ({
+  id: row.id,
+  tenantId: row.tenantId,
+  uploadId: row.uploadId,
+  externalId: row.externalId,
+  source: row.source,
+  amountMinor: row.amountMinor,
+  currency: row.currency,
+  reference: row.reference,
+  description: row.description,
+  occurredAt: row.occurredAt,
+  raw: row.raw ?? null,
+});
+
 type AccountRow = typeof schema.accounts.$inferSelect;
 type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
 type HoldRow = typeof schema.holds.$inferSelect;
 type BalanceSnapshotEventType = typeof schema.balanceSnapshots.$inferSelect.eventType;
+type ReconciliationExternalRecordRow = typeof schema.reconciliationExternalRecords.$inferSelect;
+type ReconciliationMatchingRuleRow = typeof schema.reconciliationMatchingRules.$inferSelect;
+type ReconciliationRunRow = typeof schema.reconciliationRuns.$inferSelect;
+type ReconciliationResultRow = typeof schema.reconciliationResults.$inferSelect;
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
@@ -539,14 +603,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
               'Unable to create transaction: account ledger/currency mismatch',
             );
           }
-          if (
-            updatedAccount.overdraftPolicy === 'DISALLOW' &&
-            updatedAccount.balanceMinor < 0n
-          ) {
-            throw new OverdraftPolicyViolationError(
-              updatedAccount.id,
-              updatedAccount.balanceMinor,
-            );
+          if (updatedAccount.overdraftPolicy === 'DISALLOW' && updatedAccount.balanceMinor < 0n) {
+            throw new OverdraftPolicyViolationError(updatedAccount.id, updatedAccount.balanceMinor);
           }
           await this.insertBalanceSnapshot(tx, {
             tenantId: input.tenantId,
@@ -624,7 +682,10 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             })
             .from(schema.holds)
             .where(
-              and(eq(schema.holds.tenantId, input.tenantId), eq(schema.holds.reference, input.reference)),
+              and(
+                eq(schema.holds.tenantId, input.tenantId),
+                eq(schema.holds.reference, input.reference),
+              ),
             )
             .limit(1);
           if (!existingHold) {
@@ -675,7 +736,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           })),
         );
 
-        for (const entry of [...input.entries].sort((a, b) => a.accountId.localeCompare(b.accountId))) {
+        for (const entry of [...input.entries].sort((a, b) =>
+          a.accountId.localeCompare(b.accountId),
+        )) {
           const [updatedAccount] = await tx
             .update(schema.accounts)
             .set({
@@ -706,7 +769,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
               inflightCreditMinor: schema.accounts.inflightCreditMinor,
             });
           if (!updatedAccount) {
-            throw new InvariantViolationError('Unable to create hold: account ledger/currency mismatch');
+            throw new InvariantViolationError(
+              'Unable to create hold: account ledger/currency mismatch',
+            );
           }
           await this.insertBalanceSnapshot(tx, {
             tenantId: input.tenantId,
@@ -745,7 +810,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           throw new InvariantViolationError('Unable to reverse transaction: original not found');
         }
         if (original.relatedTransactionId) {
-          throw new InvariantViolationError('Unable to reverse transaction: cannot reverse a reversal');
+          throw new InvariantViolationError(
+            'Unable to reverse transaction: cannot reverse a reversal',
+          );
         }
 
         const [byReference] = await tx
@@ -781,7 +848,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         ]);
         const entries = originalEntries.get(input.transactionId) ?? [];
         if (entries.length < 2) {
-          throw new InvariantViolationError('Unable to reverse transaction: original entries are missing');
+          throw new InvariantViolationError(
+            'Unable to reverse transaction: original entries are missing',
+          );
         }
 
         const created = await this.createPostedTransaction(tx, {
@@ -820,7 +889,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           throw new InvariantViolationError('Unable to correct transaction: original not found');
         }
         if (original.relatedTransactionId) {
-          throw new InvariantViolationError('Unable to correct transaction: cannot correct a reversal');
+          throw new InvariantViolationError(
+            'Unable to correct transaction: cannot correct a reversal',
+          );
         }
         this.validateHoldEntriesInput(input.entries, original.currency);
         const originalEntries = await this.loadEntriesByTransactionIds(tx, input.tenantId, [
@@ -835,10 +906,14 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         }));
         const persistedOriginalEntries = originalEntries.get(input.transactionId) ?? [];
         if (persistedOriginalEntries.length < 2) {
-          throw new InvariantViolationError('Unable to correct transaction: original entries are missing');
+          throw new InvariantViolationError(
+            'Unable to correct transaction: original entries are missing',
+          );
         }
         if (this.areEquivalentTransactionEntries(persistedOriginalEntries, input.entries)) {
-          throw new InvariantViolationError('Unable to correct transaction: corrected entries must differ');
+          throw new InvariantViolationError(
+            'Unable to correct transaction: corrected entries must differ',
+          );
         }
         const reversal = await this.createOrResolveReversal(tx, {
           tenantId: input.tenantId,
@@ -884,16 +959,28 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         const [existingTransaction] = await tx
           .select({ id: schema.transactions.id })
           .from(schema.transactions)
-          .where(and(eq(schema.transactions.tenantId, input.tenantId), eq(schema.transactions.reference, input.reference)))
+          .where(
+            and(
+              eq(schema.transactions.tenantId, input.tenantId),
+              eq(schema.transactions.reference, input.reference),
+            ),
+          )
           .limit(1);
         if (existingTransaction) {
           const [sameHold] = await tx
             .select({ id: schema.transactions.id })
             .from(schema.transactions)
-            .where(and(eq(schema.transactions.id, existingTransaction.id), eq(schema.transactions.holdId, input.holdId)))
+            .where(
+              and(
+                eq(schema.transactions.id, existingTransaction.id),
+                eq(schema.transactions.holdId, input.holdId),
+              ),
+            )
             .limit(1);
           if (!sameHold) {
-            throw new InvariantViolationError('Unable to commit hold: reference belongs to different transaction');
+            throw new InvariantViolationError(
+              'Unable to commit hold: reference belongs to different transaction',
+            );
           }
           return {
             holdId: hold.id,
@@ -904,7 +991,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           } satisfies CommitHoldResult;
         }
         if (hold.state !== 'HELD') {
-          throw new InvariantViolationError(`Unable to commit hold: invalid hold state ${hold.state}`);
+          throw new InvariantViolationError(
+            `Unable to commit hold: invalid hold state ${hold.state}`,
+          );
         }
 
         const commitAmount = input.amountMinor ?? hold.remainingAmountMinor;
@@ -912,13 +1001,20 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           throw new InvariantViolationError('Unable to commit hold: amount must be positive');
         }
         if (commitAmount > hold.remainingAmountMinor) {
-          throw new InvariantViolationError('Unable to commit hold: amount exceeds remaining amount');
+          throw new InvariantViolationError(
+            'Unable to commit hold: amount exceeds remaining amount',
+          );
         }
 
         const holdEntries = await tx
           .select()
           .from(schema.holdEntries)
-          .where(and(eq(schema.holdEntries.tenantId, input.tenantId), eq(schema.holdEntries.holdId, input.holdId)))
+          .where(
+            and(
+              eq(schema.holdEntries.tenantId, input.tenantId),
+              eq(schema.holdEntries.holdId, input.holdId),
+            ),
+          )
           .orderBy(asc(schema.holdEntries.createdAt), asc(schema.holdEntries.id));
         if (holdEntries.length < 2) {
           throw new InvariantViolationError('Unable to commit hold: hold entries are missing');
@@ -959,8 +1055,11 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
 
         await tx.insert(schema.entries).values(committedEntries);
 
-        for (const entry of committedEntries.sort((a, b) => a.accountId.localeCompare(b.accountId))) {
-          const delta = entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
+        for (const entry of committedEntries.sort((a, b) =>
+          a.accountId.localeCompare(b.accountId),
+        )) {
+          const delta =
+            entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
           const [updatedAccount] = await tx
             .update(schema.accounts)
             .set({
@@ -975,7 +1074,12 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                   : schema.accounts.inflightCreditMinor,
               updatedAt: sql`now()`,
             })
-            .where(and(eq(schema.accounts.id, entry.accountId), eq(schema.accounts.tenantId, input.tenantId)))
+            .where(
+              and(
+                eq(schema.accounts.id, entry.accountId),
+                eq(schema.accounts.tenantId, input.tenantId),
+              ),
+            )
             .returning({
               id: schema.accounts.id,
               ledgerId: schema.accounts.ledgerId,
@@ -987,14 +1091,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           if (!updatedAccount) {
             throw new InvariantViolationError('Unable to commit hold: account not found');
           }
-          if (
-            updatedAccount.overdraftPolicy === 'DISALLOW' &&
-            updatedAccount.balanceMinor < 0n
-          ) {
-            throw new OverdraftPolicyViolationError(
-              updatedAccount.id,
-              updatedAccount.balanceMinor,
-            );
+          if (updatedAccount.overdraftPolicy === 'DISALLOW' && updatedAccount.balanceMinor < 0n) {
+            throw new OverdraftPolicyViolationError(updatedAccount.id, updatedAccount.balanceMinor);
           }
           await this.insertBalanceSnapshot(tx, {
             tenantId: input.tenantId,
@@ -1017,7 +1115,10 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             appliedAt: remainingAmountMinor === 0n ? sql`now()` : null,
           })
           .where(eq(schema.holds.id, hold.id))
-          .returning({ state: schema.holds.state, remainingAmountMinor: schema.holds.remainingAmountMinor });
+          .returning({
+            state: schema.holds.state,
+            remainingAmountMinor: schema.holds.remainingAmountMinor,
+          });
 
         return {
           holdId: hold.id,
@@ -1050,15 +1151,23 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           } satisfies VoidHoldResult;
         }
         if (hold.state !== 'HELD') {
-          throw new InvariantViolationError(`Unable to void hold: invalid hold state ${hold.state}`);
+          throw new InvariantViolationError(
+            `Unable to void hold: invalid hold state ${hold.state}`,
+          );
         }
 
         const holdEntries = await tx
           .select()
           .from(schema.holdEntries)
-          .where(and(eq(schema.holdEntries.tenantId, input.tenantId), eq(schema.holdEntries.holdId, input.holdId)));
+          .where(
+            and(
+              eq(schema.holdEntries.tenantId, input.tenantId),
+              eq(schema.holdEntries.holdId, input.holdId),
+            ),
+          );
         for (const entry of holdEntries) {
-          const releaseAmount = (entry.amountMinor * hold.remainingAmountMinor) / hold.originalAmountMinor;
+          const releaseAmount =
+            (entry.amountMinor * hold.remainingAmountMinor) / hold.originalAmountMinor;
           const [updated] = await tx
             .update(schema.accounts)
             .set({
@@ -1072,7 +1181,12 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                   : schema.accounts.inflightCreditMinor,
               updatedAt: sql`now()`,
             })
-            .where(and(eq(schema.accounts.id, entry.accountId), eq(schema.accounts.tenantId, input.tenantId)))
+            .where(
+              and(
+                eq(schema.accounts.id, entry.accountId),
+                eq(schema.accounts.tenantId, input.tenantId),
+              ),
+            )
             .returning({
               id: schema.accounts.id,
               ledgerId: schema.accounts.ledgerId,
@@ -1465,7 +1579,10 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
               sql`${schema.balanceSnapshots.effectiveAt} <= ${query.at}`,
             ),
           )
-          .orderBy(sql`${schema.balanceSnapshots.effectiveAt} desc`, sql`${schema.balanceSnapshots.id} desc`)
+          .orderBy(
+            sql`${schema.balanceSnapshots.effectiveAt} desc`,
+            sql`${schema.balanceSnapshots.id} desc`,
+          )
           .limit(1);
 
         const postedMinor = row?.postedMinor ?? 0n;
@@ -1533,6 +1650,376 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     } catch (error) {
       this.handleDatabaseError(error, 'get balance history');
     }
+  }
+
+  public async ingestExternalRecords(
+    input: IngestExternalRecordsInput,
+  ): Promise<ReconciliationExternalUpload> {
+    try {
+      return await this.withTenantContext(input.tenantId, async (tx) => {
+        const [upload] = await tx
+          .insert(schema.reconciliationExternalUploads)
+          .values({
+            tenantId: input.tenantId,
+            source: input.source,
+            recordCount: input.records.length,
+          })
+          .returning();
+
+        await tx.insert(schema.reconciliationExternalRecords).values(
+          input.records.map((record) => ({
+            tenantId: input.tenantId,
+            uploadId: upload.id,
+            externalId: record.externalId,
+            source: input.source,
+            amountMinor: record.amountMinor,
+            currency: record.currency,
+            reference: record.reference,
+            description: record.description ?? null,
+            occurredAt: record.occurredAt,
+            raw: record.raw ?? null,
+          })),
+        );
+
+        return {
+          id: upload.id,
+          tenantId: upload.tenantId,
+          source: upload.source,
+          recordCount: upload.recordCount,
+          createdAt: upload.createdAt,
+        };
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'ingest reconciliation external records');
+    }
+  }
+
+  public async createReconciliationMatchingRule(
+    input: CreateReconciliationMatchingRuleInput,
+  ): Promise<ReconciliationMatchingRule> {
+    try {
+      return await this.withTenantContext(input.tenantId, async (tx) => {
+        const [row] = await tx
+          .insert(schema.reconciliationMatchingRules)
+          .values({
+            tenantId: input.tenantId,
+            name: input.name,
+            description: input.description ?? null,
+            criteria: serializeMatchingCriteria(input.criteria),
+          })
+          .returning();
+
+        return toMatchingRule(row);
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'create reconciliation matching rule');
+    }
+  }
+
+  public async listReconciliationMatchingRules(
+    tenantId: string,
+  ): Promise<ReconciliationMatchingRule[]> {
+    try {
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const rows = await tx
+          .select()
+          .from(schema.reconciliationMatchingRules)
+          .where(eq(schema.reconciliationMatchingRules.tenantId, tenantId))
+          .orderBy(
+            asc(schema.reconciliationMatchingRules.createdAt),
+            asc(schema.reconciliationMatchingRules.id),
+          );
+
+        return rows.map(toMatchingRule);
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'list reconciliation matching rules');
+    }
+  }
+
+  public async getReconciliationMatchingRule(
+    tenantId: string,
+    ruleId: string,
+  ): Promise<ReconciliationMatchingRule | null> {
+    try {
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(schema.reconciliationMatchingRules)
+          .where(
+            and(
+              eq(schema.reconciliationMatchingRules.tenantId, tenantId),
+              eq(schema.reconciliationMatchingRules.id, ruleId),
+            ),
+          )
+          .limit(1);
+
+        return row ? toMatchingRule(row) : null;
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'get reconciliation matching rule');
+    }
+  }
+
+  public async runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun> {
+    try {
+      return await this.withTenantContext(input.tenantId, async (tx) => {
+        const [ledger] = await tx
+          .select({ id: schema.ledgers.id })
+          .from(schema.ledgers)
+          .where(
+            and(eq(schema.ledgers.tenantId, input.tenantId), eq(schema.ledgers.id, input.ledgerId)),
+          )
+          .limit(1);
+        if (!ledger) {
+          throw new LedgerNotFoundError(input.ledgerId);
+        }
+
+        const [upload] = await tx
+          .select()
+          .from(schema.reconciliationExternalUploads)
+          .where(
+            and(
+              eq(schema.reconciliationExternalUploads.tenantId, input.tenantId),
+              eq(schema.reconciliationExternalUploads.id, input.uploadId),
+            ),
+          )
+          .limit(1);
+        if (!upload) {
+          throw new InvariantViolationError('reconciliation upload was not found');
+        }
+
+        const ruleRows = await tx
+          .select()
+          .from(schema.reconciliationMatchingRules)
+          .where(
+            and(
+              eq(schema.reconciliationMatchingRules.tenantId, input.tenantId),
+              inArray(schema.reconciliationMatchingRules.id, input.matchingRuleIds),
+            ),
+          )
+          .orderBy(
+            asc(schema.reconciliationMatchingRules.createdAt),
+            asc(schema.reconciliationMatchingRules.id),
+          );
+        if (ruleRows.length !== input.matchingRuleIds.length) {
+          throw new InvariantViolationError(
+            'one or more reconciliation matching rules were not found',
+          );
+        }
+
+        const externalRows = await tx
+          .select()
+          .from(schema.reconciliationExternalRecords)
+          .where(
+            and(
+              eq(schema.reconciliationExternalRecords.tenantId, input.tenantId),
+              eq(schema.reconciliationExternalRecords.uploadId, input.uploadId),
+            ),
+          )
+          .orderBy(
+            asc(schema.reconciliationExternalRecords.occurredAt),
+            asc(schema.reconciliationExternalRecords.externalId),
+          );
+
+        const transactionRows = await tx
+          .select()
+          .from(schema.transactions)
+          .where(
+            and(
+              eq(schema.transactions.tenantId, input.tenantId),
+              eq(schema.transactions.ledgerId, input.ledgerId),
+            ),
+          )
+          .orderBy(asc(schema.transactions.createdAt), asc(schema.transactions.id));
+        const entriesByTransactionId = await this.loadEntriesByTransactionIds(
+          tx,
+          input.tenantId,
+          transactionRows.map((row) => row.id),
+        );
+
+        const transactions = transactionRows.map(
+          (row) =>
+            new TransactionEntity({
+              id: new LedgerTransactionId(row.id),
+              tenantId: row.tenantId,
+              ledgerId: new LedgerLedgerId(row.ledgerId),
+              reference: row.reference,
+              currency: row.currency,
+              description: row.description,
+              relatedTransactionId: row.relatedTransactionId,
+              relationType: row.relationType,
+              createdAt: row.createdAt,
+              entries: entriesByTransactionId.get(row.id) ?? [],
+            }),
+        );
+        const decisions = reconcileOneToOne({
+          externalRecords: externalRows.map(toExternalReconciliationRecord),
+          transactions,
+          rules: ruleRows.map(toMatchingRule),
+        });
+        const counts = this.countReconciliationResults(
+          decisions.map((decision) => decision.status),
+        );
+        const now = new Date();
+        const runId = generateUuidV7();
+
+        const run: ReconciliationRun = {
+          id: runId,
+          tenantId: input.tenantId,
+          ledgerId: input.ledgerId,
+          uploadId: input.uploadId,
+          strategy: input.strategy,
+          status: 'completed',
+          dryRun: input.dryRun ?? false,
+          ...counts,
+          startedAt: now,
+          completedAt: now,
+          results: decisions.map((decision) => ({
+            id: generateUuidV7(),
+            runId,
+            externalRecordId: decision.externalRecordId ?? null,
+            externalId: decision.externalId ?? null,
+            transactionId: decision.transactionId ?? null,
+            status: decision.status,
+            reason: decision.reason,
+            candidateTransactionIds: decision.candidateTransactionIds,
+            createdAt: now,
+          })),
+        };
+
+        if (run.dryRun) {
+          return run;
+        }
+
+        await tx.insert(schema.reconciliationRuns).values({
+          id: run.id,
+          tenantId: run.tenantId,
+          ledgerId: run.ledgerId,
+          uploadId: run.uploadId,
+          strategy: run.strategy,
+          status: run.status,
+          dryRun: run.dryRun,
+          matchedCount: run.matchedCount,
+          unmatchedExternalCount: run.unmatchedExternalCount,
+          unmatchedInternalCount: run.unmatchedInternalCount,
+          mismatchedCount: run.mismatchedCount,
+          conflictCount: run.conflictCount,
+          startedAt: run.startedAt,
+          completedAt: run.completedAt,
+        });
+        if (run.results.length > 0) {
+          await tx.insert(schema.reconciliationResults).values(
+            run.results.map((result) => ({
+              id: result.id,
+              tenantId: input.tenantId,
+              runId: run.id,
+              externalRecordId: result.externalRecordId,
+              externalId: result.externalId,
+              transactionId: result.transactionId,
+              status: result.status,
+              reason: result.reason,
+              candidateTransactionIds: result.candidateTransactionIds,
+              createdAt: result.createdAt,
+            })),
+          );
+        }
+
+        return run;
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'run reconciliation');
+    }
+  }
+
+  public async getReconciliationRun(
+    tenantId: string,
+    runId: string,
+  ): Promise<ReconciliationRun | null> {
+    try {
+      return await this.withTenantContext(tenantId, async (tx) => {
+        const [run] = await tx
+          .select()
+          .from(schema.reconciliationRuns)
+          .where(
+            and(
+              eq(schema.reconciliationRuns.tenantId, tenantId),
+              eq(schema.reconciliationRuns.id, runId),
+            ),
+          )
+          .limit(1);
+        if (!run) {
+          return null;
+        }
+
+        const results = await tx
+          .select()
+          .from(schema.reconciliationResults)
+          .where(eq(schema.reconciliationResults.runId, runId))
+          .orderBy(
+            asc(schema.reconciliationResults.createdAt),
+            asc(schema.reconciliationResults.id),
+          );
+
+        return this.toReconciliationRun(run, results);
+      });
+    } catch (error) {
+      this.handleDatabaseError(error, 'get reconciliation run');
+    }
+  }
+
+  private countReconciliationResults(
+    statuses: ReconciliationResultStatus[],
+  ): Pick<
+    ReconciliationRun,
+    | 'matchedCount'
+    | 'unmatchedExternalCount'
+    | 'unmatchedInternalCount'
+    | 'mismatchedCount'
+    | 'conflictCount'
+  > {
+    return {
+      matchedCount: statuses.filter((status) => status === 'matched').length,
+      unmatchedExternalCount: statuses.filter((status) => status === 'unmatched_external').length,
+      unmatchedInternalCount: statuses.filter((status) => status === 'unmatched_internal').length,
+      mismatchedCount: statuses.filter((status) => status === 'mismatched').length,
+      conflictCount: statuses.filter((status) => status === 'conflict').length,
+    };
+  }
+
+  private toReconciliationRun(
+    run: ReconciliationRunRow,
+    resultRows: ReconciliationResultRow[],
+  ): ReconciliationRun {
+    return {
+      id: run.id,
+      tenantId: run.tenantId,
+      ledgerId: run.ledgerId,
+      uploadId: run.uploadId,
+      strategy: run.strategy as ReconciliationStrategy,
+      status: run.status,
+      dryRun: run.dryRun,
+      matchedCount: run.matchedCount,
+      unmatchedExternalCount: run.unmatchedExternalCount,
+      unmatchedInternalCount: run.unmatchedInternalCount,
+      mismatchedCount: run.mismatchedCount,
+      conflictCount: run.conflictCount,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      results: resultRows.map(
+        (row): ReconciliationResult => ({
+          id: row.id,
+          runId: row.runId,
+          externalRecordId: row.externalRecordId,
+          externalId: row.externalId,
+          transactionId: row.transactionId,
+          status: row.status,
+          reason: row.reason,
+          candidateTransactionIds: row.candidateTransactionIds,
+          createdAt: row.createdAt,
+        }),
+      ),
+    };
   }
 
   private async loadEntriesByTransactionIds(
@@ -1618,7 +2105,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     return Buffer.from(serialized, 'utf8').toString('base64url');
   }
 
-  private decodeSnapshotCursor(cursor: string | undefined): { effectiveAt: Date; id: string } | null {
+  private decodeSnapshotCursor(
+    cursor: string | undefined,
+  ): { effectiveAt: Date; id: string } | null {
     if (!cursor) {
       return null;
     }
@@ -1699,9 +2188,11 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       ) {
         throw new InvariantViolationError(input.payloadMismatchMessage);
       }
-      const existingEntriesByTransactionId = await this.loadEntriesByTransactionIds(tx, input.tenantId, [
-        existing.id,
-      ]);
+      const existingEntriesByTransactionId = await this.loadEntriesByTransactionIds(
+        tx,
+        input.tenantId,
+        [existing.id],
+      );
       const existingEntries = existingEntriesByTransactionId.get(existing.id) ?? [];
       if (!this.areEquivalentTransactionEntries(existingEntries, input.entries)) {
         throw new InvariantViolationError(input.payloadMismatchMessage);
@@ -1750,7 +2241,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         existing.relationType !== 'REVERSAL' ||
         (existing.description ?? null) !== (input.description ?? null)
       ) {
-        throw new InvariantViolationError('Unable to reverse transaction: reference payload mismatch');
+        throw new InvariantViolationError(
+          'Unable to reverse transaction: reference payload mismatch',
+        );
       }
       return { transactionId: existing.id, created: false };
     }
@@ -1813,7 +2306,8 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       a.accountId.localeCompare(b.accountId),
     );
     for (const entry of entriesForBalanceUpdate) {
-      const delta = entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
+      const delta =
+        entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
       const [updatedAccount] = await tx
         .update(schema.accounts)
         .set({
@@ -1904,14 +2398,19 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     if (existingEntries.length !== inputEntries.length) {
       return false;
     }
-    const normalize = (entries: Array<{
-      accountId: string;
-      direction: string;
-      amountMinor: bigint;
-      currency: string;
-    }>) =>
+    const normalize = (
+      entries: Array<{
+        accountId: string;
+        direction: string;
+        amountMinor: bigint;
+        currency: string;
+      }>,
+    ) =>
       entries
-        .map((entry) => `${entry.accountId}:${entry.direction}:${entry.amountMinor.toString()}:${entry.currency}`)
+        .map(
+          (entry) =>
+            `${entry.accountId}:${entry.direction}:${entry.amountMinor.toString()}:${entry.currency}`,
+        )
         .sort();
 
     const existing = normalize(existingEntries);
@@ -1970,7 +2469,9 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     const [row] = await tx
       .select()
       .from(schema.transactions)
-      .where(and(eq(schema.transactions.tenantId, tenantId), eq(schema.transactions.id, transactionId)))
+      .where(
+        and(eq(schema.transactions.tenantId, tenantId), eq(schema.transactions.id, transactionId)),
+      )
       .for('update')
       .limit(1);
 

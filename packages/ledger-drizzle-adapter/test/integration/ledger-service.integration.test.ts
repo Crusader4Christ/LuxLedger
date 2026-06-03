@@ -7,7 +7,7 @@ import {
   DrizzleLedgerRepository,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
-import { accounts, transactions } from '@lux/ledger-drizzle-adapter/schema';
+import { accounts, reconciliationRuns, transactions } from '@lux/ledger-drizzle-adapter/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
@@ -278,5 +278,161 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     expect(crossLedgerRows.length).toBe(0);
     expect(await getAccountBalance(cashAccountId)).toBe(-100n);
     expect(await getAccountBalance(secondaryLedgerAccountId)).toBe(0n);
+  });
+
+  it('runs baseline reconciliation with persisted report, mismatches, conflicts, and dry-run', async () => {
+    const tenant = await repository.createTenant({ name: 'Reconciliation Tenant' });
+    const tenantId = tenant.id;
+    const ledger = await service.createLedger({ tenantId, name: 'Primary' });
+
+    const cashAccountId = await createAccount({
+      tenantId,
+      ledgerId: ledger.id,
+      name: 'Cash',
+      side: AccountSide.DEBIT,
+      currency: 'USD',
+    });
+    const revenueAccountId = await createAccount({
+      tenantId,
+      ledgerId: ledger.id,
+      name: 'Revenue',
+      side: AccountSide.CREDIT,
+      currency: 'USD',
+    });
+    const entries = (amountMinor: bigint) => [
+      {
+        accountId: cashAccountId,
+        direction: AccountSide.DEBIT as EntryDirection,
+        amountMinor,
+        currency: 'USD',
+      },
+      {
+        accountId: revenueAccountId,
+        direction: AccountSide.CREDIT as EntryDirection,
+        amountMinor,
+        currency: 'USD',
+      },
+    ];
+
+    await service.createTransaction({
+      tenantId,
+      ledgerId: ledger.id,
+      reference: 'exact-1',
+      currency: 'USD',
+      entries: entries(100n),
+    });
+    await service.createTransaction({
+      tenantId,
+      ledgerId: ledger.id,
+      reference: 'mismatch-1',
+      currency: 'USD',
+      entries: entries(200n),
+    });
+    await service.createTransaction({
+      tenantId,
+      ledgerId: ledger.id,
+      reference: 'settle-a',
+      currency: 'USD',
+      entries: entries(50n),
+    });
+    await service.createTransaction({
+      tenantId,
+      ledgerId: ledger.id,
+      reference: 'settle-b',
+      currency: 'USD',
+      entries: entries(50n),
+    });
+
+    const upload = await service.ingestExternalRecords({
+      tenantId,
+      source: 'bank-feed',
+      records: [
+        {
+          externalId: 'ext-1',
+          reference: 'exact-1',
+          amountMinor: 100n,
+          currency: 'USD',
+          occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+          raw: { line: 1 },
+        },
+        {
+          externalId: 'ext-2',
+          reference: 'mismatch-1',
+          amountMinor: 201n,
+          currency: 'USD',
+          occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+        },
+        {
+          externalId: 'ext-3',
+          reference: 'missing-1',
+          amountMinor: 300n,
+          currency: 'USD',
+          occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+        },
+        {
+          externalId: 'ext-4',
+          reference: 'settle',
+          amountMinor: 50n,
+          currency: 'USD',
+          occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+        },
+      ],
+    });
+
+    const exactRule = await service.createReconciliationMatchingRule({
+      tenantId,
+      name: 'Baseline exact with contains reference',
+      criteria: [
+        { field: 'reference', operator: 'contains' },
+        { field: 'amount', operator: 'equals' },
+        { field: 'currency', operator: 'equals' },
+      ],
+    });
+
+    const run = await service.runReconciliation({
+      tenantId,
+      ledgerId: ledger.id,
+      uploadId: upload.id,
+      strategy: 'one_to_one',
+      matchingRuleIds: [exactRule.id],
+    });
+
+    expect(run.status).toBe('completed');
+    expect(run.matchedCount).toBe(1);
+    expect(run.mismatchedCount).toBe(1);
+    expect(run.unmatchedExternalCount).toBe(1);
+    expect(run.unmatchedInternalCount).toBe(0);
+    expect(run.conflictCount).toBe(1);
+    expect(
+      run.results.some((result) => result.externalId === 'ext-1' && result.status === 'matched'),
+    ).toBeTrue();
+    expect(
+      run.results.some(
+        (result) =>
+          result.externalId === 'ext-4' &&
+          result.status === 'conflict' &&
+          result.reason === 'multiple_internal_candidates',
+      ),
+    ).toBeTrue();
+
+    const persisted = await service.getReconciliationRun(tenantId, run.id);
+    expect(persisted.results).toHaveLength(run.results.length);
+
+    const beforeDryRunRows = await client.db
+      .select({ id: reconciliationRuns.id })
+      .from(reconciliationRuns);
+    const dryRun = await service.runReconciliation({
+      tenantId,
+      ledgerId: ledger.id,
+      uploadId: upload.id,
+      strategy: 'one_to_one',
+      matchingRuleIds: [exactRule.id],
+      dryRun: true,
+    });
+    const afterDryRunRows = await client.db
+      .select({ id: reconciliationRuns.id })
+      .from(reconciliationRuns);
+    expect(dryRun.dryRun).toBeTrue();
+    expect(afterDryRunRows).toHaveLength(beforeDryRunRows.length);
   });
 });

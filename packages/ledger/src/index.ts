@@ -4,6 +4,7 @@ export { ApiKeyService, InvariantViolationError, LedgerService } from './applica
 export * from './base';
 export * from './entry';
 export * from './ledger';
+export * from './reconciliation';
 export * from './tenant';
 export * from './transaction';
 export * from './utils';

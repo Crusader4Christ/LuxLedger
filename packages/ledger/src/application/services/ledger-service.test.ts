@@ -13,26 +13,32 @@ import {
 import {
   AccountNotFoundError,
   type AccountPaginationQuery,
+  type BalanceAtQuery,
   type BalanceHistoryQuery,
   type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
+  type CreateReconciliationMatchingRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
   EntryDirection,
+  type HistoricalBalance,
+  type IngestExternalRecordsInput,
   InvariantViolationError,
   type Ledger,
   LedgerNotFoundError,
   type LedgerRepository,
-  type HistoricalBalance,
-  type BalanceAtQuery,
   LedgerService,
+  type LedgerTrialBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
+  type ReconciliationExternalUpload,
+  type ReconciliationMatchingRule,
+  type ReconciliationRun,
+  type RunReconciliationInput,
   TransactionNotFoundError,
   type TransactionPaginationQuery,
   type TrialBalance,
-  type LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 
 class InMemoryLedgerRepository implements LedgerRepository {
@@ -263,6 +269,64 @@ class InMemoryLedgerRepository implements LedgerRepository {
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     this.listBalanceHistoryCalls.push(query);
     return { data: [], nextCursor: null };
+  }
+
+  public async ingestExternalRecords(
+    input: IngestExternalRecordsInput,
+  ): Promise<ReconciliationExternalUpload> {
+    return {
+      id: 'upload-1',
+      tenantId: input.tenantId,
+      source: input.source,
+      recordCount: input.records.length,
+      createdAt: new Date(),
+    };
+  }
+
+  public async createReconciliationMatchingRule(
+    input: CreateReconciliationMatchingRuleInput,
+  ): Promise<ReconciliationMatchingRule> {
+    return {
+      id: 'rule-1',
+      tenantId: input.tenantId,
+      name: input.name,
+      description: input.description ?? null,
+      criteria: input.criteria,
+      createdAt: new Date(),
+    };
+  }
+
+  public async listReconciliationMatchingRules(): Promise<ReconciliationMatchingRule[]> {
+    return [];
+  }
+
+  public async getReconciliationMatchingRule(): Promise<ReconciliationMatchingRule | null> {
+    return null;
+  }
+
+  public async runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun> {
+    const now = new Date();
+    return {
+      id: 'run-1',
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      uploadId: input.uploadId,
+      strategy: input.strategy,
+      status: 'completed',
+      dryRun: input.dryRun ?? false,
+      matchedCount: 0,
+      unmatchedExternalCount: 0,
+      unmatchedInternalCount: 0,
+      mismatchedCount: 0,
+      conflictCount: 0,
+      startedAt: now,
+      completedAt: now,
+      results: [],
+    };
+  }
+
+  public async getReconciliationRun(): Promise<ReconciliationRun | null> {
+    return null;
   }
 }
 
@@ -825,6 +889,19 @@ describe('LedgerService', () => {
         from: new Date('2026-01-01T00:00:00.000Z'),
         to: new Date('2026-01-02T00:00:00.000Z'),
         limit: 0,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('createReconciliationMatchingRule rejects unsupported numeric operators', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+
+    await expect(
+      service.createReconciliationMatchingRule({
+        tenantId: 'tenant-1',
+        name: 'Invalid amount rule',
+        criteria: [{ field: 'amount', operator: 'contains' }],
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });

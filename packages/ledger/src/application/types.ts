@@ -5,6 +5,14 @@ import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { EntryDirection, EntryEntity } from '../entry/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type { LedgerRepository as BaseLedgerRepository } from '../ledger/repository.interface';
+import type {
+  ExternalReconciliationRecord,
+  ReconciliationMatchingCriterion,
+  ReconciliationMatchingRule,
+  ReconciliationResultStatus,
+  ReconciliationRunStatus,
+  ReconciliationStrategy,
+} from '../reconciliation';
 import type { TenantEntity } from '../tenant/entity';
 import type { CreateTenantInput } from '../tenant/input.interface';
 import type { TransactionEntity } from '../transaction/entity';
@@ -179,6 +187,76 @@ export interface BalanceHistoryQuery {
   cursor?: string;
 }
 
+export type ReconciliationExternalRecordInput = {
+  externalId: string;
+  amountMinor: bigint;
+  currency: string;
+  reference: string;
+  description?: string | null;
+  occurredAt: Date;
+  raw?: Record<string, unknown> | null;
+};
+
+export interface IngestExternalRecordsInput {
+  tenantId: string;
+  source: string;
+  records: ReconciliationExternalRecordInput[];
+}
+
+export interface ReconciliationExternalUpload {
+  id: string;
+  tenantId: string;
+  source: string;
+  recordCount: number;
+  createdAt: Date;
+}
+
+export interface CreateReconciliationMatchingRuleInput {
+  tenantId: string;
+  name: string;
+  description?: string | null;
+  criteria: ReconciliationMatchingCriterion[];
+}
+
+export interface RunReconciliationInput {
+  tenantId: string;
+  ledgerId: string;
+  uploadId: string;
+  matchingRuleIds: string[];
+  strategy: ReconciliationStrategy;
+  dryRun?: boolean;
+}
+
+export interface ReconciliationResult {
+  id: string;
+  runId: string;
+  externalRecordId: string | null;
+  externalId: string | null;
+  transactionId: string | null;
+  status: ReconciliationResultStatus;
+  reason: string;
+  candidateTransactionIds: string[];
+  createdAt: Date;
+}
+
+export interface ReconciliationRun {
+  id: string;
+  tenantId: string;
+  ledgerId: string;
+  uploadId: string;
+  strategy: ReconciliationStrategy;
+  status: ReconciliationRunStatus;
+  dryRun: boolean;
+  matchedCount: number;
+  unmatchedExternalCount: number;
+  unmatchedInternalCount: number;
+  mismatchedCount: number;
+  conflictCount: number;
+  startedAt: Date;
+  completedAt: Date | null;
+  results: ReconciliationResult[];
+}
+
 export interface AuthContext {
   apiKeyId: string;
   tenantId: string;
@@ -223,7 +301,27 @@ export interface LedgerRepository extends BaseLedgerRepository {
   getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
   getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
   listBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
+  ingestExternalRecords(input: IngestExternalRecordsInput): Promise<ReconciliationExternalUpload>;
+  createReconciliationMatchingRule(
+    input: CreateReconciliationMatchingRuleInput,
+  ): Promise<ReconciliationMatchingRule>;
+  listReconciliationMatchingRules(tenantId: string): Promise<ReconciliationMatchingRule[]>;
+  getReconciliationMatchingRule(
+    tenantId: string,
+    ruleId: string,
+  ): Promise<ReconciliationMatchingRule | null>;
+  runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun>;
+  getReconciliationRun(tenantId: string, runId: string): Promise<ReconciliationRun | null>;
 }
+
+export type {
+  ExternalReconciliationRecord,
+  ReconciliationMatchingCriterion,
+  ReconciliationMatchingRule,
+  ReconciliationResultStatus,
+  ReconciliationRunStatus,
+  ReconciliationStrategy,
+};
 
 export interface ApiKeyRepository {
   countApiKeys(): Promise<number>;

@@ -8,21 +8,27 @@ import {
 } from '@lux/ledger';
 import type {
   AccountPaginationQuery,
+  BalanceAtQuery,
   BalanceHistoryQuery,
   BalanceSnapshotEvent,
   CreateAccountInput,
   CreateLedgerInput,
+  CreateReconciliationMatchingRuleInput,
   CreateTransactionInput,
   CreateTransactionResult,
+  HistoricalBalance,
+  IngestExternalRecordsInput,
   Ledger,
   LedgerRepository,
-  HistoricalBalance,
-  BalanceAtQuery,
+  LedgerTrialBalanceQuery,
   PaginatedResult,
   PaginationQuery,
+  ReconciliationExternalUpload,
+  ReconciliationMatchingRule,
+  ReconciliationRun,
+  RunReconciliationInput,
   TransactionPaginationQuery,
   TrialBalance,
-  LedgerTrialBalanceQuery,
 } from '@lux/ledger/application';
 import { LedgerService } from '@lux/ledger/application';
 
@@ -191,6 +197,64 @@ class InMemoryLedgerRepository implements LedgerRepository {
     _query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     return { data: [], nextCursor: null };
+  }
+
+  public async ingestExternalRecords(
+    input: IngestExternalRecordsInput,
+  ): Promise<ReconciliationExternalUpload> {
+    return {
+      id: 'upload-1',
+      tenantId: input.tenantId,
+      source: input.source,
+      recordCount: input.records.length,
+      createdAt: new Date(),
+    };
+  }
+
+  public async createReconciliationMatchingRule(
+    input: CreateReconciliationMatchingRuleInput,
+  ): Promise<ReconciliationMatchingRule> {
+    return {
+      id: 'rule-1',
+      tenantId: input.tenantId,
+      name: input.name,
+      description: input.description ?? null,
+      criteria: input.criteria,
+      createdAt: new Date(),
+    };
+  }
+
+  public async listReconciliationMatchingRules(): Promise<ReconciliationMatchingRule[]> {
+    return [];
+  }
+
+  public async getReconciliationMatchingRule(): Promise<ReconciliationMatchingRule | null> {
+    return null;
+  }
+
+  public async runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun> {
+    const now = new Date();
+    return {
+      id: 'run-1',
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      uploadId: input.uploadId,
+      strategy: input.strategy,
+      status: 'completed',
+      dryRun: input.dryRun ?? false,
+      matchedCount: 0,
+      unmatchedExternalCount: 0,
+      unmatchedInternalCount: 0,
+      mismatchedCount: 0,
+      conflictCount: 0,
+      startedAt: now,
+      completedAt: now,
+      results: [],
+    };
+  }
+
+  public async getReconciliationRun(): Promise<ReconciliationRun | null> {
+    return null;
   }
 }
 
