@@ -1,23 +1,23 @@
 import type { LedgerService } from '@lux/ledger/application';
 import {
-  type CreateReconciliationMatchingRuleRequest,
-  createReconciliationMatchingRuleRequestSchema,
-  type IngestExternalRecordsRequest,
-  ingestExternalRecordsRequestSchema,
-  type ReconciliationRunByIdParams,
-  type RunReconciliationRequest,
+  type CreateReconRuleRequest,
+  createReconRuleRequestSchema,
+  type IngestReconRecordsRequest,
+  ingestReconRecordsRequestSchema,
+  type ReconRunByIdParams,
+  type RunReconRequest,
   reconciliationRunByIdParamsSchema,
-  runReconciliationRequestSchema,
+  runReconRequestSchema,
 } from '@lux/ledger-http/contracts';
 import {
-  toExternalRecordsUploadResponse,
-  toReconciliationMatchingRuleResponse,
-  toReconciliationRunResponse,
+  toReconUploadResponse,
+  toReconRuleResponse,
+  toReconRunResponse,
 } from '@lux/ledger-http/mappers';
 import type { FastifyInstance } from 'fastify';
 import { BaseRoute } from '../routes/base-route';
 
-export class ReconciliationRoutes extends BaseRoute {
+export class ReconRoutes extends BaseRoute {
   public constructor(private readonly ledgerService: LedgerService) {
     super();
   }
@@ -31,11 +31,11 @@ export class ReconciliationRoutes extends BaseRoute {
   }
 
   private registerCreateMatchingRule(server: FastifyInstance): void {
-    server.post<{ Body: CreateReconciliationMatchingRuleRequest }>(
+    server.post<{ Body: CreateReconRuleRequest }>(
       '/v1/reconciliation/matching-rules',
       {
         schema: {
-          body: createReconciliationMatchingRuleRequestSchema,
+          body: createReconRuleRequestSchema,
         },
       },
       async (request, reply) =>
@@ -55,7 +55,7 @@ export class ReconciliationRoutes extends BaseRoute {
             })),
           });
 
-          return reply.status(201).send(toReconciliationMatchingRuleResponse(rule));
+          return reply.status(201).send(toReconRuleResponse(rule));
         }),
     );
   }
@@ -67,18 +67,18 @@ export class ReconciliationRoutes extends BaseRoute {
           request.tenantId as string,
         );
         return reply.status(200).send({
-          data: rules.map(toReconciliationMatchingRuleResponse),
+          data: rules.map(toReconRuleResponse),
         });
       }),
     );
   }
 
   private registerIngestExternalRecords(server: FastifyInstance): void {
-    server.post<{ Body: IngestExternalRecordsRequest }>(
+    server.post<{ Body: IngestReconRecordsRequest }>(
       '/v1/reconciliation/external-records',
       {
         schema: {
-          body: ingestExternalRecordsRequestSchema,
+          body: ingestReconRecordsRequestSchema,
         },
       },
       async (request, reply) =>
@@ -97,17 +97,17 @@ export class ReconciliationRoutes extends BaseRoute {
             })),
           });
 
-          return reply.status(201).send(toExternalRecordsUploadResponse(upload));
+          return reply.status(201).send(toReconUploadResponse(upload));
         }),
     );
   }
 
   private registerRunReconciliation(server: FastifyInstance): void {
-    server.post<{ Body: RunReconciliationRequest }>(
+    server.post<{ Body: RunReconRequest }>(
       '/v1/reconciliation/runs',
       {
         schema: {
-          body: runReconciliationRequestSchema,
+          body: runReconRequestSchema,
         },
       },
       async (request, reply) =>
@@ -121,15 +121,13 @@ export class ReconciliationRoutes extends BaseRoute {
             dryRun: request.body.dry_run,
           });
 
-          return reply
-            .status(request.body.dry_run ? 200 : 201)
-            .send(toReconciliationRunResponse(run));
+          return reply.status(request.body.dry_run ? 200 : 201).send(toReconRunResponse(run));
         }),
     );
   }
 
   private registerGetReconciliationRun(server: FastifyInstance): void {
-    server.get<{ Params: ReconciliationRunByIdParams }>(
+    server.get<{ Params: ReconRunByIdParams }>(
       '/v1/reconciliation/runs/:id',
       {
         schema: {
@@ -143,7 +141,7 @@ export class ReconciliationRoutes extends BaseRoute {
             request.params.id,
           );
 
-          return reply.status(200).send(toReconciliationRunResponse(run));
+          return reply.status(200).send(toReconRunResponse(run));
         }),
     );
   }

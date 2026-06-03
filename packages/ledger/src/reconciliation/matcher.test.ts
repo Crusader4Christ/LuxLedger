@@ -8,13 +8,9 @@ import {
   TransactionEntity,
   TransactionId,
 } from '@lux/ledger';
-import {
-  type ExternalReconciliationRecord,
-  type ReconciliationMatchingRule,
-  reconcileOneToOne,
-} from './index';
+import { type ReconRecord, type ReconRule, reconcileOneToOne } from './index';
 
-const rule = (criteria: ReconciliationMatchingRule['criteria']): ReconciliationMatchingRule => ({
+const rule = (criteria: ReconRule['criteria']): ReconRule => ({
   id: 'rule-1',
   tenantId: 'tenant-1',
   name: 'Baseline',
@@ -57,7 +53,7 @@ const externalRecord = (input: {
   amountMinor: bigint;
   currency?: string;
   occurredAt?: Date;
-}): ExternalReconciliationRecord => ({
+}): ReconRecord => ({
   id: `external-record-${input.externalId}`,
   tenantId: 'tenant-1',
   uploadId: 'upload-1',

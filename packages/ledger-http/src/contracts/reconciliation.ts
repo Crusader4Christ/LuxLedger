@@ -5,29 +5,29 @@ const nonEmptyTrimmedStringSchema = {
   pattern: NON_EMPTY_TRIMMED_PATTERN,
 } as const;
 
-export type ReconciliationCriterionRequest = {
+export type ReconCriterionRequest = {
   field: 'amount' | 'currency' | 'date' | 'reference' | 'description';
   operator: 'equals' | 'contains';
   amount_tolerance_minor?: string;
   date_tolerance_seconds?: number;
 };
 
-export type CreateReconciliationMatchingRuleRequest = {
+export type CreateReconRuleRequest = {
   name: string;
   description?: string;
-  criteria: ReconciliationCriterionRequest[];
+  criteria: ReconCriterionRequest[];
 };
 
-export type ReconciliationMatchingRuleResponse = {
+export type ReconRuleResponse = {
   id: string;
   tenant_id: string;
   name: string;
   description: string | null;
-  criteria: ReconciliationCriterionRequest[];
+  criteria: ReconCriterionRequest[];
   created_at: string;
 };
 
-export type ExternalReconciliationRecordRequest = {
+export type ReconRecordRequest = {
   id: string;
   amount_minor: string;
   currency: string;
@@ -37,12 +37,12 @@ export type ExternalReconciliationRecordRequest = {
   raw?: Record<string, unknown> | null;
 };
 
-export type IngestExternalRecordsRequest = {
+export type IngestReconRecordsRequest = {
   source: string;
-  records: ExternalReconciliationRecordRequest[];
+  records: ReconRecordRequest[];
 };
 
-export type ExternalRecordsUploadResponse = {
+export type ReconUploadResponse = {
   upload_id: string;
   tenant_id: string;
   source: string;
@@ -50,7 +50,7 @@ export type ExternalRecordsUploadResponse = {
   created_at: string;
 };
 
-export type RunReconciliationRequest = {
+export type RunReconRequest = {
   ledger_id: string;
   upload_id: string;
   strategy: 'one_to_one';
@@ -58,7 +58,7 @@ export type RunReconciliationRequest = {
   dry_run?: boolean;
 };
 
-export type ReconciliationResultResponse = {
+export type ReconResultResponse = {
   id: string;
   run_id: string;
   external_record_id: string | null;
@@ -70,7 +70,7 @@ export type ReconciliationResultResponse = {
   created_at: string;
 };
 
-export type ReconciliationRunResponse = {
+export type ReconRunResponse = {
   id: string;
   tenant_id: string;
   ledger_id: string;
@@ -85,10 +85,10 @@ export type ReconciliationRunResponse = {
   conflict_count: number;
   started_at: string;
   completed_at: string | null;
-  results: ReconciliationResultResponse[];
+  results: ReconResultResponse[];
 };
 
-export type ReconciliationRunByIdParams = {
+export type ReconRunByIdParams = {
   id: string;
 };
 
@@ -116,7 +116,7 @@ export const reconciliationCriterionRequestSchema = {
   },
 } as const;
 
-export const createReconciliationMatchingRuleRequestSchema = {
+export const createReconRuleRequestSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['name', 'criteria'],
@@ -131,7 +131,7 @@ export const createReconciliationMatchingRuleRequestSchema = {
   },
 } as const;
 
-export const externalReconciliationRecordRequestSchema = {
+export const reconRecordRequestSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'amount_minor', 'currency', 'reference', 'date'],
@@ -159,7 +159,7 @@ export const externalReconciliationRecordRequestSchema = {
   },
 } as const;
 
-export const ingestExternalRecordsRequestSchema = {
+export const ingestReconRecordsRequestSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['source', 'records'],
@@ -168,12 +168,12 @@ export const ingestExternalRecordsRequestSchema = {
     records: {
       type: 'array',
       minItems: 1,
-      items: externalReconciliationRecordRequestSchema,
+      items: reconRecordRequestSchema,
     },
   },
 } as const;
 
-export const runReconciliationRequestSchema = {
+export const runReconRequestSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ledger_id', 'upload_id', 'strategy', 'matching_rule_ids'],

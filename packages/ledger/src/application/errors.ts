@@ -27,7 +27,7 @@ export class TransactionNotFoundError extends DomainError {
   }
 }
 
-export class ReconciliationRunNotFoundError extends DomainError {
+export class ReconRunNotFoundError extends DomainError {
   public readonly runId: string;
 
   public constructor(runId: string) {

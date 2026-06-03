@@ -5,7 +5,7 @@ import { AdminApiKeyRoutes } from './routes/admin-api-keys';
 import { EntriesListRoute } from './routes/entries';
 import { HoldsRoutes } from './routes/holds';
 import { LedgerRoutes } from './routes/ledgers';
-import { ReconciliationRoutes } from './routes/reconciliation';
+import { ReconRoutes } from './routes/reconciliation';
 import { TransactionsRoutes } from './routes/transactions';
 
 export type FastifyLedgerAdapterDependencies = {
@@ -22,7 +22,7 @@ export const registerLedgerAdapter = (
   new TransactionsRoutes(dependencies.ledgerService).register(server);
   new HoldsRoutes(dependencies.ledgerService).register(server);
   new EntriesListRoute(dependencies.ledgerService).register(server);
-  new ReconciliationRoutes(dependencies.ledgerService).register(server);
+  new ReconRoutes(dependencies.ledgerService).register(server);
   new AdminApiKeyRoutes(dependencies.apiKeyService).register(server);
 };
 

@@ -6,7 +6,7 @@ import {
   AccountNotFoundError,
   InvariantViolationError,
   LedgerNotFoundError,
-  ReconciliationRunNotFoundError,
+  ReconRunNotFoundError,
   TransactionNotFoundError,
 } from '../errors';
 import { validatePaginationQuery } from '../pagination-query';
@@ -23,22 +23,22 @@ import type {
   CreateHoldInput,
   CreateHoldResult,
   CreateLedgerInput,
-  CreateReconciliationMatchingRuleInput,
+  CreateReconRuleInput,
   CreateTransactionInput,
   CreateTransactionResult,
   HistoricalBalance,
-  IngestExternalRecordsInput,
+  IngestReconRecordsInput,
   Ledger,
   LedgerRepository,
   LedgerTrialBalanceQuery,
   PaginatedResult,
   PaginationQuery,
-  ReconciliationExternalUpload,
-  ReconciliationMatchingRule,
-  ReconciliationRun,
+  ReconRule,
+  ReconRun,
+  ReconUpload,
   ReverseTransactionInput,
   ReverseTransactionResult,
-  RunReconciliationInput,
+  RunReconInput,
   TransactionPaginationQuery,
   TrialBalance,
   VoidHoldInput,
@@ -249,9 +249,7 @@ export class LedgerService {
     return this.repository.listBalanceHistory(query);
   }
 
-  public async ingestExternalRecords(
-    input: IngestExternalRecordsInput,
-  ): Promise<ReconciliationExternalUpload> {
+  public async ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload> {
     assertNonEmpty(input.tenantId, 'tenantId is required');
     assertNonEmpty(input.source, 'source is required');
     if (input.records.length === 0) {
@@ -273,9 +271,7 @@ export class LedgerService {
     return this.repository.ingestExternalRecords(input);
   }
 
-  public async createReconciliationMatchingRule(
-    input: CreateReconciliationMatchingRuleInput,
-  ): Promise<ReconciliationMatchingRule> {
+  public async createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule> {
     assertNonEmpty(input.tenantId, 'tenantId is required');
     assertNonEmpty(input.name, 'name is required');
     if (typeof input.description === 'string') {
@@ -314,14 +310,12 @@ export class LedgerService {
     return this.repository.createReconciliationMatchingRule(input);
   }
 
-  public async listReconciliationMatchingRules(
-    tenantId: string,
-  ): Promise<ReconciliationMatchingRule[]> {
+  public async listReconciliationMatchingRules(tenantId: string): Promise<ReconRule[]> {
     assertNonEmpty(tenantId, 'tenantId is required');
     return this.repository.listReconciliationMatchingRules(tenantId);
   }
 
-  public async runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun> {
+  public async runReconciliation(input: RunReconInput): Promise<ReconRun> {
     assertNonEmpty(input.tenantId, 'tenantId is required');
     assertNonEmpty(input.ledgerId, 'ledgerId is required');
     assertNonEmpty(input.uploadId, 'uploadId is required');
@@ -334,12 +328,12 @@ export class LedgerService {
     return this.repository.runReconciliation(input);
   }
 
-  public async getReconciliationRun(tenantId: string, runId: string): Promise<ReconciliationRun> {
+  public async getReconciliationRun(tenantId: string, runId: string): Promise<ReconRun> {
     assertNonEmpty(tenantId, 'tenantId is required');
     assertNonEmpty(runId, 'reconciliation run id is required');
     const run = await this.repository.getReconciliationRun(tenantId, runId);
     if (!run) {
-      throw new ReconciliationRunNotFoundError(runId);
+      throw new ReconRunNotFoundError(runId);
     }
     return run;
   }

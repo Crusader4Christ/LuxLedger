@@ -6,12 +6,12 @@ import type { EntryDirection, EntryEntity } from '../entry/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type { LedgerRepository as BaseLedgerRepository } from '../ledger/repository.interface';
 import type {
-  ExternalReconciliationRecord,
-  ReconciliationMatchingCriterion,
-  ReconciliationMatchingRule,
-  ReconciliationResultStatus,
-  ReconciliationRunStatus,
-  ReconciliationStrategy,
+  ReconRecord,
+  ReconMatchCriterion,
+  ReconResultStatus,
+  ReconRule,
+  ReconRunStatus,
+  ReconStrategy,
 } from '../reconciliation';
 import type { TenantEntity } from '../tenant/entity';
 import type { CreateTenantInput } from '../tenant/input.interface';
@@ -187,7 +187,7 @@ export interface BalanceHistoryQuery {
   cursor?: string;
 }
 
-export type ReconciliationExternalRecordInput = {
+export type ReconRecordInput = {
   externalId: string;
   amountMinor: bigint;
   currency: string;
@@ -197,13 +197,13 @@ export type ReconciliationExternalRecordInput = {
   raw?: Record<string, unknown> | null;
 };
 
-export interface IngestExternalRecordsInput {
+export interface IngestReconRecordsInput {
   tenantId: string;
   source: string;
-  records: ReconciliationExternalRecordInput[];
+  records: ReconRecordInput[];
 }
 
-export interface ReconciliationExternalUpload {
+export interface ReconUpload {
   id: string;
   tenantId: string;
   source: string;
@@ -211,41 +211,41 @@ export interface ReconciliationExternalUpload {
   createdAt: Date;
 }
 
-export interface CreateReconciliationMatchingRuleInput {
+export interface CreateReconRuleInput {
   tenantId: string;
   name: string;
   description?: string | null;
-  criteria: ReconciliationMatchingCriterion[];
+  criteria: ReconMatchCriterion[];
 }
 
-export interface RunReconciliationInput {
+export interface RunReconInput {
   tenantId: string;
   ledgerId: string;
   uploadId: string;
   matchingRuleIds: string[];
-  strategy: ReconciliationStrategy;
+  strategy: ReconStrategy;
   dryRun?: boolean;
 }
 
-export interface ReconciliationResult {
+export interface ReconResult {
   id: string;
   runId: string;
   externalRecordId: string | null;
   externalId: string | null;
   transactionId: string | null;
-  status: ReconciliationResultStatus;
+  status: ReconResultStatus;
   reason: string;
   candidateTransactionIds: string[];
   createdAt: Date;
 }
 
-export interface ReconciliationRun {
+export interface ReconRun {
   id: string;
   tenantId: string;
   ledgerId: string;
   uploadId: string;
-  strategy: ReconciliationStrategy;
-  status: ReconciliationRunStatus;
+  strategy: ReconStrategy;
+  status: ReconRunStatus;
   dryRun: boolean;
   matchedCount: number;
   unmatchedExternalCount: number;
@@ -254,7 +254,7 @@ export interface ReconciliationRun {
   conflictCount: number;
   startedAt: Date;
   completedAt: Date | null;
-  results: ReconciliationResult[];
+  results: ReconResult[];
 }
 
 export interface AuthContext {
@@ -301,26 +301,21 @@ export interface LedgerRepository extends BaseLedgerRepository {
   getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
   getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
   listBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
-  ingestExternalRecords(input: IngestExternalRecordsInput): Promise<ReconciliationExternalUpload>;
-  createReconciliationMatchingRule(
-    input: CreateReconciliationMatchingRuleInput,
-  ): Promise<ReconciliationMatchingRule>;
-  listReconciliationMatchingRules(tenantId: string): Promise<ReconciliationMatchingRule[]>;
-  getReconciliationMatchingRule(
-    tenantId: string,
-    ruleId: string,
-  ): Promise<ReconciliationMatchingRule | null>;
-  runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun>;
-  getReconciliationRun(tenantId: string, runId: string): Promise<ReconciliationRun | null>;
+  ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload>;
+  createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule>;
+  listReconciliationMatchingRules(tenantId: string): Promise<ReconRule[]>;
+  getReconciliationMatchingRule(tenantId: string, ruleId: string): Promise<ReconRule | null>;
+  runReconciliation(input: RunReconInput): Promise<ReconRun>;
+  getReconciliationRun(tenantId: string, runId: string): Promise<ReconRun | null>;
 }
 
 export type {
-  ExternalReconciliationRecord,
-  ReconciliationMatchingCriterion,
-  ReconciliationMatchingRule,
-  ReconciliationResultStatus,
-  ReconciliationRunStatus,
-  ReconciliationStrategy,
+  ReconRecord,
+  ReconMatchCriterion,
+  ReconRule,
+  ReconResultStatus,
+  ReconRunStatus,
+  ReconStrategy,
 };
 
 export interface ApiKeyRepository {

@@ -1,30 +1,26 @@
 import type {
-  ReconciliationExternalUpload,
-  ReconciliationMatchingCriterion,
-  ReconciliationMatchingRule,
-  ReconciliationResult,
-  ReconciliationRun,
+  ReconMatchCriterion,
+  ReconResult,
+  ReconRule,
+  ReconRun,
+  ReconUpload,
 } from '@lux/ledger/application';
 import type {
-  ExternalRecordsUploadResponse,
-  ReconciliationCriterionRequest,
-  ReconciliationMatchingRuleResponse,
-  ReconciliationResultResponse,
-  ReconciliationRunResponse,
+  ReconUploadResponse,
+  ReconCriterionRequest,
+  ReconResultResponse,
+  ReconRuleResponse,
+  ReconRunResponse,
 } from '../contracts/reconciliation';
 
-const toCriterionResponse = (
-  criterion: ReconciliationMatchingCriterion,
-): ReconciliationCriterionRequest => ({
+const toCriterionResponse = (criterion: ReconMatchCriterion): ReconCriterionRequest => ({
   field: criterion.field,
   operator: criterion.operator,
   amount_tolerance_minor: criterion.amountToleranceMinor?.toString(),
   date_tolerance_seconds: criterion.dateToleranceSeconds,
 });
 
-export const toReconciliationMatchingRuleResponse = (
-  rule: ReconciliationMatchingRule,
-): ReconciliationMatchingRuleResponse => ({
+export const toReconRuleResponse = (rule: ReconRule): ReconRuleResponse => ({
   id: rule.id,
   tenant_id: rule.tenantId,
   name: rule.name,
@@ -33,9 +29,7 @@ export const toReconciliationMatchingRuleResponse = (
   created_at: rule.createdAt.toISOString(),
 });
 
-export const toExternalRecordsUploadResponse = (
-  upload: ReconciliationExternalUpload,
-): ExternalRecordsUploadResponse => ({
+export const toReconUploadResponse = (upload: ReconUpload): ReconUploadResponse => ({
   upload_id: upload.id,
   tenant_id: upload.tenantId,
   source: upload.source,
@@ -43,9 +37,7 @@ export const toExternalRecordsUploadResponse = (
   created_at: upload.createdAt.toISOString(),
 });
 
-export const toReconciliationResultResponse = (
-  result: ReconciliationResult,
-): ReconciliationResultResponse => ({
+export const toReconResultResponse = (result: ReconResult): ReconResultResponse => ({
   id: result.id,
   run_id: result.runId,
   external_record_id: result.externalRecordId,
@@ -57,7 +49,7 @@ export const toReconciliationResultResponse = (
   created_at: result.createdAt.toISOString(),
 });
 
-export const toReconciliationRunResponse = (run: ReconciliationRun): ReconciliationRunResponse => ({
+export const toReconRunResponse = (run: ReconRun): ReconRunResponse => ({
   id: run.id,
   tenant_id: run.tenantId,
   ledger_id: run.ledgerId,
@@ -72,5 +64,5 @@ export const toReconciliationRunResponse = (run: ReconciliationRun): Reconciliat
   conflict_count: run.conflictCount,
   started_at: run.startedAt.toISOString(),
   completed_at: run.completedAt?.toISOString() ?? null,
-  results: run.results.map(toReconciliationResultResponse),
+  results: run.results.map(toReconResultResponse),
 });

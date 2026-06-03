@@ -6,7 +6,6 @@ import {
   CreateTransactionUseCase,
   EntryDirection,
   EntryEntity,
-  type ExternalReconciliationRecord,
   isUuidV7,
   AccountId as LedgerAccountId,
   DomainError as LedgerDomainError,
@@ -17,10 +16,11 @@ import {
   parseAccountSide,
   parseEntryDirection,
   parseOverdraftPolicy,
-  type ReconciliationMatchingCriterion,
-  type ReconciliationMatchingRule,
-  type ReconciliationResultStatus,
-  type ReconciliationStrategy,
+  type ReconRecord,
+  type ReconMatchCriterion,
+  type ReconResultStatus,
+  type ReconRule,
+  type ReconStrategy,
   reconcileOneToOne,
   TransactionEntity,
 } from '@lux/ledger';
@@ -38,11 +38,11 @@ import {
   type CreateHoldInput,
   type CreateHoldResult,
   type CreateLedgerInput,
-  type CreateReconciliationMatchingRuleInput,
+  type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
   type HistoricalBalance,
-  type IngestExternalRecordsInput,
+  type IngestReconRecordsInput,
   InvariantViolationError,
   LedgerNotFoundError,
   type LedgerRepository,
@@ -50,13 +50,13 @@ import {
   OverdraftPolicyViolationError,
   type PaginatedResult,
   type PaginationQuery,
-  type ReconciliationExternalUpload,
-  type ReconciliationResult,
-  type ReconciliationRun,
+  type ReconResult,
+  type ReconRun,
+  type ReconUpload,
   RepositoryError,
   type ReverseTransactionInput,
   type ReverseTransactionResult,
-  type RunReconciliationInput,
+  type RunReconInput,
   type TransactionPaginationQuery,
   type TrialBalance,
   type TrialBalanceAccount,
@@ -122,9 +122,7 @@ const generateUuidV7 = (): string => {
   return `${timestampHex.slice(0, 8)}-${timestampHex.slice(8, 12)}-7${randomHex.slice(0, 3)}-8${randomHex.slice(3, 6)}-${randomHex.slice(6, 18)}`;
 };
 
-const serializeMatchingCriteria = (
-  criteria: ReconciliationMatchingCriterion[],
-): ReconciliationMatchingRuleRow['criteria'] =>
+const serializeMatchingCriteria = (criteria: ReconMatchCriterion[]): ReconRuleRow['criteria'] =>
   criteria.map((criterion) => ({
     field: criterion.field,
     operator: criterion.operator,
@@ -132,12 +130,10 @@ const serializeMatchingCriteria = (
     dateToleranceSeconds: criterion.dateToleranceSeconds,
   }));
 
-const parseMatchingCriteria = (
-  criteria: ReconciliationMatchingRuleRow['criteria'],
-): ReconciliationMatchingCriterion[] =>
+const parseMatchingCriteria = (criteria: ReconRuleRow['criteria']): ReconMatchCriterion[] =>
   criteria.map((criterion) => ({
-    field: criterion.field as ReconciliationMatchingCriterion['field'],
-    operator: criterion.operator as ReconciliationMatchingCriterion['operator'],
+    field: criterion.field as ReconMatchCriterion['field'],
+    operator: criterion.operator as ReconMatchCriterion['operator'],
     amountToleranceMinor:
       criterion.amountToleranceMinor === undefined
         ? undefined
@@ -145,7 +141,7 @@ const parseMatchingCriteria = (
     dateToleranceSeconds: criterion.dateToleranceSeconds,
   }));
 
-const toMatchingRule = (row: ReconciliationMatchingRuleRow): ReconciliationMatchingRule => ({
+const toMatchingRule = (row: ReconRuleRow): ReconRule => ({
   id: row.id,
   tenantId: row.tenantId,
   name: row.name,
@@ -154,9 +150,7 @@ const toMatchingRule = (row: ReconciliationMatchingRuleRow): ReconciliationMatch
   createdAt: row.createdAt,
 });
 
-const toExternalReconciliationRecord = (
-  row: ReconciliationExternalRecordRow,
-): ExternalReconciliationRecord => ({
+const toReconRecord = (row: ReconRecordRow): ReconRecord => ({
   id: row.id,
   tenantId: row.tenantId,
   uploadId: row.uploadId,
@@ -175,10 +169,10 @@ type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
 type HoldRow = typeof schema.holds.$inferSelect;
 type BalanceSnapshotEventType = typeof schema.balanceSnapshots.$inferSelect.eventType;
-type ReconciliationExternalRecordRow = typeof schema.reconRecords.$inferSelect;
-type ReconciliationMatchingRuleRow = typeof schema.reconRules.$inferSelect;
-type ReconciliationRunRow = typeof schema.reconRuns.$inferSelect;
-type ReconciliationResultRow = typeof schema.reconResults.$inferSelect;
+type ReconRecordRow = typeof schema.reconRecords.$inferSelect;
+type ReconRuleRow = typeof schema.reconRules.$inferSelect;
+type ReconRunRow = typeof schema.reconRuns.$inferSelect;
+type ReconResultRow = typeof schema.reconResults.$inferSelect;
 
 export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyRepository {
   private readonly db: PostgresJsDatabase<typeof schema>;
@@ -1652,9 +1646,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async ingestExternalRecords(
-    input: IngestExternalRecordsInput,
-  ): Promise<ReconciliationExternalUpload> {
+  public async ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload> {
     try {
       return await this.withTenantContext(input.tenantId, async (tx) => {
         const [upload] = await tx
@@ -1694,9 +1686,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async createReconciliationMatchingRule(
-    input: CreateReconciliationMatchingRuleInput,
-  ): Promise<ReconciliationMatchingRule> {
+  public async createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule> {
     try {
       return await this.withTenantContext(input.tenantId, async (tx) => {
         const [row] = await tx
@@ -1716,9 +1706,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async listReconciliationMatchingRules(
-    tenantId: string,
-  ): Promise<ReconciliationMatchingRule[]> {
+  public async listReconciliationMatchingRules(tenantId: string): Promise<ReconRule[]> {
     try {
       return await this.withTenantContext(tenantId, async (tx) => {
         const rows = await tx
@@ -1737,7 +1725,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
   public async getReconciliationMatchingRule(
     tenantId: string,
     ruleId: string,
-  ): Promise<ReconciliationMatchingRule | null> {
+  ): Promise<ReconRule | null> {
     try {
       return await this.withTenantContext(tenantId, async (tx) => {
         const [row] = await tx
@@ -1753,7 +1741,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun> {
+  public async runReconciliation(input: RunReconInput): Promise<ReconRun> {
     try {
       return await this.withTenantContext(input.tenantId, async (tx) => {
         const [ledger] = await tx
@@ -1840,17 +1828,15 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             }),
         );
         const decisions = reconcileOneToOne({
-          externalRecords: externalRows.map(toExternalReconciliationRecord),
+          externalRecords: externalRows.map(toReconRecord),
           transactions,
           rules: ruleRows.map(toMatchingRule),
         });
-        const counts = this.countReconciliationResults(
-          decisions.map((decision) => decision.status),
-        );
+        const counts = this.countReconResults(decisions.map((decision) => decision.status));
         const now = new Date();
         const runId = generateUuidV7();
 
-        const run: ReconciliationRun = {
+        const run: ReconRun = {
           id: runId,
           tenantId: input.tenantId,
           ledgerId: input.ledgerId,
@@ -1918,10 +1904,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
   }
 
-  public async getReconciliationRun(
-    tenantId: string,
-    runId: string,
-  ): Promise<ReconciliationRun | null> {
+  public async getReconciliationRun(tenantId: string, runId: string): Promise<ReconRun | null> {
     try {
       return await this.withTenantContext(tenantId, async (tx) => {
         const [run] = await tx
@@ -1939,17 +1922,17 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           .where(eq(schema.reconResults.runId, runId))
           .orderBy(asc(schema.reconResults.createdAt), asc(schema.reconResults.id));
 
-        return this.toReconciliationRun(run, results);
+        return this.toReconRun(run, results);
       });
     } catch (error) {
       this.handleDatabaseError(error, 'get reconciliation run');
     }
   }
 
-  private countReconciliationResults(
-    statuses: ReconciliationResultStatus[],
+  private countReconResults(
+    statuses: ReconResultStatus[],
   ): Pick<
-    ReconciliationRun,
+    ReconRun,
     | 'matchedCount'
     | 'unmatchedExternalCount'
     | 'unmatchedInternalCount'
@@ -1965,16 +1948,13 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     };
   }
 
-  private toReconciliationRun(
-    run: ReconciliationRunRow,
-    resultRows: ReconciliationResultRow[],
-  ): ReconciliationRun {
+  private toReconRun(run: ReconRunRow, resultRows: ReconResultRow[]): ReconRun {
     return {
       id: run.id,
       tenantId: run.tenantId,
       ledgerId: run.ledgerId,
       uploadId: run.uploadId,
-      strategy: run.strategy as ReconciliationStrategy,
+      strategy: run.strategy as ReconStrategy,
       status: run.status,
       dryRun: run.dryRun,
       matchedCount: run.matchedCount,
@@ -1985,7 +1965,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       startedAt: run.startedAt,
       completedAt: run.completedAt,
       results: resultRows.map(
-        (row): ReconciliationResult => ({
+        (row): ReconResult => ({
           id: row.id,
           runId: row.runId,
           externalRecordId: row.externalRecordId,

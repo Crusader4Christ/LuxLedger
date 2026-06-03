@@ -1,17 +1,17 @@
 import type { TransactionEntity } from '../transaction/entity';
 
-export type ReconciliationStrategy = 'one_to_one';
-export type ReconciliationRunStatus = 'pending' | 'running' | 'completed' | 'failed';
-export type ReconciliationResultStatus =
+export type ReconStrategy = 'one_to_one';
+export type ReconRunStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type ReconResultStatus =
   | 'matched'
   | 'unmatched_external'
   | 'unmatched_internal'
   | 'mismatched'
   | 'conflict';
-export type ReconciliationMatchField = 'amount' | 'currency' | 'date' | 'reference' | 'description';
-export type ReconciliationMatchOperator = 'equals' | 'contains';
+export type ReconMatchField = 'amount' | 'currency' | 'date' | 'reference' | 'description';
+export type ReconMatchOperator = 'equals' | 'contains';
 
-export interface ExternalReconciliationRecord {
+export interface ReconRecord {
   id: string;
   tenantId: string;
   uploadId: string;
@@ -25,32 +25,32 @@ export interface ExternalReconciliationRecord {
   raw: Record<string, unknown> | null;
 }
 
-export interface ReconciliationMatchingCriterion {
-  field: ReconciliationMatchField;
-  operator: ReconciliationMatchOperator;
+export interface ReconMatchCriterion {
+  field: ReconMatchField;
+  operator: ReconMatchOperator;
   amountToleranceMinor?: bigint;
   dateToleranceSeconds?: number;
 }
 
-export interface ReconciliationMatchingRule {
+export interface ReconRule {
   id: string;
   tenantId: string;
   name: string;
   description: string | null;
-  criteria: ReconciliationMatchingCriterion[];
+  criteria: ReconMatchCriterion[];
   createdAt: Date;
 }
 
-export interface ReconciliationMatchCandidate {
+export interface ReconMatchCandidate {
   transactionId: string;
   reasons: string[];
 }
 
-export interface ReconciliationMatchDecision {
+export interface ReconMatchDecision {
   externalRecordId?: string;
   externalId?: string;
   transactionId?: string;
-  status: ReconciliationResultStatus;
+  status: ReconResultStatus;
   reason: string;
   candidateTransactionIds: string[];
 }
@@ -65,7 +65,7 @@ const normalize = (value: string): string => value.trim().toLowerCase();
 const matchString = (
   externalValue: string | null,
   internalValue: string | null,
-  operator: ReconciliationMatchOperator,
+  operator: ReconMatchOperator,
 ): boolean => {
   if (externalValue === null || internalValue === null) {
     return externalValue === internalValue;
@@ -82,9 +82,9 @@ const dateDeltaSeconds = (left: Date, right: Date): number =>
   Math.abs(left.getTime() - right.getTime()) / 1000;
 
 const matchCriterion = (
-  externalRecord: ExternalReconciliationRecord,
+  externalRecord: ReconRecord,
   transaction: TransactionEntity,
-  criterion: ReconciliationMatchingCriterion,
+  criterion: ReconMatchCriterion,
 ): boolean => {
   switch (criterion.field) {
     case 'amount': {
@@ -111,19 +111,19 @@ const matchCriterion = (
 };
 
 const candidateMismatchReasons = (
-  externalRecord: ExternalReconciliationRecord,
+  externalRecord: ReconRecord,
   transaction: TransactionEntity,
-  criteria: ReconciliationMatchingCriterion[],
+  criteria: ReconMatchCriterion[],
 ): string[] =>
   criteria
     .filter((criterion) => !matchCriterion(externalRecord, transaction, criterion))
     .map((criterion) => `${criterion.field}_mismatch`);
 
 const findReferenceCandidates = (
-  externalRecord: ExternalReconciliationRecord,
+  externalRecord: ReconRecord,
   transactions: TransactionEntity[],
-  criteria: ReconciliationMatchingCriterion[],
-): ReconciliationMatchCandidate[] =>
+  criteria: ReconMatchCriterion[],
+): ReconMatchCandidate[] =>
   transactions
     .filter((transaction) => matchString(externalRecord.reference, transaction.reference, 'equals'))
     .map((transaction) => ({
@@ -132,13 +132,13 @@ const findReferenceCandidates = (
     }));
 
 export const reconcileOneToOne = (input: {
-  externalRecords: ExternalReconciliationRecord[];
+  externalRecords: ReconRecord[];
   transactions: TransactionEntity[];
-  rules: ReconciliationMatchingRule[];
-}): ReconciliationMatchDecision[] => {
+  rules: ReconRule[];
+}): ReconMatchDecision[] => {
   const criteria = input.rules.flatMap((rule) => rule.criteria);
-  const decisionsByExternalRecordId = new Map<string, ReconciliationMatchDecision>();
-  const matchedByTransactionId = new Map<string, ReconciliationMatchDecision[]>();
+  const decisionsByExternalRecordId = new Map<string, ReconMatchDecision>();
+  const matchedByTransactionId = new Map<string, ReconMatchDecision[]>();
 
   for (const externalRecord of [...input.externalRecords].sort((left, right) => {
     const dateDelta = left.occurredAt.getTime() - right.occurredAt.getTime();
@@ -151,7 +151,7 @@ export const reconcileOneToOne = (input: {
       .sort((left, right) => left.id.value.localeCompare(right.id.value));
 
     if (candidates.length === 1) {
-      const decision: ReconciliationMatchDecision = {
+      const decision: ReconMatchDecision = {
         externalRecordId: externalRecord.id,
         externalId: externalRecord.externalId,
         transactionId: candidates[0].id.value,
@@ -239,7 +239,7 @@ export const reconcileOneToOne = (input: {
     .filter((transaction) => !referencedTransactionIds.has(transaction.id.value))
     .sort((left, right) => left.id.value.localeCompare(right.id.value))
     .map(
-      (transaction): ReconciliationMatchDecision => ({
+      (transaction): ReconMatchDecision => ({
         transactionId: transaction.id.value,
         status: 'unmatched_internal',
         reason: 'no_external_candidate',

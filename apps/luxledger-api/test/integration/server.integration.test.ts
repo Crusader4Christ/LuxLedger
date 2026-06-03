@@ -26,12 +26,12 @@ import {
   type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
-  type CreateReconciliationMatchingRuleInput,
+  type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
   EntryDirection,
   type HistoricalBalance,
-  type IngestExternalRecordsInput,
+  type IngestReconRecordsInput,
   InvariantViolationError,
   type Ledger,
   LedgerNotFoundError,
@@ -40,11 +40,11 @@ import {
   type LedgerTrialBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
-  type ReconciliationExternalUpload,
-  type ReconciliationMatchingRule,
-  type ReconciliationRun,
+  type ReconRule,
+  type ReconRun,
+  type ReconUpload,
   RepositoryError,
-  type RunReconciliationInput,
+  type RunReconInput,
   type TransactionPaginationQuery,
   type TrialBalance,
 } from '@lux/ledger/application';
@@ -786,18 +786,14 @@ const createServer = (
     getLedgerTrialBalance: readRepository.getLedgerTrialBalance.bind(readRepository),
     getBalanceAt: readRepository.getBalanceAt.bind(readRepository),
     listBalanceHistory: readRepository.listBalanceHistory.bind(readRepository),
-    ingestExternalRecords: async (
-      input: IngestExternalRecordsInput,
-    ): Promise<ReconciliationExternalUpload> => ({
+    ingestExternalRecords: async (input: IngestReconRecordsInput): Promise<ReconUpload> => ({
       id: makeUuidV7(910),
       tenantId: input.tenantId,
       source: input.source,
       recordCount: input.records.length,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     }),
-    createReconciliationMatchingRule: async (
-      input: CreateReconciliationMatchingRuleInput,
-    ): Promise<ReconciliationMatchingRule> => ({
+    createReconciliationMatchingRule: async (input: CreateReconRuleInput): Promise<ReconRule> => ({
       id: makeUuidV7(911),
       tenantId: input.tenantId,
       name: input.name,
@@ -805,9 +801,9 @@ const createServer = (
       criteria: input.criteria,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     }),
-    listReconciliationMatchingRules: async (): Promise<ReconciliationMatchingRule[]> => [],
-    getReconciliationMatchingRule: async (): Promise<ReconciliationMatchingRule | null> => null,
-    runReconciliation: async (input: RunReconciliationInput): Promise<ReconciliationRun> => {
+    listReconciliationMatchingRules: async (): Promise<ReconRule[]> => [],
+    getReconciliationMatchingRule: async (): Promise<ReconRule | null> => null,
+    runReconciliation: async (input: RunReconInput): Promise<ReconRun> => {
       const now = new Date('2026-01-01T00:00:00.000Z');
       return {
         id: makeUuidV7(912),
@@ -827,7 +823,7 @@ const createServer = (
         results: [],
       };
     },
-    getReconciliationRun: async (): Promise<ReconciliationRun | null> => null,
+    getReconciliationRun: async (): Promise<ReconRun | null> => null,
   };
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);

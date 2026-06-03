@@ -18,12 +18,12 @@ import {
   type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
-  type CreateReconciliationMatchingRuleInput,
+  type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
   EntryDirection,
   type HistoricalBalance,
-  type IngestExternalRecordsInput,
+  type IngestReconRecordsInput,
   InvariantViolationError,
   type Ledger,
   LedgerNotFoundError,
@@ -32,10 +32,10 @@ import {
   type LedgerTrialBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
-  type ReconciliationExternalUpload,
-  type ReconciliationMatchingRule,
-  type ReconciliationRun,
-  type RunReconciliationInput,
+  type ReconRule,
+  type ReconRun,
+  type ReconUpload,
+  type RunReconInput,
   TransactionNotFoundError,
   type TransactionPaginationQuery,
   type TrialBalance,
@@ -271,9 +271,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { data: [], nextCursor: null };
   }
 
-  public async ingestExternalRecords(
-    input: IngestExternalRecordsInput,
-  ): Promise<ReconciliationExternalUpload> {
+  public async ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload> {
     return {
       id: 'upload-1',
       tenantId: input.tenantId,
@@ -283,9 +281,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async createReconciliationMatchingRule(
-    input: CreateReconciliationMatchingRuleInput,
-  ): Promise<ReconciliationMatchingRule> {
+  public async createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule> {
     return {
       id: 'rule-1',
       tenantId: input.tenantId,
@@ -296,15 +292,15 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async listReconciliationMatchingRules(): Promise<ReconciliationMatchingRule[]> {
+  public async listReconciliationMatchingRules(): Promise<ReconRule[]> {
     return [];
   }
 
-  public async getReconciliationMatchingRule(): Promise<ReconciliationMatchingRule | null> {
+  public async getReconciliationMatchingRule(): Promise<ReconRule | null> {
     return null;
   }
 
-  public async runReconciliation(input: RunReconciliationInput): Promise<ReconciliationRun> {
+  public async runReconciliation(input: RunReconInput): Promise<ReconRun> {
     const now = new Date();
     return {
       id: 'run-1',
@@ -325,7 +321,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async getReconciliationRun(): Promise<ReconciliationRun | null> {
+  public async getReconciliationRun(): Promise<ReconRun | null> {
     return null;
   }
 }
