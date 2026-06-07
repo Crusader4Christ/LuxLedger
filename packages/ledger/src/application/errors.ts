@@ -57,6 +57,37 @@ export class InvariantViolationError extends DomainError {
   }
 }
 
+export type BulkTransactionErrorCategory = 'VALIDATION' | 'CONFLICT' | 'PERSISTENCE';
+
+export class BulkTransactionError extends DomainError {
+  public readonly details: {
+    item_index: number;
+    reference: string;
+    category: BulkTransactionErrorCategory;
+  };
+
+  public constructor(input: {
+    itemIndex: number;
+    reference: string;
+    category: BulkTransactionErrorCategory;
+    message: string;
+    httpStatus?: number;
+    cause?: unknown;
+  }) {
+    super(
+      `Bulk transaction ${input.itemIndex} (${input.reference}) failed: ${input.message}`,
+      'BULK_TRANSACTION_FAILED',
+      input.httpStatus ?? 400,
+      input.cause === undefined ? undefined : { cause: input.cause },
+    );
+    this.details = {
+      item_index: input.itemIndex,
+      reference: input.reference,
+      category: input.category,
+    };
+  }
+}
+
 export class OverdraftPolicyViolationError extends DomainError {
   public readonly accountId: string;
   public readonly attemptedBalanceMinor: bigint;

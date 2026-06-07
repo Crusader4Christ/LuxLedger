@@ -1,9 +1,6 @@
-import type {
-  CreateTransactionResponse,
-  TransactionResponse,
-} from '../contracts/transactions';
 import { InvariantViolationError, type TransactionEntity } from '@lux/ledger';
 import type { CreateTransactionResult } from '@lux/ledger/application';
+import type { CreateTransactionResponse, TransactionResponse } from '../contracts/transactions';
 
 export const toTransactionResponse = (transaction: TransactionEntity): TransactionResponse => {
   if (!transaction.tenantId || !transaction.reference || !transaction.createdAt) {
@@ -18,6 +15,7 @@ export const toTransactionResponse = (transaction: TransactionEntity): Transacti
     description: transaction.description,
     related_transaction_id: transaction.relatedTransactionId,
     relation_type: transaction.relationType,
+    effective_at: (transaction.effectiveAt ?? transaction.createdAt).toISOString(),
     created_at: transaction.createdAt.toISOString(),
   };
 };

@@ -19,12 +19,27 @@ export type CreateTransactionRequest = {
   reference: string;
   currency: string;
   description?: string;
+  effective_at?: string;
   entries: TransactionEntryRequest[];
 };
 
 export type CreateTransactionResponse = {
   transaction_id: string;
   created: boolean;
+};
+
+export type BulkCreateTransactionRequest = {
+  transactions: CreateTransactionRequest[];
+};
+
+export type BulkCreateTransactionResponse = {
+  created_count: number;
+  idempotent_count: number;
+  transactions: Array<{
+    reference: string;
+    transaction_id: string;
+    created: boolean;
+  }>;
 };
 
 export type TransactionResponse = {
@@ -36,6 +51,7 @@ export type TransactionResponse = {
   description: string | null;
   related_transaction_id: string | null;
   relation_type: 'REVERSAL' | 'CORRECTION' | null;
+  effective_at: string;
   created_at: string;
 };
 
@@ -110,10 +126,62 @@ export const createTransactionRequestSchema = {
     reference: nonEmptyTrimmedStringSchema,
     currency: nonEmptyTrimmedStringSchema,
     description: nonEmptyTrimmedStringSchema,
+    effective_at: {
+      type: 'string',
+      format: 'date-time',
+    },
     entries: {
       type: 'array',
       minItems: 2,
       items: transactionEntryRequestSchema,
+    },
+  },
+} as const;
+
+export const bulkCreateTransactionRequestSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['transactions'],
+  properties: {
+    transactions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      items: createTransactionRequestSchema,
+    },
+  },
+} as const;
+
+export const bulkCreateTransactionResponseSchema = {
+  type: 'object',
+  required: ['created_count', 'idempotent_count', 'transactions'],
+  properties: {
+    created_count: {
+      type: 'integer',
+      minimum: 0,
+    },
+    idempotent_count: {
+      type: 'integer',
+      minimum: 0,
+    },
+    transactions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['reference', 'transaction_id', 'created'],
+        properties: {
+          reference: {
+            type: 'string',
+          },
+          transaction_id: {
+            type: 'string',
+            format: 'uuid',
+          },
+          created: {
+            type: 'boolean',
+          },
+        },
+      },
     },
   },
 } as const;
@@ -129,6 +197,7 @@ export const transactionResponseSchema = {
     'description',
     'related_transaction_id',
     'relation_type',
+    'effective_at',
     'created_at',
   ],
   properties: {
@@ -163,6 +232,10 @@ export const transactionResponseSchema = {
       type: 'string',
       enum: ['REVERSAL', 'CORRECTION'],
       nullable: true,
+    },
+    effective_at: {
+      type: 'string',
+      format: 'date-time',
     },
     created_at: {
       type: 'string',

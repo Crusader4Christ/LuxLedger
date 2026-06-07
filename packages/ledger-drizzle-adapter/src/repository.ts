@@ -16,8 +16,8 @@ import {
   parseAccountSide,
   parseEntryDirection,
   parseOverdraftPolicy,
-  type ReconRecord,
   type ReconMatchCriterion,
+  type ReconRecord,
   type ReconResultStatus,
   type ReconRule,
   type ReconStrategy,
@@ -30,6 +30,9 @@ import {
   type BalanceAtQuery,
   type BalanceHistoryQuery,
   type BalanceSnapshotEvent,
+  type BulkCreateTransactionInput,
+  type BulkCreateTransactionResult,
+  BulkTransactionError,
   type CommitHoldInput,
   type CommitHoldResult,
   type CorrectTransactionInput,
@@ -63,7 +66,7 @@ import {
   type VoidHoldInput,
   type VoidHoldResult,
 } from '@lux/ledger/application';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import stringify from 'safe-stable-stringify';
 import { paginateByCursor } from './paginate-by-cursor';
@@ -503,119 +506,12 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     try {
       const result = await this.db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
-        this.validateHoldEntriesInput(input.entries, input.currency);
-        await this.validateCreateTransactionInvariants(tx, input);
-
-        const [insertedTransaction] = await tx
-          .insert(schema.transactions)
-          .values({
-            tenantId: input.tenantId,
-            ledgerId: input.ledgerId,
-            reference: input.reference,
-            currency: input.currency,
-            description: input.description ?? null,
-          })
-          .onConflictDoNothing({
-            target: [schema.transactions.tenantId, schema.transactions.reference],
-          })
-          .returning({ id: schema.transactions.id });
-
-        if (!insertedTransaction) {
-          const [existingTransaction] = await tx
-            .select({ id: schema.transactions.id })
-            .from(schema.transactions)
-            .where(
-              and(
-                eq(schema.transactions.tenantId, input.tenantId),
-                eq(schema.transactions.reference, input.reference),
-              ),
-            )
-            .limit(1);
-
-          if (!existingTransaction) {
-            throw new RepositoryError('Unable to resolve idempotent transaction');
-          }
-
-          this.logger.info(
-            {
-              transactionId: existingTransaction.id,
-              tenantId: input.tenantId,
-              ledgerId: input.ledgerId,
-              reference: input.reference,
-              created: false,
-            },
-            'Transaction accepted as idempotent retry',
-          );
-
-          return { transactionId: existingTransaction.id, created: false };
-        }
-
-        await tx.insert(schema.entries).values(
-          input.entries.map((entry) => ({
-            tenantId: input.tenantId,
-            transactionId: insertedTransaction.id,
-            accountId: entry.accountId,
-            direction: entry.direction,
-            amountMinor: entry.amountMinor,
-            currency: entry.currency,
-          })),
-        );
-
-        const entriesForBalanceUpdate = [...input.entries].sort((a, b) =>
-          a.accountId.localeCompare(b.accountId),
-        );
-
-        for (const entry of entriesForBalanceUpdate) {
-          const delta =
-            entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
-
-          const [updatedAccount] = await tx
-            .update(schema.accounts)
-            .set({
-              balanceMinor: sql`${schema.accounts.balanceMinor} + ${delta}`,
-              updatedAt: sql`now()`,
-            })
-            .where(
-              and(
-                eq(schema.accounts.id, entry.accountId),
-                eq(schema.accounts.tenantId, input.tenantId),
-                eq(schema.accounts.ledgerId, input.ledgerId),
-                eq(schema.accounts.currency, input.currency),
-              ),
-            )
-            .returning({
-              id: schema.accounts.id,
-              ledgerId: schema.accounts.ledgerId,
-              overdraftPolicy: schema.accounts.overdraftPolicy,
-              balanceMinor: schema.accounts.balanceMinor,
-              inflightDebitMinor: schema.accounts.inflightDebitMinor,
-              inflightCreditMinor: schema.accounts.inflightCreditMinor,
-            });
-
-          if (!updatedAccount) {
-            throw new InvariantViolationError(
-              'Unable to create transaction: account ledger/currency mismatch',
-            );
-          }
-          if (updatedAccount.overdraftPolicy === 'DISALLOW' && updatedAccount.balanceMinor < 0n) {
-            throw new OverdraftPolicyViolationError(updatedAccount.id, updatedAccount.balanceMinor);
-          }
-          await this.insertBalanceSnapshot(tx, {
-            tenantId: input.tenantId,
-            eventType: 'TX_APPLIED',
-            sourceId: insertedTransaction.id,
-            accountId: updatedAccount.id,
-            ledgerId: updatedAccount.ledgerId,
-            postedMinor: updatedAccount.balanceMinor,
-            inflightDebitMinor: updatedAccount.inflightDebitMinor,
-            inflightCreditMinor: updatedAccount.inflightCreditMinor,
-          });
-        }
-
-        return {
-          transactionId: insertedTransaction.id,
-          created: true,
-        };
+        return this.createOrResolvePostedTransaction(tx, {
+          ...input,
+          description: input.description ?? null,
+          effectiveAt: input.effectiveAt ?? undefined,
+          payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
+        });
       });
 
       if (result.created) {
@@ -629,11 +525,61 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           },
           'Transaction committed',
         );
+      } else {
+        this.logger.info(
+          {
+            transactionId: result.transactionId,
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            reference: input.reference,
+            created: false,
+          },
+          'Transaction accepted as idempotent retry',
+        );
       }
 
       return result;
     } catch (error) {
       this.handleDatabaseError(error, 'create transaction');
+    }
+  }
+
+  public async createTransactionsBulk(
+    input: BulkCreateTransactionInput,
+  ): Promise<BulkCreateTransactionResult> {
+    try {
+      const transactions = await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${input.tenantId}, true)`);
+
+        const results = [];
+        for (const [itemIndex, transaction] of input.transactions.entries()) {
+          try {
+            const result = await this.createOrResolvePostedTransaction(tx, {
+              ...transaction,
+              description: transaction.description ?? null,
+              effectiveAt: transaction.effectiveAt ?? undefined,
+              payloadMismatchMessage:
+                'Unable to bulk create transactions: reference payload mismatch',
+            });
+            results.push({
+              reference: transaction.reference,
+              transactionId: result.transactionId,
+              created: result.created,
+            });
+          } catch (error) {
+            throw this.toBulkTransactionError(error, itemIndex, transaction.reference);
+          }
+        }
+        return results;
+      });
+
+      return {
+        createdCount: transactions.filter((transaction) => transaction.created).length,
+        idempotentCount: transactions.filter((transaction) => !transaction.created).length,
+        transactions,
+      };
+    } catch (error) {
+      this.handleDatabaseError(error, 'bulk create transactions');
     }
   }
 
@@ -928,6 +874,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           relatedTransactionId: input.transactionId,
           relationType: 'CORRECTION',
           entries: input.entries,
+          compareDescriptionOnRetry: true,
           payloadMismatchMessage: 'Unable to correct transaction: reference payload mismatch',
         });
         return {
@@ -1389,6 +1336,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
                 relatedTransactionId: row.relatedTransactionId,
                 relationType: row.relationType,
                 createdAt: row.createdAt,
+                effectiveAt: row.effectiveAt,
                 entries: entriesByTransactionId.get(row.id) ?? [],
               }),
           ),
@@ -1435,6 +1383,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           relatedTransactionId: row.relatedTransactionId,
           relationType: row.relationType,
           createdAt: row.createdAt,
+          effectiveAt: row.effectiveAt,
           entries: entriesByTransactionId.get(row.id) ?? [],
         });
       });
@@ -1570,13 +1519,10 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             and(
               eq(schema.balanceSnapshots.tenantId, query.tenantId),
               eq(schema.balanceSnapshots.accountId, query.accountId),
-              sql`${schema.balanceSnapshots.effectiveAt} <= ${query.at}`,
+              lte(schema.balanceSnapshots.effectiveAt, query.at),
             ),
           )
-          .orderBy(
-            sql`${schema.balanceSnapshots.effectiveAt} desc`,
-            sql`${schema.balanceSnapshots.id} desc`,
-          )
+          .orderBy(desc(schema.balanceSnapshots.effectiveAt), desc(schema.balanceSnapshots.id))
           .limit(1);
 
         const postedMinor = row?.postedMinor ?? 0n;
@@ -1610,10 +1556,16 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             and(
               eq(schema.balanceSnapshots.tenantId, query.tenantId),
               eq(schema.balanceSnapshots.accountId, query.accountId),
-              sql`${schema.balanceSnapshots.effectiveAt} >= ${query.from}`,
-              sql`${schema.balanceSnapshots.effectiveAt} <= ${query.to}`,
+              gte(schema.balanceSnapshots.effectiveAt, query.from),
+              lte(schema.balanceSnapshots.effectiveAt, query.to),
               cursor
-                ? sql`(${schema.balanceSnapshots.effectiveAt}, ${schema.balanceSnapshots.id}) > (${cursor.effectiveAt}, ${cursor.id})`
+                ? or(
+                    gt(schema.balanceSnapshots.effectiveAt, cursor.effectiveAt),
+                    and(
+                      eq(schema.balanceSnapshots.effectiveAt, cursor.effectiveAt),
+                      gt(schema.balanceSnapshots.id, cursor.id),
+                    ),
+                  )
                 : sql`true`,
             ),
           )
@@ -2034,6 +1986,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       postedMinor: bigint;
       inflightDebitMinor: bigint;
       inflightCreditMinor: bigint;
+      effectiveAt?: Date;
     },
   ): Promise<void> {
     await tx
@@ -2047,6 +2000,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         postedMinor: row.postedMinor,
         inflightDebitMinor: row.inflightDebitMinor,
         inflightCreditMinor: row.inflightCreditMinor,
+        effectiveAt: row.effectiveAt ?? new Date(),
       })
       .onConflictDoNothing({
         target: [
@@ -2056,6 +2010,10 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           schema.balanceSnapshots.accountId,
         ],
       });
+  }
+
+  private resolveEffectiveAt(value: Date | null | undefined): Date {
+    return value ?? new Date();
   }
 
   private encodeSnapshotCursor(effectiveAt: Date, id: string): string {
@@ -2111,6 +2069,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       reference: string;
       currency: string;
       description: string | null;
+      effectiveAt?: Date;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
       entries: Array<{
@@ -2119,15 +2078,42 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         amountMinor: bigint;
         currency: string;
       }>;
+      compareDescriptionOnRetry?: boolean;
       payloadMismatchMessage: string;
     },
   ): Promise<{ transactionId: string; created: boolean }> {
+    const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
+    await this.validateCreateTransactionInvariants(tx, input);
+
+    const [inserted] = await tx
+      .insert(schema.transactions)
+      .values({
+        tenantId: input.tenantId,
+        ledgerId: input.ledgerId,
+        reference: input.reference,
+        currency: input.currency,
+        description: input.description,
+        effectiveAt,
+        relatedTransactionId: input.relatedTransactionId ?? null,
+        relationType: input.relationType ?? null,
+      })
+      .onConflictDoNothing({
+        target: [schema.transactions.tenantId, schema.transactions.reference],
+      })
+      .returning({ id: schema.transactions.id });
+
+    if (inserted) {
+      await this.applyPostedTransaction(tx, input, inserted.id, effectiveAt);
+      return { transactionId: inserted.id, created: true };
+    }
+
     const [existing] = await tx
       .select({
         id: schema.transactions.id,
         ledgerId: schema.transactions.ledgerId,
         currency: schema.transactions.currency,
         description: schema.transactions.description,
+        effectiveAt: schema.transactions.effectiveAt,
         relatedTransactionId: schema.transactions.relatedTransactionId,
         relationType: schema.transactions.relationType,
       })
@@ -2139,29 +2125,32 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         ),
       )
       .limit(1);
-    if (existing) {
-      if (
-        existing.ledgerId !== input.ledgerId ||
-        existing.currency !== input.currency ||
-        (existing.description ?? null) !== (input.description ?? null) ||
-        (existing.relatedTransactionId ?? null) !== (input.relatedTransactionId ?? null) ||
-        (existing.relationType ?? null) !== (input.relationType ?? null)
-      ) {
-        throw new InvariantViolationError(input.payloadMismatchMessage);
-      }
-      const existingEntriesByTransactionId = await this.loadEntriesByTransactionIds(
-        tx,
-        input.tenantId,
-        [existing.id],
-      );
-      const existingEntries = existingEntriesByTransactionId.get(existing.id) ?? [];
-      if (!this.areEquivalentTransactionEntries(existingEntries, input.entries)) {
-        throw new InvariantViolationError(input.payloadMismatchMessage);
-      }
-      return { transactionId: existing.id, created: false };
+    if (!existing) {
+      throw new RepositoryError('Unable to resolve idempotent transaction');
     }
-    const transactionId = await this.createPostedTransaction(tx, input);
-    return { transactionId, created: true };
+
+    if (
+      existing.ledgerId !== input.ledgerId ||
+      existing.currency !== input.currency ||
+      (input.compareDescriptionOnRetry === true &&
+        (existing.description ?? null) !== input.description) ||
+      (input.effectiveAt !== undefined &&
+        existing.effectiveAt.getTime() !== effectiveAt.getTime()) ||
+      (existing.relatedTransactionId ?? null) !== (input.relatedTransactionId ?? null) ||
+      (existing.relationType ?? null) !== (input.relationType ?? null)
+    ) {
+      throw new InvariantViolationError(input.payloadMismatchMessage);
+    }
+    const existingEntriesByTransactionId = await this.loadEntriesByTransactionIds(
+      tx,
+      input.tenantId,
+      [existing.id],
+    );
+    const existingEntries = existingEntriesByTransactionId.get(existing.id) ?? [];
+    if (!this.areEquivalentTransactionEntries(existingEntries, input.entries)) {
+      throw new InvariantViolationError(input.payloadMismatchMessage);
+    }
+    return { transactionId: existing.id, created: false };
   }
 
   private async createOrResolveReversal(
@@ -2173,6 +2162,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       currency: string;
       reference: string;
       description: string | null;
+      effectiveAt?: Date;
       entries: Array<{
         accountId: string;
         direction: EntryDirection;
@@ -2215,6 +2205,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       reference: input.reference,
       currency: input.currency,
       description: input.description,
+      effectiveAt: input.effectiveAt,
       relatedTransactionId: input.originalTransactionId,
       relationType: 'REVERSAL',
       entries: input.entries,
@@ -2230,6 +2221,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       reference: string;
       currency: string;
       description: string | null;
+      effectiveAt?: Date;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
       entries: Array<{
@@ -2240,6 +2232,7 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       }>;
     },
   ): Promise<string> {
+    const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
     await this.validateCreateTransactionInvariants(tx, input);
     const [insertedTransaction] = await tx
       .insert(schema.transactions)
@@ -2249,14 +2242,36 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
         reference: input.reference,
         currency: input.currency,
         description: input.description,
+        effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
         relationType: input.relationType ?? null,
       })
       .returning({ id: schema.transactions.id });
+
+    await this.applyPostedTransaction(tx, input, insertedTransaction.id, effectiveAt);
+    return insertedTransaction.id;
+  }
+
+  private async applyPostedTransaction(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: {
+      tenantId: string;
+      ledgerId: string;
+      currency: string;
+      entries: Array<{
+        accountId: string;
+        direction: EntryDirection;
+        amountMinor: bigint;
+        currency: string;
+      }>;
+    },
+    transactionId: string,
+    effectiveAt: Date,
+  ): Promise<void> {
     await tx.insert(schema.entries).values(
       input.entries.map((entry) => ({
         tenantId: input.tenantId,
-        transactionId: insertedTransaction.id,
+        transactionId,
         accountId: entry.accountId,
         direction: entry.direction,
         amountMinor: entry.amountMinor,
@@ -2299,18 +2314,40 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       if (updatedAccount.overdraftPolicy === 'DISALLOW' && updatedAccount.balanceMinor < 0n) {
         throw new OverdraftPolicyViolationError(updatedAccount.id, updatedAccount.balanceMinor);
       }
+      const [previousSnapshot] = await tx
+        .select({ postedMinor: schema.balanceSnapshots.postedMinor })
+        .from(schema.balanceSnapshots)
+        .where(
+          and(
+            eq(schema.balanceSnapshots.tenantId, input.tenantId),
+            eq(schema.balanceSnapshots.accountId, entry.accountId),
+            lte(schema.balanceSnapshots.effectiveAt, effectiveAt),
+          ),
+        )
+        .orderBy(desc(schema.balanceSnapshots.effectiveAt), desc(schema.balanceSnapshots.id))
+        .limit(1);
       await this.insertBalanceSnapshot(tx, {
         tenantId: input.tenantId,
         eventType: 'TX_APPLIED',
-        sourceId: insertedTransaction.id,
+        sourceId: transactionId,
         accountId: updatedAccount.id,
         ledgerId: updatedAccount.ledgerId,
-        postedMinor: updatedAccount.balanceMinor,
+        postedMinor: (previousSnapshot?.postedMinor ?? 0n) + delta,
         inflightDebitMinor: updatedAccount.inflightDebitMinor,
         inflightCreditMinor: updatedAccount.inflightCreditMinor,
+        effectiveAt,
       });
+      await tx
+        .update(schema.balanceSnapshots)
+        .set({ postedMinor: sql`${schema.balanceSnapshots.postedMinor} + ${delta}` })
+        .where(
+          and(
+            eq(schema.balanceSnapshots.tenantId, input.tenantId),
+            eq(schema.balanceSnapshots.accountId, updatedAccount.id),
+            gt(schema.balanceSnapshots.effectiveAt, effectiveAt),
+          ),
+        );
     }
-    return insertedTransaction.id;
   }
 
   private validateHoldEntriesInput(
@@ -2463,5 +2500,36 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
     }
 
     throw new RepositoryError(`Unable to ${operation}`, { cause: error });
+  }
+
+  private toBulkTransactionError(
+    error: unknown,
+    itemIndex: number,
+    reference: string,
+  ): BulkTransactionError {
+    if (error instanceof LedgerDomainError) {
+      return new BulkTransactionError({
+        itemIndex,
+        reference,
+        category:
+          error.httpStatus >= 500
+            ? 'PERSISTENCE'
+            : error.httpStatus === 409
+              ? 'CONFLICT'
+              : 'VALIDATION',
+        message: error.message,
+        httpStatus: error.httpStatus,
+        cause: error,
+      });
+    }
+
+    return new BulkTransactionError({
+      itemIndex,
+      reference,
+      category: 'PERSISTENCE',
+      message: 'Internal server error',
+      httpStatus: 500,
+      cause: error,
+    });
   }
 }

@@ -69,6 +69,26 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
+  public async createTransactionsBulk(input: {
+    tenantId: string;
+    transactions: CreateTransactionInput[];
+  }) {
+    const transactions = [];
+    for (const transaction of input.transactions) {
+      const result = await this.createTransaction(transaction);
+      transactions.push({
+        reference: transaction.reference,
+        transactionId: result.transactionId,
+        created: result.created,
+      });
+    }
+    return {
+      createdCount: transactions.filter((transaction) => transaction.created).length,
+      idempotentCount: transactions.filter((transaction) => !transaction.created).length,
+      transactions,
+    };
+  }
+
   public async reverseTransaction(): Promise<{ transactionId: string; created: boolean }> {
     return { transactionId: 'tx-reversal-1', created: true };
   }

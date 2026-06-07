@@ -7,5 +7,6 @@ export interface CreateTransactionCommand {
   reference: string;
   currency: string;
   description?: string | null;
+  effectiveAt?: Date | null;
   entries: TransactionEntryInput[];
 }

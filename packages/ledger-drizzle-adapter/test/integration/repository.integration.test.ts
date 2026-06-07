@@ -11,7 +11,14 @@ import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createDbClient } from '../../src/client';
 import { DrizzleLedgerRepository, type RepositoryLogger } from '../../src/repository';
-import { accounts, entries, ledgers, tenants, transactions } from '../../src/schema';
+import {
+  accounts,
+  balanceSnapshots,
+  entries,
+  ledgers,
+  tenants,
+  transactions,
+} from '../../src/schema';
 
 const databaseUrl =
   process.env.DATABASE_URL_TEST ?? 'postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test';
@@ -625,6 +632,187 @@ describe('DrizzleLedgerRepository', () => {
 
     expect(debitBalance?.balanceMinor).toBe(-100n);
     expect(creditBalance?.balanceMinor).toBe(100n);
+  });
+
+  it('createTransaction serializes concurrent idempotent retries', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+    const input = {
+      tenantId,
+      ledgerId,
+      reference: 'ref-concurrent',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    };
+    const clientA = createDbClient({
+      databaseUrl,
+      max: 1,
+      idleTimeoutSeconds: 5,
+      connectTimeoutSeconds: 5,
+    });
+    const clientB = createDbClient({
+      databaseUrl,
+      max: 1,
+      idleTimeoutSeconds: 5,
+      connectTimeoutSeconds: 5,
+    });
+    const repositoryA = new DrizzleLedgerRepository(clientA.db, { info: () => {} });
+    const repositoryB = new DrizzleLedgerRepository(clientB.db, { info: () => {} });
+
+    try {
+      const results = await Promise.all([
+        repositoryA.createTransaction(input),
+        repositoryB.createTransaction(input),
+      ]);
+
+      expect(new Set(results.map((result) => result.transactionId)).size).toBe(1);
+      expect(results.filter((result) => result.created).length).toBe(1);
+      expect(results.filter((result) => !result.created).length).toBe(1);
+      expect(
+        await client.db
+          .select({ id: transactions.id })
+          .from(transactions)
+          .where(eq(transactions.reference, input.reference)),
+      ).toHaveLength(1);
+      expect(
+        await client.db
+          .select({ id: entries.id })
+          .from(entries)
+          .where(eq(entries.transactionId, results[0]?.transactionId as string)),
+      ).toHaveLength(2);
+    } finally {
+      await clientA.sql.end({ timeout: 5 });
+      await clientB.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('serializes concurrent backdated snapshot propagation per account', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+
+    await repository.createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'ref-baseline',
+      currency: 'USD',
+      effectiveAt: new Date('2024-01-10T00:00:00.000Z'),
+      entries: [
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    const clientA = createDbClient({
+      databaseUrl,
+      max: 1,
+      idleTimeoutSeconds: 5,
+      connectTimeoutSeconds: 5,
+    });
+    const clientB = createDbClient({
+      databaseUrl,
+      max: 1,
+      idleTimeoutSeconds: 5,
+      connectTimeoutSeconds: 5,
+    });
+    const repositoryA = new DrizzleLedgerRepository(clientA.db, { info: () => {} });
+    const repositoryB = new DrizzleLedgerRepository(clientB.db, { info: () => {} });
+    const createBackdated = (
+      target: DrizzleLedgerRepository,
+      reference: string,
+      amountMinor: bigint,
+    ) =>
+      target.createTransaction({
+        tenantId,
+        ledgerId,
+        reference,
+        currency: 'USD',
+        effectiveAt: new Date('2024-01-15T00:00:00.000Z'),
+        entries: [
+          {
+            accountId: debitAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor,
+            currency: 'USD',
+          },
+          {
+            accountId: creditAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor,
+            currency: 'USD',
+          },
+        ],
+      });
+
+    try {
+      await Promise.all([
+        createBackdated(repositoryA, 'ref-concurrent-a', 25n),
+        createBackdated(repositoryB, 'ref-concurrent-b', 40n),
+      ]);
+
+      const [latestSnapshot] = await client.db
+        .select({ postedMinor: balanceSnapshots.postedMinor })
+        .from(balanceSnapshots)
+        .where(
+          and(
+            eq(balanceSnapshots.tenantId, tenantId),
+            eq(balanceSnapshots.accountId, debitAccountId),
+          ),
+        )
+        .orderBy(sql`${balanceSnapshots.effectiveAt} desc`, sql`${balanceSnapshots.id} desc`)
+        .limit(1);
+
+      expect(latestSnapshot?.postedMinor).toBe(-165n);
+    } finally {
+      await clientA.sql.end({ timeout: 5 });
+      await clientB.sql.end({ timeout: 5 });
+    }
   });
 
   it('createTransaction rolls back when balance update fails', async () => {
@@ -1596,8 +1784,18 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
       ],
     });
 
@@ -1647,8 +1845,18 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-chain-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 10n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 10n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
       ],
     });
     const reversal = await repository.reverseTransaction({
@@ -1689,12 +1897,32 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-concurrent-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 10n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 10n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
       ],
     });
-    const clientA = createDbClient({ databaseUrl, max: 1, idleTimeoutSeconds: 5, connectTimeoutSeconds: 5 });
-    const clientB = createDbClient({ databaseUrl, max: 1, idleTimeoutSeconds: 5, connectTimeoutSeconds: 5 });
+    const clientA = createDbClient({
+      databaseUrl,
+      max: 1,
+      idleTimeoutSeconds: 5,
+      connectTimeoutSeconds: 5,
+    });
+    const clientB = createDbClient({
+      databaseUrl,
+      max: 1,
+      idleTimeoutSeconds: 5,
+      connectTimeoutSeconds: 5,
+    });
     const repositoryA = new DrizzleLedgerRepository(clientA.db, { info: () => {} });
     const repositoryB = new DrizzleLedgerRepository(clientB.db, { info: () => {} });
 
@@ -1744,8 +1972,18 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-reverse-mismatch-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 10n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 10n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
       ],
     });
     await repository.reverseTransaction({
@@ -1789,8 +2027,18 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-correct-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 110n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 110n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 110n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 110n,
+          currency: 'USD',
+        },
       ],
     });
 
@@ -1806,8 +2054,18 @@ describe('DrizzleLedgerRepository', () => {
       reversalReference: 'tx-correct-reversal',
       correctedReference: 'tx-correct-corrected',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
       ],
     });
 
@@ -1819,8 +2077,18 @@ describe('DrizzleLedgerRepository', () => {
       reversalReference: 'tx-correct-reversal',
       correctedReference: 'tx-correct-corrected',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
       ],
     });
     expect(idempotentRetry.created).toBeFalse();
@@ -1856,8 +2124,18 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-mismatch-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 80n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 80n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 80n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 80n,
+          currency: 'USD',
+        },
       ],
     });
 
@@ -1867,8 +2145,18 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-mismatch-corrected',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 90n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 90n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 90n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 90n,
+          currency: 'USD',
+        },
       ],
     });
 
@@ -1879,8 +2167,18 @@ describe('DrizzleLedgerRepository', () => {
         reversalReference: 'tx-mismatch-reversal',
         correctedReference: 'tx-mismatch-corrected',
         entries: [
-          { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-          { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+          {
+            accountId: debitAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+          {
+            accountId: creditAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
         ],
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
@@ -1909,8 +2207,18 @@ describe('DrizzleLedgerRepository', () => {
       reference: 'tx-noop-original',
       currency: 'USD',
       entries: [
-        { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-        { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
       ],
     });
 
@@ -1921,8 +2229,18 @@ describe('DrizzleLedgerRepository', () => {
         reversalReference: 'tx-noop-reversal',
         correctedReference: 'tx-noop-corrected',
         entries: [
-          { accountId: debitAccountId, direction: EntryDirection.DEBIT, amountMinor: 100n, currency: 'USD' },
-          { accountId: creditAccountId, direction: EntryDirection.CREDIT, amountMinor: 100n, currency: 'USD' },
+          {
+            accountId: debitAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+          {
+            accountId: creditAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
         ],
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);

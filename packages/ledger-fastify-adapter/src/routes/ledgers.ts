@@ -1,8 +1,13 @@
+import type { LedgerService } from '@lux/ledger/application';
 import {
+  type BulkCreateTransactionRequest,
+  type BulkCreateTransactionResponse,
+  bulkCreateTransactionRequestSchema,
+  bulkCreateTransactionResponseSchema,
   type CreateLedgerRequest,
-  createLedgerBodySchema,
   type CreateTransactionRequest,
   type CreateTransactionResponse,
+  createLedgerBodySchema,
   createTransactionRequestSchema,
   type LedgerByIdParams,
   ledgerByIdParamsSchema,
@@ -12,10 +17,9 @@ import {
   trialBalanceParamsSchema,
   trialBalanceResponseSchema,
 } from '@lux/ledger-http/contracts';
-import { BaseRoute } from '../routes/base-route';
 import { toTrialBalanceResponse } from '@lux/ledger-http/mappers';
-import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
+import { BaseRoute } from '../routes/base-route';
 
 export class LedgerRoutes extends BaseRoute {
   public constructor(private readonly ledgerService: LedgerService) {
@@ -25,6 +29,7 @@ export class LedgerRoutes extends BaseRoute {
   public register(server: FastifyInstance): void {
     this.registerCreateLedger(server);
     this.registerCreateTransaction(server);
+    this.registerCreateTransactionsBulk(server);
     this.registerGetLedgerById(server);
     this.registerGetLedgers(server);
     this.registerGetTrialBalance(server);
@@ -72,6 +77,10 @@ export class LedgerRoutes extends BaseRoute {
             reference: request.body.reference,
             currency: request.body.currency,
             description: request.body.description,
+            effectiveAt:
+              request.body.effective_at === undefined
+                ? undefined
+                : new Date(request.body.effective_at),
             entries: request.body.entries.map((entry) => ({
               accountId: entry.account_id,
               direction: entry.direction,
@@ -88,6 +97,54 @@ export class LedgerRoutes extends BaseRoute {
           return reply.status(status).send(response);
         });
       },
+    );
+  }
+
+  private registerCreateTransactionsBulk(server: FastifyInstance): void {
+    server.post<{ Body: BulkCreateTransactionRequest }>(
+      '/v1/transactions/bulk',
+      {
+        schema: {
+          body: bulkCreateTransactionRequestSchema,
+          response: {
+            200: bulkCreateTransactionResponseSchema,
+            201: bulkCreateTransactionResponseSchema,
+          },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.ledgerService.createTransactionsBulk({
+            tenantId: request.tenantId as string,
+            transactions: request.body.transactions.map((transaction) => ({
+              tenantId: request.tenantId as string,
+              ledgerId: transaction.ledger_id,
+              reference: transaction.reference,
+              currency: transaction.currency,
+              description: transaction.description,
+              effectiveAt:
+                transaction.effective_at === undefined
+                  ? undefined
+                  : new Date(transaction.effective_at),
+              entries: transaction.entries.map((entry) => ({
+                accountId: entry.account_id,
+                direction: entry.direction,
+                amountMinor: BigInt(entry.amount_minor),
+                currency: entry.currency,
+              })),
+            })),
+          });
+          const response: BulkCreateTransactionResponse = {
+            created_count: result.createdCount,
+            idempotent_count: result.idempotentCount,
+            transactions: result.transactions.map((transaction) => ({
+              reference: transaction.reference,
+              transaction_id: transaction.transactionId,
+              created: transaction.created,
+            })),
+          };
+          return reply.status(result.createdCount > 0 ? 201 : 200).send(response);
+        }),
     );
   }
 

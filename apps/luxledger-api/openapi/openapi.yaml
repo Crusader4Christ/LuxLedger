@@ -167,6 +167,10 @@ paths:
                   type: string
                   minLength: 1
                   description: Optional transaction description. When omitted it is stored as null.
+                effective_at:
+                  type: string
+                  format: date-time
+                  description: Optional accounting effective timestamp for backdated postings.
                 entries:
                   type: array
                   minItems: 2
@@ -231,8 +235,82 @@ paths:
                         description: Payment settlement
                         related_transaction_id: null
                         relation_type: null
+                        effective_at: '2026-01-01T00:01:00.000Z'
                         created_at: '2026-01-01T00:01:00.000Z'
                     next_cursor: eyJjcmVhdGVkX2F0IjoiMjAyNi0wMS0wMVQwMDowMTowMC4wMDBaIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAyMDEifQ
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/transactions/bulk:
+    post:
+      summary: Create transactions in an all-or-nothing bulk posting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [transactions]
+              properties:
+                transactions:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ledger_id, reference, currency, entries]
+                    properties:
+                      ledger_id:
+                        type: string
+                        format: uuid
+                      reference:
+                        type: string
+                        minLength: 1
+                      currency:
+                        type: string
+                        minLength: 1
+                      description:
+                        type: string
+                        minLength: 1
+                      effective_at:
+                        type: string
+                        format: date-time
+                      entries:
+                        type: array
+                        minItems: 2
+                        items:
+                          type: object
+                          additionalProperties: false
+                          required: [account_id, direction, amount_minor, currency]
+                          properties:
+                            account_id:
+                              type: string
+                              format: uuid
+                            direction:
+                              type: string
+                              enum: [DEBIT, CREDIT]
+                            amount_minor:
+                              type: string
+                              pattern: '^[1-9][0-9]*$'
+                            currency:
+                              type: string
+                              minLength: 1
+      responses:
+        '201':
+          description: At least one transaction created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkCreateTransactionResponse'
+        '200':
+          description: Idempotent retry of all transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkCreateTransactionResponse'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
@@ -687,6 +765,9 @@ components:
           type: string
         message:
           type: string
+        details:
+          type: object
+          additionalProperties: true
     AuthTokenResponse:
       type: object
       required: [access_token, token_type, expires_in]
@@ -752,6 +833,29 @@ components:
           format: uuid
         created:
           type: boolean
+    BulkCreateTransactionResponse:
+      type: object
+      required: [created_count, idempotent_count, transactions]
+      properties:
+        created_count:
+          type: integer
+          minimum: 0
+        idempotent_count:
+          type: integer
+          minimum: 0
+        transactions:
+          type: array
+          items:
+            type: object
+            required: [reference, transaction_id, created]
+            properties:
+              reference:
+                type: string
+              transaction_id:
+                type: string
+                format: uuid
+              created:
+                type: boolean
     CorrectTransactionResponse:
       type: object
       required: [reversal_transaction_id, corrected_transaction_id, created]
@@ -897,7 +1001,7 @@ components:
           nullable: true
     Transaction:
       type: object
-      required: [id, tenant_id, ledger_id, reference, currency, description, related_transaction_id, relation_type, created_at]
+      required: [id, tenant_id, ledger_id, reference, currency, description, related_transaction_id, relation_type, effective_at, created_at]
       properties:
         id:
           type: string
@@ -923,6 +1027,9 @@ components:
           type: string
           enum: [REVERSAL, CORRECTION]
           nullable: true
+        effective_at:
+          type: string
+          format: date-time
         created_at:
           type: string
           format: date-time
@@ -935,6 +1042,7 @@ components:
         description: Payment settlement
         related_transaction_id: null
         relation_type: null
+        effective_at: '2026-01-01T00:01:00.000Z'
         created_at: '2026-01-01T00:01:00.000Z'
     EntriesPage:
       type: object

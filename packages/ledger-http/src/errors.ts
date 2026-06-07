@@ -3,6 +3,7 @@ import type { DomainError } from '@lux/ledger/base';
 export type ErrorResponse = {
   error: string;
   message: string;
+  details?: Record<string, unknown>;
 };
 
 export const errorResponseSchema = {
@@ -12,6 +13,10 @@ export const errorResponseSchema = {
   properties: {
     error: { type: 'string' },
     message: { type: 'string' },
+    details: {
+      type: 'object',
+      additionalProperties: true,
+    },
   },
 } as const;
 
@@ -19,6 +24,7 @@ export type HttpErrorDto = {
   statusCode: number;
   code: string;
   message: string;
+  details?: Record<string, unknown>;
 };
 
 const codeToStatus: Record<string, number> = {
@@ -42,6 +48,7 @@ type ErrorWithCodeStatus = {
   code: string;
   httpStatus: number;
   message: string;
+  details?: Record<string, unknown>;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -57,7 +64,7 @@ const isErrorWithCode = (error: unknown): error is { code: string; message: stri
 
 export const toHttpErrorPayload = (
   error: unknown,
-): { statusCode: number; error: string; message: string } => {
+): { statusCode: number; error: string; message: string; details?: Record<string, unknown> } => {
   if (isErrorWithCode(error)) {
     const record = asRecord(error) as ErrorWithCodeStatus;
     if (
@@ -70,6 +77,7 @@ export const toHttpErrorPayload = (
         statusCode: record.httpStatus,
         error: error.code,
         message: error.message,
+        details: record.details,
       };
     }
     const parsed = /^\d{3}$/.test(error.code) ? Number(error.code) : null;
@@ -77,6 +85,7 @@ export const toHttpErrorPayload = (
       statusCode: parsed !== null && parsed >= 400 && parsed <= 599 ? parsed : 500,
       error: error.code,
       message: error.message,
+      details: record.details,
     };
   }
 
@@ -87,7 +96,9 @@ export const toHttpErrorPayload = (
   };
 };
 
-export const invalidInputPayload = (message: string): { error: 'INVALID_INPUT'; message: string } => ({
+export const invalidInputPayload = (
+  message: string,
+): { error: 'INVALID_INPUT'; message: string } => ({
   error: 'INVALID_INPUT',
   message,
 });

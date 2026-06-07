@@ -16,6 +16,7 @@ import {
   type BalanceAtQuery,
   type BalanceHistoryQuery,
   type BalanceSnapshotEvent,
+  BulkTransactionError,
   type CreateAccountInput,
   type CreateLedgerInput,
   type CreateReconRuleInput,
@@ -98,6 +99,26 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return {
       transactionId,
       created: true,
+    };
+  }
+
+  public async createTransactionsBulk(input: {
+    tenantId: string;
+    transactions: CreateTransactionInput[];
+  }) {
+    const transactions = [];
+    for (const transaction of input.transactions) {
+      const result = await this.createTransaction(transaction);
+      transactions.push({
+        reference: transaction.reference,
+        transactionId: result.transactionId,
+        created: result.created,
+      });
+    }
+    return {
+      createdCount: transactions.filter((transaction) => transaction.created).length,
+      idempotentCount: transactions.filter((transaction) => !transaction.created).length,
+      transactions,
     };
   }
 
@@ -424,6 +445,75 @@ describe('LedgerService', () => {
     expect(result.transactionId).toBe('tx-1');
     expect(repository.createTransactionCalls).toHaveLength(1);
     expect(repository.createTransactionCalls[0]?.description).toBe('Service-level description');
+  });
+
+  it('createTransaction delegates effectiveAt to repository', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const effectiveAt = new Date('2024-01-15T10:00:00.000Z');
+
+    await service.createTransaction({
+      tenantId: 'tenant-1',
+      ledgerId: 'ledger-1',
+      reference: 'ref-effective',
+      currency: 'USD',
+      effectiveAt,
+      entries: [
+        {
+          accountId: 'account-1',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-2',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    expect(repository.createTransactionCalls[0]?.effectiveAt).toBe(effectiveAt);
+  });
+
+  it('createTransactionsBulk rejects duplicate references before repository write', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const service = new LedgerService(repository);
+    const transaction = {
+      tenantId: 'tenant-1',
+      ledgerId: 'ledger-1',
+      reference: 'bulk-dup',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: 'account-1',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-2',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    };
+
+    const error = await service
+      .createTransactionsBulk({
+        tenantId: 'tenant-1',
+        transactions: [transaction, transaction],
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BulkTransactionError);
+    expect((error as BulkTransactionError).details).toEqual({
+      item_index: 1,
+      reference: 'bulk-dup',
+      category: 'VALIDATION',
+    });
+    expect(repository.createTransactionCalls).toHaveLength(0);
   });
 
   it('createTransaction validates description when provided', async () => {

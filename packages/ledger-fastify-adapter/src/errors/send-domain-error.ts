@@ -6,5 +6,6 @@ export const sendDomainError = (reply: FastifyReply, error: unknown): FastifyRep
   return reply.status(payload.statusCode).send({
     error: payload.error,
     message: payload.message,
+    ...(payload.details === undefined ? {} : { details: payload.details }),
   });
 };

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  bulkCreateTransactionRequestSchema,
+  bulkCreateTransactionResponseSchema,
   createTransactionRequestSchema,
   listTransactionsQuerySchemaExtra,
   transactionByIdParamsSchema,
@@ -18,6 +20,7 @@ describe('transaction contract migration parity', () => {
     expect(Object.keys(createTransactionRequestSchema.properties).sort()).toEqual([
       'currency',
       'description',
+      'effective_at',
       'entries',
       'ledger_id',
       'reference',
@@ -34,6 +37,7 @@ describe('transaction contract migration parity', () => {
       'created_at',
       'currency',
       'description',
+      'effective_at',
       'id',
       'ledger_id',
       'reference',
@@ -61,4 +65,14 @@ describe('transaction contract migration parity', () => {
     });
   });
 
+  test('defines bulk transaction all-or-nothing request and response schemas', () => {
+    expect(bulkCreateTransactionRequestSchema.required).toEqual(['transactions']);
+    expect(bulkCreateTransactionRequestSchema.properties.transactions.minItems).toBe(1);
+    expect(bulkCreateTransactionRequestSchema.properties.transactions.maxItems).toBe(100);
+    expect(bulkCreateTransactionResponseSchema.required).toEqual([
+      'created_count',
+      'idempotent_count',
+      'transactions',
+    ]);
+  });
 });
