@@ -30,4 +30,10 @@ Item-level bulk failures use `BULK_TRANSACTION_FAILED` and include `details.item
 
 ## Throughput expectations
 
-Bulk posting uses one SQL transaction and updates account rows in account-id order to keep lock acquisition deterministic. The HTTP contract caps a batch at 100 transactions. Larger imports should split work into multiple requests and retry failed requests by reference.
+Bulk posting uses one SQL transaction and updates account rows in account-id order to keep lock acquisition deterministic. Postings that affect the same account serialize on that account row. A backdated posting also updates every later snapshot for the affected account, so its write cost grows with the amount of history after `effective_at`.
+
+The HTTP contract caps a batch at 100 transactions to bound transaction size, rollback cost, and lock duration. This limit does not remove same-account contention. A batch that repeatedly affects the same account can hold that account lock longer than an individual posting.
+
+Larger imports should split work into multiple requests and retry failed requests by reference. Callers should not process batches that affect the same account concurrently. Operational monitoring should track posting latency, database lock wait time, transaction timeouts, and the number of later snapshots updated by backdated postings.
+
+The current synchronous snapshot propagation favors immediately consistent historical reads over same-account write throughput. A future storage model based on immutable transaction deltas and periodic balance checkpoints should remove the need to rewrite all later snapshots while preserving deterministic historical balances.
