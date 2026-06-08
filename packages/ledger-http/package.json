@@ -19,7 +19,7 @@
     "@lux/ledger": "workspace:*"
   },
   "scripts": {
-    "test": "bun test src/*.test.ts",
+    "test": "bun test src",
     "typecheck": "tsc -p ../../tsconfig.json --noEmit"
   }
 }

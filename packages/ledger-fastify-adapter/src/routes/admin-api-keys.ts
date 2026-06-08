@@ -1,6 +1,8 @@
+import type { ApiKeyEntity } from '@lux/ledger';
+import type { ApiKeyService } from '@lux/ledger/application';
 import {
-  type ApiKeyRole,
   type ApiKeyContract,
+  type ApiKeyRole,
   type CreateApiKeyRequest,
   createApiKeyBodySchema,
   createApiKeyResponseSchema,
@@ -9,10 +11,8 @@ import {
   revokeApiKeyParamsSchema,
 } from '@lux/ledger-http/contracts';
 import { toApiKeyContract } from '@lux/ledger-http/mappers';
-import { BaseEntityRoute } from '../routes/base-route';
-import type { ApiKeyEntity } from '@lux/ledger';
-import type { ApiKeyService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
+import { BaseEntityRoute } from '../routes/base-route';
 
 export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContract> {
   public constructor(private readonly apiKeyService: ApiKeyService) {

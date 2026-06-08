@@ -1,3 +1,4 @@
+import type { EntryEntity, LedgerService } from '@lux/ledger';
 import {
   type EntryResponse,
   entriesPageResponseSchema,
@@ -5,7 +6,6 @@ import {
 } from '@lux/ledger-http/contracts';
 import { toEntryResponse } from '@lux/ledger-http/mappers';
 import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
-import { type EntryEntity, type LedgerService } from '@lux/ledger';
 
 export class EntriesListRoute extends BasePaginatedRoute<
   EntryEntity,

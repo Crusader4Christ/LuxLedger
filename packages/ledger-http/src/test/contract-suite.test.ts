@@ -20,42 +20,54 @@ describe('framework-agnostic contract suite', () => {
     const harness = createContractHarness();
     const adapters = [{ name: 'fastify' }, { name: 'express' }] as const;
 
-    harness.runForAdapters([...adapters], [
-      {
-        name: 'create transaction required fields',
-        assert: () =>
-          expect(createTransactionRequestSchema.required).toEqual([
-            'ledger_id',
-            'reference',
-            'currency',
-            'entries',
-          ]),
-      },
-      {
-        name: 'account response contains balance_minor as string',
-        assert: () => expect(accountResponseSchema.properties.balance_minor).toEqual({ type: 'string' }),
-      },
-      {
-        name: 'entries response keeps nullable cursor',
-        assert: () => expect(entriesPageResponseSchema.properties.next_cursor).toEqual({ type: 'string', nullable: true }),
-      },
-      {
-        name: 'api key payload requires name and role',
-        assert: () => expect(createApiKeyBodySchema.required).toEqual(['name', 'role']),
-      },
-      {
-        name: 'ledger request requires only name',
-        assert: () => expect(createLedgerBodySchema.required).toEqual(['name']),
-      },
-      {
-        name: 'transaction response keeps nullable description',
-        assert: () => expect(transactionResponseSchema.properties.description).toEqual({ type: 'string', nullable: true }),
-      },
-      {
-        name: 'account request forbids additional properties',
-        assert: () => expect(createAccountBodySchema.additionalProperties).toBeFalse(),
-      },
-    ]);
+    harness.runForAdapters(
+      [...adapters],
+      [
+        {
+          name: 'create transaction required fields',
+          assert: () =>
+            expect(createTransactionRequestSchema.required).toEqual([
+              'ledger_id',
+              'reference',
+              'currency',
+              'entries',
+            ]),
+        },
+        {
+          name: 'account response contains balance_minor as string',
+          assert: () =>
+            expect(accountResponseSchema.properties.balance_minor).toEqual({ type: 'string' }),
+        },
+        {
+          name: 'entries response keeps nullable cursor',
+          assert: () =>
+            expect(entriesPageResponseSchema.properties.next_cursor).toEqual({
+              type: 'string',
+              nullable: true,
+            }),
+        },
+        {
+          name: 'api key payload requires name and role',
+          assert: () => expect(createApiKeyBodySchema.required).toEqual(['name', 'role']),
+        },
+        {
+          name: 'ledger request requires only name',
+          assert: () => expect(createLedgerBodySchema.required).toEqual(['name']),
+        },
+        {
+          name: 'transaction response keeps nullable description',
+          assert: () =>
+            expect(transactionResponseSchema.properties.description).toEqual({
+              type: 'string',
+              nullable: true,
+            }),
+        },
+        {
+          name: 'account request forbids additional properties',
+          assert: () => expect(createAccountBodySchema.additionalProperties).toBeFalse(),
+        },
+      ],
+    );
   });
 
   it('keeps negative validation and nullability semantics deterministic', () => {
@@ -67,7 +79,8 @@ describe('framework-agnostic contract suite', () => {
         assert: () => {
           expect(createTransactionRequestSchema.required).not.toContain('description');
           expect(
-            (createTransactionRequestSchema.properties.description as { nullable?: boolean }).nullable,
+            (createTransactionRequestSchema.properties.description as { nullable?: boolean })
+              .nullable,
           ).toBeUndefined();
         },
       },
@@ -101,7 +114,7 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('/v1/admin/api-keys:');
     expect(openapi).toContain('/v1/ledgers:');
     expect(openapi).toContain('/v1/entries:');
-    expect(openapi).toContain("required: [ledger_id, reference, currency, entries]");
+    expect(openapi).toContain('required: [ledger_id, reference, currency, entries]');
     expect(openapi).toContain('CreateAccountRequest:');
     expect(openapi).toContain('CreateApiKeyRequest:');
   });

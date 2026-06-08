@@ -1,10 +1,10 @@
+import type { ApiKeyEntity } from '@lux/ledger';
+import type { CreateApiKeyResult } from '@lux/ledger/application';
 import type {
   ApiKeyContract,
   CreateApiKeyResponse,
   ListApiKeysResponse,
 } from '../contracts/auth-admin';
-import type { ApiKeyEntity } from '@lux/ledger';
-import type { CreateApiKeyResult } from '@lux/ledger/application';
 
 export const toApiKeyContract = (key: ApiKeyEntity): ApiKeyContract => ({
   id: key.id,

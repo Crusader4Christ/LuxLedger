@@ -12,7 +12,10 @@ export const withErrorHandling = async <T>(
 };
 
 export abstract class BaseRouteCore<HandlerReply> {
-  protected async handle(handler: () => Promise<HandlerReply>, onError: ErrorResponder<HandlerReply>) {
+  protected async handle(
+    handler: () => Promise<HandlerReply>,
+    onError: ErrorResponder<HandlerReply>,
+  ) {
     return withErrorHandling(handler, onError);
   }
 }

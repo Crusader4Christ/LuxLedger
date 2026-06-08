@@ -5,10 +5,21 @@ import pkg from '../../package.json';
 
 const SRC_DIR = join(import.meta.dir, '..');
 
-const forbiddenSpecifiers = ['fastify', 'express', '@nestjs/core', 'drizzle-orm', 'postgres', '@api/', 'apps/'];
+const forbiddenSpecifiers = [
+  'fastify',
+  'express',
+  '@nestjs/core',
+  'drizzle-orm',
+  'postgres',
+  '@api/',
+  'apps/',
+];
 
 test('package deps exclude forbidden runtime dependencies', () => {
-  const packageJson = pkg as { dependencies?: Record<string, string>; peerDependencies?: Record<string, string> };
+  const packageJson = pkg as {
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
   const deps = { ...(packageJson.dependencies ?? {}), ...(packageJson.peerDependencies ?? {}) };
 
   for (const forbidden of ['fastify', 'express', '@nestjs/core', 'drizzle-orm', 'postgres']) {
@@ -39,7 +50,7 @@ test('source files do not import forbidden modules', () => {
     const content = readFileSync(file, 'utf8');
     for (const forbidden of forbiddenSpecifiers) {
       expect(content.includes(`from '${forbidden}`)).toBeFalse();
-      expect(content.includes(`from \"${forbidden}`)).toBeFalse();
+      expect(content.includes(`from "${forbidden}`)).toBeFalse();
     }
   }
 });

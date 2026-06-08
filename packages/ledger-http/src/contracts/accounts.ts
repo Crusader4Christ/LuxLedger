@@ -61,7 +61,10 @@ export type BalanceSnapshotResponse = {
   effective_at: string;
   created_at: string;
 };
-export type BalanceHistoryResponse = { data: BalanceSnapshotResponse[]; next_cursor: string | null };
+export type BalanceHistoryResponse = {
+  data: BalanceSnapshotResponse[];
+  next_cursor: string | null;
+};
 
 export const createAccountBodySchema = {
   type: 'object',
@@ -171,7 +174,14 @@ export const balanceAsOfQuerySchema = {
 
 export const balanceAsOfResponseSchema = {
   type: 'object',
-  required: ['account_id', 'timestamp', 'posted_minor', 'inflight_debit_minor', 'inflight_credit_minor', 'available_minor'],
+  required: [
+    'account_id',
+    'timestamp',
+    'posted_minor',
+    'inflight_debit_minor',
+    'inflight_credit_minor',
+    'available_minor',
+  ],
   properties: {
     account_id: { type: 'string', format: 'uuid' },
     timestamp: { type: 'string', format: 'date-time' },
@@ -196,13 +206,28 @@ export const balanceHistoryQuerySchema = {
 
 export const balanceSnapshotResponseSchema = {
   type: 'object',
-  required: ['id', 'tenant_id', 'ledger_id', 'account_id', 'event_type', 'source_id', 'posted_minor', 'inflight_debit_minor', 'inflight_credit_minor', 'effective_at', 'created_at'],
+  required: [
+    'id',
+    'tenant_id',
+    'ledger_id',
+    'account_id',
+    'event_type',
+    'source_id',
+    'posted_minor',
+    'inflight_debit_minor',
+    'inflight_credit_minor',
+    'effective_at',
+    'created_at',
+  ],
   properties: {
     id: { type: 'string', format: 'uuid' },
     tenant_id: { type: 'string', format: 'uuid' },
     ledger_id: { type: 'string', format: 'uuid' },
     account_id: { type: 'string', format: 'uuid' },
-    event_type: { type: 'string', enum: ['TX_APPLIED', 'HOLD_CREATED', 'HOLD_COMMITTED', 'HOLD_VOIDED', 'ADJUSTMENT'] },
+    event_type: {
+      type: 'string',
+      enum: ['TX_APPLIED', 'HOLD_CREATED', 'HOLD_COMMITTED', 'HOLD_VOIDED', 'ADJUSTMENT'],
+    },
     source_id: { type: 'string', format: 'uuid' },
     posted_minor: { type: 'string' },
     inflight_debit_minor: { type: 'string' },

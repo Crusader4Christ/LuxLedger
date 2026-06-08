@@ -1,4 +1,5 @@
 import { expect } from 'bun:test';
+import { AccountSide } from '@lux/ledger';
 import {
   type AccountResponse,
   type AccountsPageResponse,
@@ -8,7 +9,6 @@ import {
   type CreateAccountRequest,
   createAccountBodySchema,
 } from '@lux/ledger-http/contracts';
-import { AccountSide } from '@lux/ledger';
 import {
   extractPathMethodSection,
   extractPropertyNames,

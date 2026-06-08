@@ -1,5 +1,5 @@
-import { NonEmptyTrimmedStringSchema } from './common';
 import { ApiKeyRole } from '@lux/ledger/application';
+import { NonEmptyTrimmedStringSchema } from './common';
 export { ApiKeyRole };
 
 export const MIN_JWT_ACCESS_TTL_SECONDS = 300;

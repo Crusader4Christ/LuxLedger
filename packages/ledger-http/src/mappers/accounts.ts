@@ -1,5 +1,5 @@
-import type { AccountResponse } from '../contracts/accounts';
 import type { AccountEntity } from '@lux/ledger';
+import type { AccountResponse } from '../contracts/accounts';
 
 export const toAccountResponse = (account: AccountEntity): AccountResponse => ({
   id: account.id,

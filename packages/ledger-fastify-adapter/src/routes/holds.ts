@@ -1,14 +1,14 @@
+import type { LedgerService } from '@lux/ledger/application';
 import {
   type CommitHoldRequest,
-  commitHoldRequestSchema,
   type CreateHoldRequest,
+  commitHoldRequestSchema,
   createHoldRequestSchema,
   type HoldByIdParams,
   holdByIdParamsSchema,
 } from '@lux/ledger-http/contracts';
-import { BaseRoute } from '../routes/base-route';
-import type { LedgerService } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
+import { BaseRoute } from '../routes/base-route';
 
 export class HoldsRoutes extends BaseRoute {
   public constructor(private readonly ledgerService: LedgerService) {
@@ -67,7 +67,9 @@ export class HoldsRoutes extends BaseRoute {
             holdId: request.params.id,
             reference: request.body.reference,
             amountMinor:
-              request.body.amount_minor === undefined ? undefined : BigInt(request.body.amount_minor),
+              request.body.amount_minor === undefined
+                ? undefined
+                : BigInt(request.body.amount_minor),
           });
           return reply.status(result.created ? 201 : 200).send({
             hold_id: result.holdId,
