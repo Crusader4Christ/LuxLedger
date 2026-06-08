@@ -1,5 +1,5 @@
-import type { TrialBalanceResponse } from '../contracts/ledgers';
 import type { TrialBalance } from '@lux/ledger/application';
+import type { TrialBalanceResponse } from '../contracts/ledgers';
 
 export const toTrialBalanceResponse = (trialBalance: TrialBalance): TrialBalanceResponse => ({
   ledger_id: trialBalance.ledgerId,

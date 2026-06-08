@@ -6,11 +6,11 @@ import type {
   ReconUpload,
 } from '@lux/ledger/application';
 import type {
-  ReconUploadResponse,
   ReconCriterionRequest,
   ReconResultResponse,
   ReconRuleResponse,
   ReconRunResponse,
+  ReconUploadResponse,
 } from '../contracts/reconciliation';
 
 const toCriterionResponse = (criterion: ReconMatchCriterion): ReconCriterionRequest => ({

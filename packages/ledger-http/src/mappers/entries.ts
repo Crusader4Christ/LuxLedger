@@ -1,5 +1,5 @@
+import { type EntryEntity, InvariantViolationError } from '@lux/ledger';
 import type { EntryResponse } from '../contracts/entries';
-import { InvariantViolationError, type EntryEntity } from '@lux/ledger';
 
 export const toEntryResponse = (entry: EntryEntity): EntryResponse => {
   if (!entry.id || !entry.transactionId || !entry.createdAt) {
