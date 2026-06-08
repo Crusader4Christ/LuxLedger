@@ -755,34 +755,6 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           );
         }
 
-        const [byReference] = await tx
-          .select({
-            id: schema.transactions.id,
-            relatedTransactionId: schema.transactions.relatedTransactionId,
-            relationType: schema.transactions.relationType,
-            description: schema.transactions.description,
-          })
-          .from(schema.transactions)
-          .where(
-            and(
-              eq(schema.transactions.tenantId, input.tenantId),
-              eq(schema.transactions.reference, input.reference),
-            ),
-          )
-          .limit(1);
-        if (byReference) {
-          if (
-            byReference.relatedTransactionId !== input.transactionId ||
-            byReference.relationType !== 'REVERSAL' ||
-            (byReference.description ?? null) !== (input.description ?? null)
-          ) {
-            throw new InvariantViolationError(
-              'Unable to reverse transaction: reference payload mismatch',
-            );
-          }
-          return { transactionId: byReference.id, created: false };
-        }
-
         const originalEntries = await this.loadEntriesByTransactionIds(tx, input.tenantId, [
           input.transactionId,
         ]);
@@ -793,14 +765,13 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
           );
         }
 
-        const created = await this.createPostedTransaction(tx, {
+        return this.createOrResolveReversal(tx, {
           tenantId: input.tenantId,
+          originalTransactionId: original.id,
           ledgerId: original.ledgerId,
           reference: input.reference,
           currency: original.currency,
           description: input.description ?? null,
-          relatedTransactionId: original.id,
-          relationType: 'REVERSAL',
           entries: entries.map((entry) => ({
             accountId: entry.accountId.value,
             direction:
@@ -811,7 +782,6 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
             currency: entry.money.currency,
           })),
         });
-        return { transactionId: created, created: true };
       });
     } catch (error) {
       this.handleDatabaseError(error, 'reverse transaction');
@@ -2171,9 +2141,10 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       }>;
     },
   ): Promise<{ transactionId: string; created: boolean }> {
-    const [existing] = await tx
+    const candidates = await tx
       .select({
         id: schema.transactions.id,
+        reference: schema.transactions.reference,
         relatedTransactionId: schema.transactions.relatedTransactionId,
         relationType: schema.transactions.relationType,
         description: schema.transactions.description,
@@ -2182,21 +2153,34 @@ export class DrizzleLedgerRepository implements LedgerRepository, ApiKeyReposito
       .where(
         and(
           eq(schema.transactions.tenantId, input.tenantId),
-          eq(schema.transactions.reference, input.reference),
+          or(
+            eq(schema.transactions.reference, input.reference),
+            and(
+              eq(schema.transactions.relatedTransactionId, input.originalTransactionId),
+              eq(schema.transactions.relationType, 'REVERSAL'),
+            ),
+          ),
         ),
-      )
-      .limit(1);
-    if (existing) {
-      if (
-        existing.relatedTransactionId !== input.originalTransactionId ||
-        existing.relationType !== 'REVERSAL' ||
-        (existing.description ?? null) !== (input.description ?? null)
-      ) {
-        throw new InvariantViolationError(
-          'Unable to reverse transaction: reference payload mismatch',
-        );
-      }
-      return { transactionId: existing.id, created: false };
+      );
+    const existingReversal = candidates.find(
+      (candidate) =>
+        candidate.relatedTransactionId === input.originalTransactionId &&
+        candidate.relationType === 'REVERSAL',
+    );
+    const existingByReference = candidates.find(
+      (candidate) => candidate.reference === input.reference,
+    );
+
+    if (
+      existingReversal?.reference === input.reference &&
+      (existingReversal.description ?? null) === input.description
+    ) {
+      return { transactionId: existingReversal.id, created: false };
+    }
+    if (existingReversal || existingByReference) {
+      throw new InvariantViolationError(
+        'Unable to reverse transaction: reference payload mismatch',
+      );
     }
 
     const transactionId = await this.createPostedTransaction(tx, {

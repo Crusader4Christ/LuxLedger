@@ -2003,6 +2003,58 @@ describe('DrizzleLedgerRepository', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
+  it('reverseTransaction rejects a different reference when the original is already reversed', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      side: EntryDirection.CREDIT,
+      currency: 'USD',
+    });
+    const original = await repository.createTransaction({
+      tenantId,
+      ledgerId,
+      reference: 'tx-reverse-reference-original',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 10n,
+          currency: 'USD',
+        },
+      ],
+    });
+    await repository.reverseTransaction({
+      tenantId,
+      transactionId: original.transactionId,
+      reference: 'tx-reverse-reference-first',
+    });
+
+    await expect(
+      repository.reverseTransaction({
+        tenantId,
+        transactionId: original.transactionId,
+        reference: 'tx-reverse-reference-second',
+      }),
+    ).rejects.toThrow('Unable to reverse transaction: reference payload mismatch');
+  });
+
   it('correctTransaction returns created=true when reversal exists but corrected transaction is newly created', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
