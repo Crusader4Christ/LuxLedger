@@ -4,6 +4,7 @@ interface ErrorWithCodeAndStatus {
   code: string;
   httpStatus: number;
   message: string;
+  details?: Record<string, unknown>;
 }
 
 const isErrorWithCodeAndStatus = (error: unknown): error is ErrorWithCodeAndStatus =>
@@ -42,6 +43,7 @@ export const sendDomainError = (reply: FastifyReply, error: unknown): FastifyRep
     return reply.status(error.httpStatus).send({
       error: error.code,
       message: error.message,
+      ...(error.details === undefined ? {} : { details: error.details }),
     });
   }
 

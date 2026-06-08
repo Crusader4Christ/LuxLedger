@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { ApiKeyRole, type ApiKeyService, type LedgerService } from '@lux/ledger/application';
 import { registerLedgerAdapter as registerFastifyLedgerAdapter } from '@lux/ledger-fastify-adapter';
 import { createContractHarness } from '@lux/ledger-http/test/harness';
-import { ApiKeyRole, type ApiKeyService, type LedgerService } from '@lux/ledger/application';
 import express, { type Application } from 'express';
 import Fastify, { type FastifyInstance } from 'fastify';
 import httpMocks from 'node-mocks-http';
@@ -33,6 +33,29 @@ class FakeLedgerService {
     const id = '00000000-0000-4000-8000-000000000300';
     this.txByReference.set(key, id);
     return { transactionId: id, created: true };
+  }
+
+  public async createTransactionsBulk(input: {
+    tenantId: string;
+    transactions: Array<{ reference: string }>;
+  }) {
+    const transactions = [];
+    for (const transaction of input.transactions) {
+      const result = await this.createTransaction({
+        tenantId: input.tenantId,
+        reference: transaction.reference,
+      });
+      transactions.push({
+        reference: transaction.reference,
+        transactionId: result.transactionId,
+        created: result.created,
+      });
+    }
+    return {
+      createdCount: transactions.filter((transaction) => transaction.created).length,
+      idempotentCount: transactions.filter((transaction) => !transaction.created).length,
+      transactions,
+    };
   }
 }
 

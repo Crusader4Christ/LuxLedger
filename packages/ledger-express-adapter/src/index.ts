@@ -1,41 +1,49 @@
+import { AccountSide } from '@lux/ledger';
 import {
-  ApiKeyRole,
+  type ApiKeyService,
+  ForbiddenError,
+  type LedgerService,
+  UnauthorizedError,
+} from '@lux/ledger/application';
+import {
   type AccountByIdParams,
-  createAccountBodySchema,
+  ApiKeyRole,
+  type BulkCreateTransactionRequest,
+  type BulkCreateTransactionResponse,
+  bulkCreateTransactionRequestSchema,
+  bulkCreateTransactionResponseSchema,
   type CreateAccountRequest,
-  createApiKeyBodySchema,
   type CreateApiKeyRequest,
-  createLedgerBodySchema,
   type CreateLedgerRequest,
-  createTransactionRequestSchema,
   type CreateTransactionRequest,
   type CreateTransactionResponse,
+  createAccountBodySchema,
+  createApiKeyBodySchema,
+  createLedgerBodySchema,
+  createTransactionRequestSchema,
   type LedgerByIdParams,
   type ListAccountsQuery,
   type ListEntriesQuery,
   type ListTransactionsQuery,
   type RevokeApiKeyParams,
-  type TrialBalanceParams,
   type TransactionByIdParams,
+  type TrialBalanceParams,
 } from '@lux/ledger-http/contracts';
+import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
 import {
   toAccountResponse,
   toApiKeyContract,
   toEntryResponse,
-  toTrialBalanceResponse,
   toTransactionResponse,
+  toTrialBalanceResponse,
 } from '@lux/ledger-http/mappers';
-import { parseCursorQuery, parseLimitQuery, parseUuidQuery } from '@lux/ledger-http/query/pagination';
-import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
+import {
+  parseCursorQuery,
+  parseLimitQuery,
+  parseUuidQuery,
+} from '@lux/ledger-http/query/pagination';
 import { withErrorHandling } from '@lux/ledger-http/route-core';
 import { parseUuidParam } from '@lux/ledger-http/validation-utils';
-import { AccountSide } from '@lux/ledger';
-import {
-  ForbiddenError,
-  type ApiKeyService,
-  type LedgerService,
-  UnauthorizedError,
-} from '@lux/ledger/application';
 import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import express, { type Application, type Request, type Response } from 'express';
@@ -65,6 +73,7 @@ const sendDomainError = (res: Response, error: unknown): Response => {
   return res.status(payload.statusCode).json({
     error: payload.error,
     message: payload.message,
+    ...(payload.details === undefined ? {} : { details: payload.details }),
   });
 };
 
@@ -182,6 +191,7 @@ export const registerLedgerAdapter = (
         reference: body.reference,
         currency: body.currency,
         description: body.description,
+        effectiveAt: body.effective_at === undefined ? undefined : new Date(body.effective_at),
         entries: body.entries.map((entry) => ({
           accountId: entry.account_id,
           direction: entry.direction,
@@ -197,6 +207,49 @@ export const registerLedgerAdapter = (
     }),
   );
 
+  app.post('/v1/transactions/bulk', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const body = validate<BulkCreateTransactionRequest>(
+        bulkCreateTransactionRequestSchema,
+        req.body,
+      );
+      if (body === null) {
+        sendInvalidInput(res, 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const result = await dependencies.ledgerService.createTransactionsBulk({
+        tenantId: context.tenantId,
+        transactions: body.transactions.map((transaction) => ({
+          tenantId: context.tenantId,
+          ledgerId: transaction.ledger_id,
+          reference: transaction.reference,
+          currency: transaction.currency,
+          description: transaction.description,
+          effectiveAt:
+            transaction.effective_at === undefined ? undefined : new Date(transaction.effective_at),
+          entries: transaction.entries.map((entry) => ({
+            accountId: entry.account_id,
+            direction: entry.direction,
+            amountMinor: BigInt(entry.amount_minor),
+            currency: entry.currency,
+          })),
+        })),
+      });
+      const response: BulkCreateTransactionResponse = {
+        created_count: result.createdCount,
+        idempotent_count: result.idempotentCount,
+        transactions: result.transactions.map((transaction) => ({
+          reference: transaction.reference,
+          transaction_id: transaction.transactionId,
+          created: transaction.created,
+        })),
+      };
+      validate<BulkCreateTransactionResponse>(bulkCreateTransactionResponseSchema, response);
+      res.status(result.createdCount > 0 ? 201 : 200).json(response);
+    }),
+  );
+
   app.get('/v1/transactions/:id', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
       const params = parseUuidParam<keyof TransactionByIdParams>(req.params.id, 'id');
@@ -205,7 +258,10 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const transaction = await dependencies.ledgerService.getTransactionById(context.tenantId, params.id);
+      const transaction = await dependencies.ledgerService.getTransactionById(
+        context.tenantId,
+        params.id,
+      );
       res.status(200).json(toTransactionResponse(transaction));
     }),
   );

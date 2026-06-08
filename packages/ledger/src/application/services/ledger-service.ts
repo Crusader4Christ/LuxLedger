@@ -4,6 +4,7 @@ import type { TransactionEntity } from '../../transaction/entity';
 import { assertNonEmpty } from '../../utils';
 import {
   AccountNotFoundError,
+  BulkTransactionError,
   InvariantViolationError,
   LedgerNotFoundError,
   ReconRunNotFoundError,
@@ -15,6 +16,8 @@ import type {
   BalanceAtQuery,
   BalanceHistoryQuery,
   BalanceSnapshotEvent,
+  BulkCreateTransactionInput,
+  BulkCreateTransactionResult,
   CommitHoldInput,
   CommitHoldResult,
   CorrectTransactionInput,
@@ -82,15 +85,42 @@ export class LedgerService {
   }
 
   public async createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult> {
-    assertNonEmpty(input.tenantId, 'tenantId is required');
-    assertNonEmpty(input.ledgerId, 'ledgerId is required');
-    assertNonEmpty(input.reference, 'reference is required');
-    assertNonEmpty(input.currency, 'currency is required');
-    if (typeof input.description === 'string') {
-      assertNonEmpty(input.description, 'description must be a non-empty string');
-    }
+    this.validateCreateTransactionInput(input);
 
     return this.repository.createTransaction(input);
+  }
+
+  public async createTransactionsBulk(
+    input: BulkCreateTransactionInput,
+  ): Promise<BulkCreateTransactionResult> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    if (input.transactions.length === 0) {
+      throw new InvariantViolationError('at least one transaction is required');
+    }
+
+    const references = new Set<string>();
+    for (const [itemIndex, transaction] of input.transactions.entries()) {
+      try {
+        this.validateCreateTransactionInput(transaction);
+        if (transaction.tenantId !== input.tenantId) {
+          throw new InvariantViolationError('transaction tenantId must match bulk tenantId');
+        }
+        if (references.has(transaction.reference)) {
+          throw new InvariantViolationError('duplicate transaction reference in bulk request');
+        }
+        references.add(transaction.reference);
+      } catch (error) {
+        throw new BulkTransactionError({
+          itemIndex,
+          reference: transaction.reference,
+          category: 'VALIDATION',
+          message: error instanceof Error ? error.message : 'Invalid transaction input',
+          cause: error,
+        });
+      }
+    }
+
+    return this.repository.createTransactionsBulk(input);
   }
 
   public async reverseTransaction(
@@ -347,6 +377,23 @@ export class LedgerService {
   private assertOverdraftPolicy(policy: string): void {
     if (!(Object.values(OverdraftPolicy) as string[]).includes(policy)) {
       throw new InvariantViolationError('overdraft policy must be ALLOW or DISALLOW');
+    }
+  }
+
+  private validateCreateTransactionInput(input: CreateTransactionInput): void {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.ledgerId, 'ledgerId is required');
+    assertNonEmpty(input.reference, 'reference is required');
+    assertNonEmpty(input.currency, 'currency is required');
+    if (typeof input.description === 'string') {
+      assertNonEmpty(input.description, 'description must be a non-empty string');
+    }
+    if (
+      input.effectiveAt !== undefined &&
+      input.effectiveAt !== null &&
+      (!(input.effectiveAt instanceof Date) || Number.isNaN(input.effectiveAt.getTime()))
+    ) {
+      throw new InvariantViolationError('effectiveAt must be a valid ISO-8601 timestamp');
     }
   }
 }

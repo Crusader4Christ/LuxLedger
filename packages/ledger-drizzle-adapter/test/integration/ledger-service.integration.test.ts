@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { AccountSide, type EntryDirection } from '@lux/ledger';
-import { InvariantViolationError, LedgerService, RepositoryError } from '@lux/ledger/application';
+import {
+  BulkTransactionError,
+  InvariantViolationError,
+  LedgerService,
+  RepositoryError,
+} from '@lux/ledger/application';
 import {
   createDbClient,
   DrizzleLedgerRepository,
@@ -283,6 +288,167 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     expect(crossLedgerRows.length).toBe(0);
     expect(await getAccountBalance(cashAccountId)).toBe(-100n);
     expect(await getAccountBalance(secondaryLedgerAccountId)).toBe(0n);
+  });
+
+  it('applies backdated transactions to historical balances and later snapshots', async () => {
+    const tenant = await repository.createTenant({ name: 'Tenant Backdated' });
+    const ledger = await service.createLedger({ tenantId: tenant.id, name: 'Backdated' });
+    const cashAccountId = await createAccount({
+      tenantId: tenant.id,
+      ledgerId: ledger.id,
+      name: 'Cash',
+      side: AccountSide.DEBIT,
+      currency: 'USD',
+    });
+    const revenueAccountId = await createAccount({
+      tenantId: tenant.id,
+      ledgerId: ledger.id,
+      name: 'Revenue',
+      side: AccountSide.CREDIT,
+      currency: 'USD',
+    });
+
+    const entries = (amountMinor: bigint) => [
+      {
+        accountId: cashAccountId,
+        direction: AccountSide.DEBIT,
+        amountMinor,
+        currency: 'USD',
+      },
+      {
+        accountId: revenueAccountId,
+        direction: AccountSide.CREDIT,
+        amountMinor,
+        currency: 'USD',
+      },
+    ];
+
+    await service.createTransaction({
+      tenantId: tenant.id,
+      ledgerId: ledger.id,
+      reference: 'jan-10',
+      currency: 'USD',
+      effectiveAt: new Date('2024-01-10T00:00:00.000Z'),
+      entries: entries(100n),
+    });
+    await service.createTransaction({
+      tenantId: tenant.id,
+      ledgerId: ledger.id,
+      reference: 'jan-20',
+      currency: 'USD',
+      effectiveAt: new Date('2024-01-20T00:00:00.000Z'),
+      entries: entries(50n),
+    });
+    await service.createTransaction({
+      tenantId: tenant.id,
+      ledgerId: ledger.id,
+      reference: 'jan-15-backdated',
+      currency: 'USD',
+      effectiveAt: new Date('2024-01-15T00:00:00.000Z'),
+      entries: entries(25n),
+    });
+
+    const beforeFirst = await service.getBalanceAt({
+      tenantId: tenant.id,
+      accountId: cashAccountId,
+      at: new Date('2024-01-09T23:59:59.000Z'),
+    });
+    const afterBackdated = await service.getBalanceAt({
+      tenantId: tenant.id,
+      accountId: cashAccountId,
+      at: new Date('2024-01-16T00:00:00.000Z'),
+    });
+    const afterLater = await service.getBalanceAt({
+      tenantId: tenant.id,
+      accountId: cashAccountId,
+      at: new Date('2024-01-21T00:00:00.000Z'),
+    });
+
+    expect(beforeFirst.postedMinor).toBe(0n);
+    expect(afterBackdated.postedMinor).toBe(-125n);
+    expect(afterLater.postedMinor).toBe(-175n);
+    expect(await getAccountBalance(cashAccountId)).toBe(-175n);
+  });
+
+  it('rolls back every item in a bulk posting when one item fails', async () => {
+    const tenant = await repository.createTenant({ name: 'Tenant Bulk' });
+    const ledger = await service.createLedger({ tenantId: tenant.id, name: 'Bulk' });
+    const cashAccountId = await createAccount({
+      tenantId: tenant.id,
+      ledgerId: ledger.id,
+      name: 'Cash',
+      side: AccountSide.DEBIT,
+      currency: 'USD',
+    });
+    const revenueAccountId = await createAccount({
+      tenantId: tenant.id,
+      ledgerId: ledger.id,
+      name: 'Revenue',
+      side: AccountSide.CREDIT,
+      currency: 'USD',
+    });
+
+    const error = await service
+      .createTransactionsBulk({
+        tenantId: tenant.id,
+        transactions: [
+          {
+            tenantId: tenant.id,
+            ledgerId: ledger.id,
+            reference: 'bulk-valid',
+            currency: 'USD',
+            entries: [
+              {
+                accountId: cashAccountId,
+                direction: AccountSide.DEBIT,
+                amountMinor: 100n,
+                currency: 'USD',
+              },
+              {
+                accountId: revenueAccountId,
+                direction: AccountSide.CREDIT,
+                amountMinor: 100n,
+                currency: 'USD',
+              },
+            ],
+          },
+          {
+            tenantId: tenant.id,
+            ledgerId: ledger.id,
+            reference: 'bulk-invalid',
+            currency: 'USD',
+            entries: [
+              {
+                accountId: cashAccountId,
+                direction: AccountSide.DEBIT,
+                amountMinor: 50n,
+                currency: 'USD',
+              },
+              {
+                accountId: '00000000-0000-4000-8000-000000000999',
+                direction: AccountSide.CREDIT,
+                amountMinor: 50n,
+                currency: 'USD',
+              },
+            ],
+          },
+        ],
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BulkTransactionError);
+    expect((error as BulkTransactionError).details).toEqual({
+      item_index: 1,
+      reference: 'bulk-invalid',
+      category: 'VALIDATION',
+    });
+
+    const rows = await client.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.tenantId, tenant.id));
+    expect(rows.length).toBe(0);
+    expect(await getAccountBalance(cashAccountId)).toBe(0n);
+    expect(await getAccountBalance(revenueAccountId)).toBe(0n);
   });
 
   it('runs baseline reconciliation with persisted report, mismatches, conflicts, and dry-run', async () => {

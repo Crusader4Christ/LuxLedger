@@ -18,6 +18,7 @@ export class TransactionEntity {
   public readonly relatedTransactionId: string | null;
   public readonly relationType: 'REVERSAL' | 'CORRECTION' | null;
   public readonly createdAt: Date | null;
+  public readonly effectiveAt: Date | null;
   public readonly entries: EntryEntity[];
 
   public constructor(input: {
@@ -30,6 +31,7 @@ export class TransactionEntity {
     relatedTransactionId?: string | null;
     relationType?: 'REVERSAL' | 'CORRECTION' | null;
     createdAt?: Date | null;
+    effectiveAt?: Date | null;
     entries: EntryEntity[];
   }) {
     this.id = input.id;
@@ -41,6 +43,7 @@ export class TransactionEntity {
     this.relatedTransactionId = input.relatedTransactionId ?? null;
     this.relationType = input.relationType ?? null;
     this.createdAt = input.createdAt ?? null;
+    this.effectiveAt = input.effectiveAt ?? null;
     this.entries = input.entries;
 
     this.assertInvariants();

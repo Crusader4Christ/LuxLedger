@@ -6,8 +6,8 @@ import type { EntryDirection, EntryEntity } from '../entry/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type { LedgerRepository as BaseLedgerRepository } from '../ledger/repository.interface';
 import type {
-  ReconRecord,
   ReconMatchCriterion,
+  ReconRecord,
   ReconResultStatus,
   ReconRule,
   ReconRunStatus,
@@ -27,6 +27,23 @@ export type CreateTransactionInput = Omit<CreateTransactionCommand, 'id'>;
 export interface CreateTransactionResult {
   transactionId: string;
   created: boolean;
+}
+
+export interface BulkCreateTransactionInput {
+  tenantId: string;
+  transactions: CreateTransactionInput[];
+}
+
+export interface BulkCreateTransactionItemResult {
+  reference: string;
+  transactionId: string;
+  created: boolean;
+}
+
+export interface BulkCreateTransactionResult {
+  createdCount: number;
+  idempotentCount: number;
+  transactions: BulkCreateTransactionItemResult[];
 }
 
 export interface ReverseTransactionInput {
@@ -290,6 +307,7 @@ export interface LedgerRepository extends BaseLedgerRepository {
     transactionId: string,
   ): Promise<TransactionEntity | null>;
   createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult>;
+  createTransactionsBulk(input: BulkCreateTransactionInput): Promise<BulkCreateTransactionResult>;
   reverseTransaction(input: ReverseTransactionInput): Promise<ReverseTransactionResult>;
   correctTransaction(input: CorrectTransactionInput): Promise<CorrectTransactionResult>;
   createHold(input: CreateHoldInput): Promise<CreateHoldResult>;

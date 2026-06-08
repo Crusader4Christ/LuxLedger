@@ -203,12 +203,17 @@ export const transactions = pgTable(
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
     description: text('description'),
+    effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     transactionsTenantReferenceUq: uniqueIndex('transactions_tenant_reference_uq').on(
       table.tenantId,
       table.reference,
+    ),
+    transactionsEffectiveAtIdx: index('transactions_effective_at_idx').on(
+      table.tenantId,
+      table.effectiveAt,
     ),
     transactionsLedgerIdIdx: index('transactions_ledger_id_idx').on(table.ledgerId),
     transactionsHoldIdIdx: index('transactions_hold_id_idx').on(table.holdId),

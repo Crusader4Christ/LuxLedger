@@ -160,6 +160,26 @@ class InMemoryLedgerRepository {
     };
   }
 
+  public async createTransactionsBulk(input: {
+    tenantId: string;
+    transactions: CreateTransactionInput[];
+  }) {
+    const transactions = [];
+    for (const transaction of input.transactions) {
+      const result = await this.createTransaction(transaction);
+      transactions.push({
+        reference: transaction.reference,
+        transactionId: result.transactionId,
+        created: result.created,
+      });
+    }
+    return {
+      createdCount: transactions.filter((transaction) => transaction.created).length,
+      idempotentCount: transactions.filter((transaction) => !transaction.created).length,
+      transactions,
+    };
+  }
+
   public async reverseTransaction(input: {
     tenantId: string;
     transactionId: string;
@@ -775,6 +795,7 @@ const createServer = (
     findAccountByIdForTenant: readRepository.findAccountByIdForTenant.bind(readRepository),
     findTransactionByIdForTenant: readRepository.findTransactionByIdForTenant.bind(readRepository),
     createTransaction: writeRepository.createTransaction.bind(writeRepository),
+    createTransactionsBulk: writeRepository.createTransactionsBulk.bind(writeRepository),
     reverseTransaction: writeRepository.reverseTransaction.bind(writeRepository),
     correctTransaction: writeRepository.correctTransaction.bind(writeRepository),
     createHold: writeRepository.createHold.bind(writeRepository),
@@ -1573,6 +1594,101 @@ describe('server', () => {
     assertCreateTransactionResponseShape(secondBody);
     expect(firstBody.transaction_id).toBe(secondBody.transaction_id);
     expect(secondBody.created).toBeFalse();
+
+    await server.close();
+  });
+
+  it('POST /v1/transactions/bulk creates transactions all-or-nothing response shape', async () => {
+    const server = createServer();
+
+    const ledgerResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Main ledger',
+      },
+    });
+    const ledger = parsePayload<Ledger>(ledgerResponse.body);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/transactions/bulk',
+      headers: await authHeaders(server),
+      payload: {
+        transactions: [
+          createTransactionRequestFactory(ledger.id, 'bulk-ref-1'),
+          {
+            ...createTransactionRequestFactory(ledger.id, 'bulk-ref-2'),
+            effective_at: '2024-01-15T00:00:00.000Z',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = parsePayload<{
+      created_count: number;
+      idempotent_count: number;
+      transactions: Array<{ reference: string; transaction_id: string; created: boolean }>;
+    }>(response.body);
+    expect(body.created_count).toBe(2);
+    expect(body.idempotent_count).toBe(0);
+    expect(body.transactions.map((transaction) => transaction.reference)).toEqual([
+      'bulk-ref-1',
+      'bulk-ref-2',
+    ]);
+    expect(
+      body.transactions.every((transaction) => isUuidV7(transaction.transaction_id)),
+    ).toBeTrue();
+
+    await server.close();
+  });
+
+  it('POST /v1/transactions/bulk identifies the failing item', async () => {
+    const server = createServer();
+
+    const ledgerResponse = await server.inject({
+      method: 'POST',
+      url: '/v1/ledgers',
+      headers: await authHeaders(server),
+      payload: {
+        name: 'Main ledger',
+      },
+    });
+    const ledger = parsePayload<Ledger>(ledgerResponse.body);
+    const duplicate = createTransactionRequestFactory(ledger.id, 'bulk-duplicate');
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/v1/transactions/bulk',
+      headers: await authHeaders(server),
+      payload: {
+        transactions: [duplicate, duplicate],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(
+      parsePayload<{
+        error: string;
+        message: string;
+        details: {
+          item_index: number;
+          reference: string;
+          category: string;
+        };
+      }>(response.body),
+    ).toEqual({
+      error: 'BULK_TRANSACTION_FAILED',
+      message:
+        'Bulk transaction 1 (bulk-duplicate) failed: duplicate transaction reference in bulk request',
+      details: {
+        item_index: 1,
+        reference: 'bulk-duplicate',
+        category: 'VALIDATION',
+      },
+    });
 
     await server.close();
   });
