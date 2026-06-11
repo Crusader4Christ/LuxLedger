@@ -15,14 +15,14 @@ import {
 } from '@lux/ledger/application';
 import { and, asc, desc, eq, gt, gte, lte, or, sql } from 'drizzle-orm';
 import stringify from 'safe-stable-stringify';
-import { type DrizzleDatabase, withTenantTransaction } from '../database-operation';
+import type { DbClient } from '../client';
 import * as schema from '../schema';
 
 export class DrizzleBalanceRepository implements BalanceApplicationRepository {
-  public constructor(private readonly db: DrizzleDatabase) {}
+  public constructor(private readonly client: DbClient) {}
 
   public async getTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance> {
-    return withTenantTransaction(this.db, query.tenantId, 'get trial balance', async (tx) => {
+    return this.client.runTenantTx(query.tenantId, 'get trial balance', async (tx) => {
       const [ledger] = await tx
         .select({ id: schema.ledgers.id })
         .from(schema.ledgers)
@@ -80,39 +80,43 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
   }
 
   public async getAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
-    return withTenantTransaction(this.db, query.tenantId, 'get historical balance', async (tx) => {
-      const [row] = await tx
-        .select()
-        .from(schema.balanceSnapshots)
-        .where(
-          and(
-            eq(schema.balanceSnapshots.tenantId, query.tenantId),
-            eq(schema.balanceSnapshots.accountId, query.accountId),
-            lte(schema.balanceSnapshots.effectiveAt, query.at),
-          ),
-        )
-        .orderBy(desc(schema.balanceSnapshots.effectiveAt), desc(schema.balanceSnapshots.id))
-        .limit(1);
+    return this.client.runTenantTx(
+      query.tenantId,
+      'get historical balance',
+      async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(schema.balanceSnapshots)
+          .where(
+            and(
+              eq(schema.balanceSnapshots.tenantId, query.tenantId),
+              eq(schema.balanceSnapshots.accountId, query.accountId),
+              lte(schema.balanceSnapshots.effectiveAt, query.at),
+            ),
+          )
+          .orderBy(desc(schema.balanceSnapshots.effectiveAt), desc(schema.balanceSnapshots.id))
+          .limit(1);
 
-      const postedMinor = row?.postedMinor ?? 0n;
-      const inflightDebitMinor = row?.inflightDebitMinor ?? 0n;
-      const inflightCreditMinor = row?.inflightCreditMinor ?? 0n;
-      return {
-        tenantId: query.tenantId,
-        accountId: query.accountId,
-        at: query.at,
-        postedMinor,
-        inflightDebitMinor,
-        inflightCreditMinor,
-        availableMinor: postedMinor - inflightDebitMinor + inflightCreditMinor,
-      };
-    });
+        const postedMinor = row?.postedMinor ?? 0n;
+        const inflightDebitMinor = row?.inflightDebitMinor ?? 0n;
+        const inflightCreditMinor = row?.inflightCreditMinor ?? 0n;
+        return {
+          tenantId: query.tenantId,
+          accountId: query.accountId,
+          at: query.at,
+          postedMinor,
+          inflightDebitMinor,
+          inflightCreditMinor,
+          availableMinor: postedMinor - inflightDebitMinor + inflightCreditMinor,
+        };
+      },
+    );
   }
 
   public async listHistory(
     query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
-    return withTenantTransaction(this.db, query.tenantId, 'get balance history', async (tx) => {
+    return this.client.runTenantTx(query.tenantId, 'get balance history', async (tx) => {
       const cursor = this.decodeCursor(query.cursor);
       const rows = await tx
         .select()

@@ -52,8 +52,8 @@ const client = createDbClient({
 const logger = {
   info: () => {},
 } as unknown as RepositoryLogger;
-const services = createApplicationServices(client.db, logger);
-const tenants = new DrizzleTenantRepository(client.db);
+const services = createApplicationServices(client, logger);
+const tenants = new DrizzleTenantRepository(client);
 
 const createAccount = async (input: {
   tenantId: string;

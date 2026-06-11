@@ -24,7 +24,7 @@ import {
 } from '@lux/ledger/application';
 import { and, desc, eq, gt, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { type DrizzleDatabase, withTenantTransaction } from '../database-operation';
+import type { DbClient } from '../client';
 import { toEntryEntity } from '../mappers/entry-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
@@ -39,13 +39,12 @@ type EntryRow = typeof schema.entries.$inferSelect;
 
 export class DrizzleTransactionRepository implements TransactionApplicationRepository {
   public constructor(
-    private readonly db: DrizzleDatabase,
+    private readonly client: DbClient,
     private readonly logger: RepositoryLogger,
   ) {}
 
   public async create(input: CreateTransactionInput): Promise<CreateTransactionResult> {
-    const result = await withTenantTransaction(
-      this.db,
+    const result = await this.client.runTenantTx(
       input.tenantId,
       'create transaction',
       async (tx) =>
@@ -85,8 +84,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   }
 
   public async createBulk(input: BulkCreateTransactionInput): Promise<BulkCreateTransactionResult> {
-    return withTenantTransaction(
-      this.db,
+    return this.client.runTenantTx(
       input.tenantId,
       'bulk create transactions',
       async (tx) => {
@@ -119,7 +117,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   }
 
   public async reverse(input: ReverseTransactionInput): Promise<ReverseTransactionResult> {
-    return withTenantTransaction(this.db, input.tenantId, 'reverse transaction', async (tx) => {
+    return this.client.runTenantTx(input.tenantId, 'reverse transaction', async (tx) => {
       const original = await this.lockTransaction(tx, input.tenantId, input.transactionId);
       if (!original) {
         throw new InvariantViolationError('Unable to reverse transaction: original not found');
@@ -159,7 +157,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   }
 
   public async correct(input: CorrectTransactionInput): Promise<CorrectTransactionResult> {
-    return withTenantTransaction(this.db, input.tenantId, 'correct transaction', async (tx) => {
+    return this.client.runTenantTx(input.tenantId, 'correct transaction', async (tx) => {
       const original = await this.lockTransaction(tx, input.tenantId, input.transactionId);
       if (!original) {
         throw new InvariantViolationError('Unable to correct transaction: original not found');
@@ -224,7 +222,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   public async list(
     query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
-    return withTenantTransaction(this.db, query.tenantId, 'list transactions', async (tx) => {
+    return this.client.runTenantTx(query.tenantId, 'list transactions', async (tx) => {
       const predicates = [eq(schema.transactions.tenantId, query.tenantId)];
       if (query.ledgerId !== undefined) {
         predicates.push(eq(schema.transactions.ledgerId, query.ledgerId));
@@ -275,8 +273,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     tenantId: string,
     transactionId: string,
   ): Promise<TransactionEntity | null> {
-    return withTenantTransaction(
-      this.db,
+    return this.client.runTenantTx(
       tenantId,
       'find transaction by id for tenant',
       async (tx) => {
@@ -305,7 +302,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   }
 
   public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
-    return withTenantTransaction(this.db, query.tenantId, 'list entries', async (tx) => {
+    return this.client.runTenantTx(query.tenantId, 'list entries', async (tx) => {
       const page = await paginateByCursor<EntryRow>({
         query,
         order: [

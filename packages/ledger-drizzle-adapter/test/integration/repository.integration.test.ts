@@ -48,7 +48,7 @@ const client = createDbClient({
   connectTimeoutSeconds: 5,
 });
 
-const repository = new CombinedDrizzleRepositoryFacade(client.db, {
+const repository = new CombinedDrizzleRepositoryFacade(client, {
   info: () => {},
 } as unknown as RepositoryLogger);
 
@@ -681,8 +681,8 @@ describe('CombinedDrizzleRepositoryFacade', () => {
       idleTimeoutSeconds: 5,
       connectTimeoutSeconds: 5,
     });
-    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA.db, { info: () => {} });
-    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB.db, { info: () => {} });
+    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA, { info: () => {} });
+    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB, { info: () => {} });
 
     try {
       const results = await Promise.all([
@@ -761,8 +761,8 @@ describe('CombinedDrizzleRepositoryFacade', () => {
       idleTimeoutSeconds: 5,
       connectTimeoutSeconds: 5,
     });
-    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA.db, { info: () => {} });
-    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB.db, { info: () => {} });
+    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA, { info: () => {} });
+    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB, { info: () => {} });
     const createBackdated = (
       target: CombinedDrizzleRepositoryFacade,
       reference: string,
@@ -1000,7 +1000,7 @@ describe('CombinedDrizzleRepositoryFacade', () => {
     });
 
     const logs: Array<{ object: Record<string, unknown>; message: string }> = [];
-    const repositoryWithLogger = new CombinedDrizzleRepositoryFacade(client.db, {
+    const repositoryWithLogger = new CombinedDrizzleRepositoryFacade(client, {
       info: (object: Record<string, unknown>, message: string) => {
         logs.push({ object, message });
       },
@@ -1923,8 +1923,8 @@ describe('CombinedDrizzleRepositoryFacade', () => {
       idleTimeoutSeconds: 5,
       connectTimeoutSeconds: 5,
     });
-    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA.db, { info: () => {} });
-    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB.db, { info: () => {} });
+    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA, { info: () => {} });
+    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB, { info: () => {} });
 
     try {
       const results = await Promise.all([

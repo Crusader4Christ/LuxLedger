@@ -34,7 +34,7 @@ import type {
   VoidHoldInput,
   VoidHoldResult,
 } from '@lux/ledger/application';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { DbClient } from './client';
 import { DrizzleAccountRepository } from './repositories/account-repository';
 import { DrizzleBalanceRepository } from './repositories/balance-repository';
 import { DrizzleHoldRepository } from './repositories/hold-repository';
@@ -43,7 +43,6 @@ import { DrizzleReconciliationRepository } from './repositories/reconciliation-r
 import { DrizzleTenantRepository } from './repositories/tenant-repository';
 import { DrizzleTransactionRepository } from './repositories/transaction-repository';
 import type { RepositoryLogger } from './repository-logger';
-import type * as schema from './schema';
 
 export class CombinedDrizzleRepositoryFacade implements LegacyCombinedLedgerRepository {
   private readonly accounts: DrizzleAccountRepository;
@@ -54,14 +53,14 @@ export class CombinedDrizzleRepositoryFacade implements LegacyCombinedLedgerRepo
   private readonly tenants: DrizzleTenantRepository;
   private readonly transactions: DrizzleTransactionRepository;
 
-  public constructor(db: PostgresJsDatabase<typeof schema>, logger: RepositoryLogger) {
-    this.accounts = new DrizzleAccountRepository(db);
-    this.balances = new DrizzleBalanceRepository(db);
-    this.holds = new DrizzleHoldRepository(db);
-    this.ledgers = new DrizzleLedgerRepository(db);
-    this.reconciliation = new DrizzleReconciliationRepository(db);
-    this.tenants = new DrizzleTenantRepository(db);
-    this.transactions = new DrizzleTransactionRepository(db, logger);
+  public constructor(client: DbClient, logger: RepositoryLogger) {
+    this.accounts = new DrizzleAccountRepository(client);
+    this.balances = new DrizzleBalanceRepository(client);
+    this.holds = new DrizzleHoldRepository(client);
+    this.ledgers = new DrizzleLedgerRepository(client);
+    this.reconciliation = new DrizzleReconciliationRepository(client);
+    this.tenants = new DrizzleTenantRepository(client);
+    this.transactions = new DrizzleTransactionRepository(client, logger);
   }
 
   public createTenant(input: {

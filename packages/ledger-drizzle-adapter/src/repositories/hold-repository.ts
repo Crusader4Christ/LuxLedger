@@ -13,7 +13,7 @@ import {
 } from '@lux/ledger/application';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { type DrizzleDatabase, withTenantTransaction } from '../database-operation';
+import type { DbClient } from '../client';
 import * as schema from '../schema';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { totalDebit, validatePosting } from './posting-validation';
@@ -21,10 +21,10 @@ import { totalDebit, validatePosting } from './posting-validation';
 type HoldRow = typeof schema.holds.$inferSelect;
 
 export class DrizzleHoldRepository implements HoldApplicationRepository {
-  public constructor(private readonly db: DrizzleDatabase) {}
+  public constructor(private readonly client: DbClient) {}
 
   public async create(input: CreateHoldInput): Promise<CreateHoldResult> {
-    return withTenantTransaction(this.db, input.tenantId, 'create hold', async (tx) => {
+    return this.client.runTenantTx(input.tenantId, 'create hold', async (tx) => {
       await validatePosting(tx, input);
 
       const amountMinor = totalDebit(input.entries);
@@ -173,7 +173,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
   }
 
   public async commit(input: CommitHoldInput): Promise<CommitHoldResult> {
-    return withTenantTransaction(this.db, input.tenantId, 'commit hold', async (tx) => {
+    return this.client.runTenantTx(input.tenantId, 'commit hold', async (tx) => {
       const hold = await this.lockHold(tx, input.tenantId, input.holdId);
       if (!hold) {
         throw new InvariantViolationError('Unable to commit hold: hold not found');
@@ -350,7 +350,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
   }
 
   public async void(input: VoidHoldInput): Promise<VoidHoldResult> {
-    return withTenantTransaction(this.db, input.tenantId, 'void hold', async (tx) => {
+    return this.client.runTenantTx(input.tenantId, 'void hold', async (tx) => {
       const hold = await this.lockHold(tx, input.tenantId, input.holdId);
       if (!hold) {
         throw new InvariantViolationError('Unable to void hold: hold not found');

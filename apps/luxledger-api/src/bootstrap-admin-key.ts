@@ -10,7 +10,7 @@ const requireEnv = (name: string): string => {
 
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
-  const apiKeyService = createApiKeyService(dbClient.db);
+  const apiKeyService = createApiKeyService(dbClient);
 
   try {
     const result = await apiKeyService.bootstrapInitialAdmin({

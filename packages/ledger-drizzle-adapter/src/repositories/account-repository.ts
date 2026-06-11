@@ -7,16 +7,16 @@ import {
   type PaginatedResult,
 } from '@lux/ledger/application';
 import { and, eq } from 'drizzle-orm';
-import { type DrizzleDatabase, withTenantTransaction } from '../database-operation';
+import type { DbClient } from '../client';
 import { toAccountEntity } from '../mappers/account-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
 
 export class DrizzleAccountRepository implements AccountRepository {
-  public constructor(private readonly db: DrizzleDatabase) {}
+  public constructor(private readonly client: DbClient) {}
 
   public async create(input: CreateAccountInput): Promise<AccountEntity> {
-    return withTenantTransaction(this.db, input.tenantId, 'create account', async (tx) => {
+    return this.client.runTenantTx(input.tenantId, 'create account', async (tx) => {
       const [ledger] = await tx
         .select({ id: schema.ledgers.id })
         .from(schema.ledgers)
@@ -44,18 +44,22 @@ export class DrizzleAccountRepository implements AccountRepository {
   }
 
   public async findById(tenantId: string, accountId: string): Promise<AccountEntity | null> {
-    return withTenantTransaction(this.db, tenantId, 'find account by id for tenant', async (tx) => {
-      const [row] = await tx
-        .select()
-        .from(schema.accounts)
-        .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
-        .limit(1);
-      return row ? toAccountEntity(row) : null;
-    });
+    return this.client.runTenantTx(
+      tenantId,
+      'find account by id for tenant',
+      async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(schema.accounts)
+          .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
+          .limit(1);
+        return row ? toAccountEntity(row) : null;
+      },
+    );
   }
 
   public async list(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>> {
-    return withTenantTransaction(this.db, query.tenantId, 'list accounts', async (tx) => {
+    return this.client.runTenantTx(query.tenantId, 'list accounts', async (tx) => {
       const predicates = [eq(schema.accounts.tenantId, query.tenantId)];
       if (query.ledgerId !== undefined) {
         predicates.push(eq(schema.accounts.ledgerId, query.ledgerId));

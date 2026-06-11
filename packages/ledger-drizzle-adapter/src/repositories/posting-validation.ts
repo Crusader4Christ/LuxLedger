@@ -7,7 +7,7 @@ import {
 } from '@lux/ledger';
 import { type CreateTransactionInput, InvariantViolationError } from '@lux/ledger/application';
 import { and, eq, inArray } from 'drizzle-orm';
-import type { DrizzleDatabase } from '../database-operation';
+import type { DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
 

@@ -10,7 +10,7 @@ import {
   type RunReconInput,
 } from '@lux/ledger/application';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { type DrizzleDatabase, withTenantTransaction } from '../database-operation';
+import type { DbClient } from '../client';
 import {
   serializeMatchingCriteria,
   toReconRecord,
@@ -23,11 +23,10 @@ import { generateUuidV7 } from '../uuid-v7';
 import { loadEntriesByTransactionIds } from './entry-loader';
 
 export class DrizzleReconciliationRepository implements ReconciliationApplicationRepository {
-  public constructor(private readonly db: DrizzleDatabase) {}
+  public constructor(private readonly client: DbClient) {}
 
   public async ingest(input: IngestReconRecordsInput): Promise<ReconUpload> {
-    return withTenantTransaction(
-      this.db,
+    return this.client.runTenantTx(
       input.tenantId,
       'ingest reconciliation external records',
       async (tx) => {
@@ -66,8 +65,7 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
   }
 
   public async createRule(input: CreateReconRuleInput) {
-    return withTenantTransaction(
-      this.db,
+    return this.client.runTenantTx(
       input.tenantId,
       'create reconciliation matching rule',
       async (tx) => {
@@ -86,8 +84,7 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
   }
 
   public async listRules(tenantId: string) {
-    return withTenantTransaction(
-      this.db,
+    return this.client.runTenantTx(
       tenantId,
       'list reconciliation matching rules',
       async (tx) => {
@@ -102,8 +99,7 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
   }
 
   public async getRule(tenantId: string, ruleId: string) {
-    return withTenantTransaction(
-      this.db,
+    return this.client.runTenantTx(
       tenantId,
       'get reconciliation matching rule',
       async (tx) => {
@@ -118,7 +114,7 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
   }
 
   public async run(input: RunReconInput): Promise<ReconRun> {
-    return withTenantTransaction(this.db, input.tenantId, 'run reconciliation', async (tx) => {
+    return this.client.runTenantTx(input.tenantId, 'run reconciliation', async (tx) => {
       const [ledger] = await tx
         .select({ id: schema.ledgers.id })
         .from(schema.ledgers)
@@ -262,7 +258,7 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
   }
 
   public async getRun(tenantId: string, runId: string): Promise<ReconRun | null> {
-    return withTenantTransaction(this.db, tenantId, 'get reconciliation run', async (tx) => {
+    return this.client.runTenantTx(tenantId, 'get reconciliation run', async (tx) => {
       const [run] = await tx
         .select()
         .from(schema.reconRuns)

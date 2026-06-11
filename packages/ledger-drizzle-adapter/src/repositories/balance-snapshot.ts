@@ -1,4 +1,4 @@
-import type { DrizzleDatabase } from '../database-operation';
+import type { DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 
 type BalanceSnapshotEventType = typeof schema.balanceSnapshots.$inferSelect.eventType;

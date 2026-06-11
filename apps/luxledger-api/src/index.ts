@@ -43,10 +43,7 @@ export const run = async (): Promise<void> => {
     },
     logger: true,
   });
-  const services = createApplicationServices(
-    dbClient.db,
-    server.log as unknown as RepositoryLogger,
-  );
+  const services = createApplicationServices(dbClient, server.log as unknown as RepositoryLogger);
   registerApplication(server, {
     services,
     jwtAuth: parseJwtAuthConfig(process.env),
