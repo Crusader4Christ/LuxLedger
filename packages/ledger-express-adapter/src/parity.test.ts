@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { ApiKeyRole, type ApiKeyService, type LedgerService } from '@lux/ledger/application';
+import { ApiKeyRole, type ApiKeyService, type ApplicationServices } from '@lux/ledger/application';
 import { registerLedgerAdapter as registerFastifyLedgerAdapter } from '@lux/ledger-fastify-adapter';
 import { createContractHarness } from '@lux/ledger-http/test/harness';
 import express, { type Application } from 'express';
@@ -17,7 +17,7 @@ const tenantId = '11111111-1111-4111-8111-111111111111';
 class FakeLedgerService {
   private txByReference = new Map<string, string>();
 
-  public async getLedgersByTenant(_tenantId: string): Promise<unknown[]> {
+  public async listLedgers(_tenantId: string): Promise<unknown[]> {
     return [];
   }
 
@@ -70,8 +70,24 @@ describe('express adapter parity with fastify adapter', () => {
   let expressApp: Application;
 
   beforeAll(async () => {
-    const ledgerService = new FakeLedgerService() as unknown as LedgerService;
+    const fakeLedgerService = new FakeLedgerService();
     const apiKeyService = new FakeApiKeyService() as unknown as ApiKeyService;
+    const services = {
+      accounts: fakeLedgerService,
+      apiKeys: apiKeyService,
+      balances: fakeLedgerService,
+      holds: fakeLedgerService,
+      ledgers: {
+        list: (currentTenantId: string) => fakeLedgerService.listLedgers(currentTenantId),
+      },
+      reconciliation: fakeLedgerService,
+      transactions: {
+        create: (input: Parameters<FakeLedgerService['createTransaction']>[0]) =>
+          fakeLedgerService.createTransaction(input),
+        createBulk: (input: Parameters<FakeLedgerService['createTransactionsBulk']>[0]) =>
+          fakeLedgerService.createTransactionsBulk(input),
+      },
+    } as unknown as ApplicationServices;
 
     fastifyServer = Fastify({
       ajv: {
@@ -104,7 +120,7 @@ describe('express adapter parity with fastify adapter', () => {
       }
       reply.status(500).send({ error: 'INTERNAL_ERROR', message: 'Internal server error' });
     });
-    registerFastifyLedgerAdapter(fastifyServer, { ledgerService, apiKeyService });
+    registerFastifyLedgerAdapter(fastifyServer, services);
 
     expressApp = express();
     expressApp.use(express.json());
@@ -114,7 +130,7 @@ describe('express adapter parity with fastify adapter', () => {
       (req as { apiKeyRole?: ApiKeyRole }).apiKeyRole = ApiKeyRole.ADMIN;
       next();
     });
-    registerExpressLedgerAdapter(expressApp, { ledgerService, apiKeyService });
+    registerExpressLedgerAdapter(expressApp, { services });
   });
 
   afterAll(async () => {

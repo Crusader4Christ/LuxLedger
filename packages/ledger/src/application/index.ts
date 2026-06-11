@@ -3,6 +3,6 @@ export { ApiKeyRole } from '../api-key/entity';
 export { EntryDirection } from '../entry/entity';
 export * from './errors';
 export * from './pagination-query';
-export * from './services/api-key-service';
-export * from './services/ledger-service';
+export * from './repositories.interface';
+export * from './services';
 export * from './types';

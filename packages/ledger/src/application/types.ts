@@ -1,10 +1,10 @@
-import type { AccountEntity, AccountSide, OverdraftPolicy } from '../account/entity';
+import type { AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
-import type { EntryDirection, EntryEntity } from '../entry/entity';
+import type { EntryDirection } from '../entry/entity';
+import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
-import type { LedgerRepository as BaseLedgerRepository } from '../ledger/repository.interface';
 import type {
   ReconMatchCriterion,
   ReconRecord,
@@ -14,13 +14,11 @@ import type {
   ReconStrategy,
 } from '../reconciliation';
 import type { TenantEntity } from '../tenant/entity';
-import type { CreateTenantInput } from '../tenant/input.interface';
-import type { TransactionEntity } from '../transaction/entity';
 import type { CreateTransactionCommand } from '../transaction/use-cases/create-transaction.command';
 
 export type Tenant = TenantEntity;
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
-export type Ledger = Awaited<ReturnType<BaseLedgerRepository['createLedger']>>;
+export type Ledger = LedgerEntity;
 
 export type CreateTransactionInput = Omit<CreateTransactionCommand, 'id'>;
 
@@ -299,34 +297,6 @@ export interface BootstrapAdminResult {
   apiKeyId?: string;
 }
 
-export interface LedgerRepository extends BaseLedgerRepository {
-  createAccount(input: CreateAccountInput): Promise<AccountEntity>;
-  findAccountByIdForTenant(tenantId: string, accountId: string): Promise<AccountEntity | null>;
-  findTransactionByIdForTenant(
-    tenantId: string,
-    transactionId: string,
-  ): Promise<TransactionEntity | null>;
-  createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult>;
-  createTransactionsBulk(input: BulkCreateTransactionInput): Promise<BulkCreateTransactionResult>;
-  reverseTransaction(input: ReverseTransactionInput): Promise<ReverseTransactionResult>;
-  correctTransaction(input: CorrectTransactionInput): Promise<CorrectTransactionResult>;
-  createHold(input: CreateHoldInput): Promise<CreateHoldResult>;
-  commitHold(input: CommitHoldInput): Promise<CommitHoldResult>;
-  voidHold(input: VoidHoldInput): Promise<VoidHoldResult>;
-  listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
-  listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
-  listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
-  getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
-  getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
-  listBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
-  ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload>;
-  createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule>;
-  listReconciliationMatchingRules(tenantId: string): Promise<ReconRule[]>;
-  getReconciliationMatchingRule(tenantId: string, ruleId: string): Promise<ReconRule | null>;
-  runReconciliation(input: RunReconInput): Promise<ReconRun>;
-  getReconciliationRun(tenantId: string, runId: string): Promise<ReconRun | null>;
-}
-
 export type {
   ReconRecord,
   ReconMatchCriterion,
@@ -335,13 +305,3 @@ export type {
   ReconRunStatus,
   ReconStrategy,
 };
-
-export interface ApiKeyRepository {
-  countApiKeys(): Promise<number>;
-  createTenant(input: CreateTenantInput): Promise<Tenant>;
-  findActiveApiKeyByHash(keyHash: string): Promise<ApiKeyEntity | null>;
-  findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null>;
-  createApiKey(input: CreateApiKeyInput): Promise<ApiKeyEntity>;
-  listApiKeys(tenantId: string): Promise<ApiKeyEntity[]>;
-  revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean>;
-}

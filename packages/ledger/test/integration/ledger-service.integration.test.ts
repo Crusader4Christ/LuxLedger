@@ -6,33 +6,38 @@ import {
   type EntryEntity,
   type TransactionEntity,
 } from '@lux/ledger';
-import type {
-  AccountPaginationQuery,
-  BalanceAtQuery,
-  BalanceHistoryQuery,
-  BalanceSnapshotEvent,
-  CreateAccountInput,
-  CreateLedgerInput,
-  CreateReconRuleInput,
-  CreateTransactionInput,
-  CreateTransactionResult,
-  HistoricalBalance,
-  IngestReconRecordsInput,
-  Ledger,
-  LedgerRepository,
-  LedgerTrialBalanceQuery,
-  PaginatedResult,
-  PaginationQuery,
-  ReconRule,
-  ReconRun,
-  ReconUpload,
-  RunReconInput,
-  TransactionPaginationQuery,
-  TrialBalance,
+import {
+  type AccountPaginationQuery,
+  AccountService,
+  type BalanceAtQuery,
+  type BalanceHistoryQuery,
+  BalanceService,
+  type BalanceSnapshotEvent,
+  type CreateAccountInput,
+  type CreateLedgerInput,
+  type CreateReconRuleInput,
+  type CreateTransactionInput,
+  type CreateTransactionResult,
+  type HistoricalBalance,
+  HoldService,
+  type IngestReconRecordsInput,
+  type Ledger,
+  LedgerService,
+  type LedgerTrialBalanceQuery,
+  type LegacyCombinedLedgerRepository,
+  type PaginatedResult,
+  type PaginationQuery,
+  ReconciliationService,
+  type ReconRule,
+  type ReconRun,
+  type ReconUpload,
+  type RunReconInput,
+  type TransactionPaginationQuery,
+  TransactionService,
+  type TrialBalance,
 } from '@lux/ledger/application';
-import { LedgerService } from '@lux/ledger/application';
 
-class InMemoryLedgerRepository implements LedgerRepository {
+class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
   private readonly accounts = new Map<string, AccountEntity>();
   private readonly transactions: CreateTransactionInput[] = [];
@@ -52,12 +57,12 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return ledger;
   }
 
-  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
+  public async findLedger(tenantId: string, id: string): Promise<Ledger | null> {
     const ledger = this.ledgers.get(id);
     return ledger && ledger.tenantId === tenantId ? ledger : null;
   }
 
-  public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
+  public async listLedgers(tenantId: string): Promise<Ledger[]> {
     return [...this.ledgers.values()].filter((ledger) => ledger.tenantId === tenantId);
   }
 
@@ -161,10 +166,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return account;
   }
 
-  public async findAccountByIdForTenant(
-    tenantId: string,
-    accountId: string,
-  ): Promise<AccountEntity | null> {
+  public async findAccount(tenantId: string, accountId: string): Promise<AccountEntity | null> {
     const account = this.accounts.get(accountId);
     return account && account.tenantId === tenantId ? account : null;
   }
@@ -181,7 +183,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { data: [], nextCursor: null };
   }
 
-  public async findTransactionByIdForTenant(
+  public async findTransaction(
     _tenantId: string,
     _transactionId: string,
   ): Promise<TransactionEntity | null> {
@@ -274,25 +276,65 @@ class InMemoryLedgerRepository implements LedgerRepository {
   }
 }
 
-describe('LedgerService integration (service + in-memory repository)', () => {
+const createServices = (repository: LegacyCombinedLedgerRepository) => ({
+  accounts: new AccountService({
+    create: (input) => repository.createAccount(input),
+    findById: (tenantId, accountId) => repository.findAccount(tenantId, accountId),
+    list: (query) => repository.listAccounts(query),
+  }),
+  balances: new BalanceService({
+    getTrialBalance: (query) => repository.getLedgerTrialBalance(query),
+    getAt: (query) => repository.getBalanceAt(query),
+    listHistory: (query) => repository.listBalanceHistory(query),
+  }),
+  holds: new HoldService({
+    create: (input) => repository.createHold(input),
+    commit: (input) => repository.commitHold(input),
+    void: (input) => repository.voidHold(input),
+  }),
+  ledgers: new LedgerService({
+    create: (input) => repository.createLedger(input),
+    findById: (tenantId, ledgerId) => repository.findLedger(tenantId, ledgerId),
+    list: (tenantId) => repository.listLedgers(tenantId),
+  }),
+  reconciliation: new ReconciliationService({
+    ingest: (input) => repository.ingestExternalRecords(input),
+    createRule: (input) => repository.createReconciliationMatchingRule(input),
+    listRules: (tenantId) => repository.listReconciliationMatchingRules(tenantId),
+    getRule: (tenantId, ruleId) => repository.getReconciliationMatchingRule(tenantId, ruleId),
+    run: (input) => repository.runReconciliation(input),
+    getRun: (tenantId, runId) => repository.getReconciliationRun(tenantId, runId),
+  }),
+  transactions: new TransactionService({
+    create: (input) => repository.createTransaction(input),
+    createBulk: (input) => repository.createTransactionsBulk(input),
+    reverse: (input) => repository.reverseTransaction(input),
+    correct: (input) => repository.correctTransaction(input),
+    findById: (tenantId, transactionId) => repository.findTransaction(tenantId, transactionId),
+    list: (query) => repository.listTransactions(query),
+    listEntries: (query) => repository.listEntries(query),
+  }),
+});
+
+describe('application services integration (services + in-memory repository)', () => {
   it('keeps tenant boundaries and delegates transaction creation', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    const tenantALedger = await service.createLedger({
+    const tenantALedger = await services.ledgers.create({
       tenantId: 'tenant-a',
       name: 'Main A',
     });
-    await service.createLedger({
+    await services.ledgers.create({
       tenantId: 'tenant-b',
       name: 'Main B',
     });
 
-    const tenantALedgers = await service.getLedgersByTenant('tenant-a');
+    const tenantALedgers = await services.ledgers.list('tenant-a');
     expect(tenantALedgers.length).toBe(1);
     expect(tenantALedgers[0]?.id).toBe(tenantALedger.id);
 
-    const txResult = await service.createTransaction({
+    const txResult = await services.transactions.create({
       tenantId: 'tenant-a',
       ledgerId: tenantALedger.id,
       reference: 'ref-1',
@@ -319,13 +361,13 @@ describe('LedgerService integration (service + in-memory repository)', () => {
 
   it('creates and reads account in same tenant scope', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const ledger = await service.createLedger({
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-a',
       name: 'Main A',
     });
 
-    const created = await service.createAccount({
+    const created = await services.accounts.create({
       tenantId: 'tenant-a',
       ledgerId: ledger.id,
       name: 'Cash',
@@ -333,7 +375,7 @@ describe('LedgerService integration (service + in-memory repository)', () => {
       overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
-    const found = await service.getAccountById('tenant-a', created.id);
+    const found = await services.accounts.getById('tenant-a', created.id);
 
     expect(found.id).toBe(created.id);
     expect(found.ledgerId).toBe(ledger.id);

@@ -19,7 +19,7 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     }
   }
 
-  public async countApiKeys(): Promise<number> {
+  public async count(): Promise<number> {
     return this.keys.size;
   }
 
@@ -33,7 +33,7 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     };
   }
 
-  public async findActiveApiKeyByHash(keyHash: string): Promise<ApiKeyEntity | null> {
+  public async findActiveByHash(keyHash: string): Promise<ApiKeyEntity | null> {
     for (const key of this.keys.values()) {
       if (key.keyHash === keyHash && key.revokedAt === null) {
         return key;
@@ -42,11 +42,11 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return null;
   }
 
-  public async findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null> {
+  public async findById(apiKeyId: string): Promise<ApiKeyEntity | null> {
     return this.keys.get(apiKeyId) ?? null;
   }
 
-  public async createApiKey(input: {
+  public async create(input: {
     tenantId: string;
     name: string;
     role: ApiKeyRole;
@@ -67,11 +67,11 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return key;
   }
 
-  public async listApiKeys(tenantId: string): Promise<ApiKeyEntity[]> {
+  public async list(tenantId: string): Promise<ApiKeyEntity[]> {
     return [...this.keys.values()].filter((key) => key.tenantId === tenantId);
   }
 
-  public async revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean> {
+  public async revoke(tenantId: string, apiKeyId: string): Promise<boolean> {
     const key = this.keys.get(apiKeyId);
     if (!key || key.tenantId !== tenantId || key.revokedAt !== null) {
       return false;

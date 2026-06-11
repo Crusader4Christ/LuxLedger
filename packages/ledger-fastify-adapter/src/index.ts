@@ -1,4 +1,4 @@
-import type { ApiKeyService, LedgerService } from '@lux/ledger/application';
+import type { ApplicationServices } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 import { AccountsRoutes } from './routes/accounts';
 import { AdminApiKeyRoutes } from './routes/admin-api-keys';
@@ -8,22 +8,17 @@ import { LedgerRoutes } from './routes/ledgers';
 import { ReconRoutes } from './routes/reconciliation';
 import { TransactionsRoutes } from './routes/transactions';
 
-export type FastifyLedgerAdapterDependencies = {
-  ledgerService: LedgerService;
-  apiKeyService: ApiKeyService;
-};
-
 export const registerLedgerAdapter = (
   server: FastifyInstance,
-  dependencies: FastifyLedgerAdapterDependencies,
+  services: ApplicationServices,
 ): void => {
-  new LedgerRoutes(dependencies.ledgerService).register(server);
-  new AccountsRoutes(dependencies.ledgerService).register(server);
-  new TransactionsRoutes(dependencies.ledgerService).register(server);
-  new HoldsRoutes(dependencies.ledgerService).register(server);
-  new EntriesListRoute(dependencies.ledgerService).register(server);
-  new ReconRoutes(dependencies.ledgerService).register(server);
-  new AdminApiKeyRoutes(dependencies.apiKeyService).register(server);
+  new LedgerRoutes(services.ledgers, services.transactions, services.balances).register(server);
+  new AccountsRoutes(services.accounts, services.balances).register(server);
+  new TransactionsRoutes(services.transactions).register(server);
+  new HoldsRoutes(services.holds).register(server);
+  new EntriesListRoute(services.transactions).register(server);
+  new ReconRoutes(services.reconciliation).register(server);
+  new AdminApiKeyRoutes(services.apiKeys).register(server);
 };
 
 export const registerLedgerFastifyAdapter = registerLedgerAdapter;

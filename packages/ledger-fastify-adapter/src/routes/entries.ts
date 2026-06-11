@@ -1,4 +1,5 @@
-import type { EntryEntity, LedgerService } from '@lux/ledger';
+import type { EntryEntity } from '@lux/ledger';
+import type { TransactionService } from '@lux/ledger/application';
 import {
   type EntryResponse,
   entriesPageResponseSchema,
@@ -14,12 +15,12 @@ export class EntriesListRoute extends BasePaginatedRoute<
 > {
   protected readonly path = '/v1/entries';
 
-  public constructor(private readonly ledgerService: LedgerService) {
+  public constructor(private readonly transactions: TransactionService) {
     super();
   }
 
   protected list(request: PaginatedRequest<ListEntriesQuery>) {
-    return this.ledgerService.listEntries({
+    return this.transactions.listEntries({
       tenantId: request.tenantId as string,
       limit: this.resolveLimit(request.query.limit),
       cursor: request.query.cursor,

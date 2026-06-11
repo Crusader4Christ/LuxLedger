@@ -1,4 +1,4 @@
-import type { LedgerService } from '@lux/ledger/application';
+import type { ReconciliationService } from '@lux/ledger/application';
 import {
   type CreateReconRuleRequest,
   createReconRuleRequestSchema,
@@ -18,7 +18,7 @@ import type { FastifyInstance } from 'fastify';
 import { BaseRoute } from '../routes/base-route';
 
 export class ReconRoutes extends BaseRoute {
-  public constructor(private readonly ledgerService: LedgerService) {
+  public constructor(private readonly reconciliation: ReconciliationService) {
     super();
   }
 
@@ -40,7 +40,7 @@ export class ReconRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const rule = await this.ledgerService.createReconciliationMatchingRule({
+          const rule = await this.reconciliation.createRule({
             tenantId: request.tenantId as string,
             name: request.body.name,
             description: request.body.description,
@@ -63,9 +63,7 @@ export class ReconRoutes extends BaseRoute {
   private registerListMatchingRules(server: FastifyInstance): void {
     server.get('/v1/reconciliation/matching-rules', async (request, reply) =>
       this.handle(reply, async () => {
-        const rules = await this.ledgerService.listReconciliationMatchingRules(
-          request.tenantId as string,
-        );
+        const rules = await this.reconciliation.listRules(request.tenantId as string);
         return reply.status(200).send({
           data: rules.map(toReconRuleResponse),
         });
@@ -83,7 +81,7 @@ export class ReconRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const upload = await this.ledgerService.ingestExternalRecords({
+          const upload = await this.reconciliation.ingest({
             tenantId: request.tenantId as string,
             source: request.body.source,
             records: request.body.records.map((record) => ({
@@ -112,7 +110,7 @@ export class ReconRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const run = await this.ledgerService.runReconciliation({
+          const run = await this.reconciliation.run({
             tenantId: request.tenantId as string,
             ledgerId: request.body.ledger_id,
             uploadId: request.body.upload_id,
@@ -136,7 +134,7 @@ export class ReconRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const run = await this.ledgerService.getReconciliationRun(
+          const run = await this.reconciliation.getRun(
             request.tenantId as string,
             request.params.id,
           );

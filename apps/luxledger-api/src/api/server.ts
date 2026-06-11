@@ -295,7 +295,7 @@ export const registerApplication = (
         throw new UnauthorizedError('API key is required');
       }
 
-      const auth = await dependencies.apiKeyService.authenticate(apiKeyHeader);
+      const auth = await dependencies.services.apiKeys.authenticate(apiKeyHeader);
       request.tenantId = auth.tenantId;
       request.apiKeyId = auth.apiKeyId;
       request.apiKeyRole = auth.role;
@@ -327,7 +327,7 @@ export const registerApplication = (
       );
     }
 
-    await dependencies.apiKeyService.assertAccessTokenIsActive(auth);
+    await dependencies.services.apiKeys.assertAccessTokenIsActive(auth);
     request.tenantId = auth.tenantId;
     request.apiKeyId = auth.apiKeyId;
     request.apiKeyRole = auth.role;
@@ -396,8 +396,5 @@ export const registerApplication = (
     },
   );
 
-  registerLedgerAdapter(server, {
-    ledgerService: dependencies.ledgerService,
-    apiKeyService: dependencies.apiKeyService,
-  });
+  registerLedgerAdapter(server, dependencies.services);
 };

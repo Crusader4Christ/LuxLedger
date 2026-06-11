@@ -3,8 +3,8 @@ import type { ApiKeyEntity } from '../../api-key/entity';
 import { ApiKeyRole } from '../../api-key/entity';
 import { assertNonEmpty } from '../../utils';
 import { ForbiddenError, InvariantViolationError, UnauthorizedError } from '../errors';
+import type { ApiKeyRepository } from '../repositories.interface';
 import type {
-  ApiKeyRepository,
   AuthContext,
   BootstrapAdminInput,
   BootstrapAdminResult,
@@ -32,7 +32,7 @@ export class ApiKeyService {
     }
 
     const keyHash = hashApiKey(normalized);
-    const key = await this.repository.findActiveApiKeyByHash(keyHash);
+    const key = await this.repository.findActiveByHash(keyHash);
     if (!key || key.revokedAt) {
       throw new UnauthorizedError('Invalid API key');
     }
@@ -54,7 +54,7 @@ export class ApiKeyService {
     this.assertRole(input.role);
 
     const apiKey = `${API_KEY_PREFIX}${randomBytes(API_KEY_BYTES).toString('hex')}`;
-    const created = await this.repository.createApiKey({
+    const created = await this.repository.create({
       tenantId: input.tenantId,
       name: input.name.trim(),
       role: input.role,
@@ -66,7 +66,7 @@ export class ApiKeyService {
 
   public async listApiKeys(actor: AuthContext): Promise<ApiKeyEntity[]> {
     this.assertAdmin(actor);
-    return this.repository.listApiKeys(actor.tenantId);
+    return this.repository.list(actor.tenantId);
   }
 
   public async bootstrapInitialAdmin(input: BootstrapAdminInput): Promise<BootstrapAdminResult> {
@@ -74,13 +74,13 @@ export class ApiKeyService {
     assertNonEmpty(input.keyName, 'keyName is required');
     assertNonEmpty(input.rawApiKey, 'rawApiKey is required');
 
-    const existingKeys = await this.repository.countApiKeys();
+    const existingKeys = await this.repository.count();
     if (existingKeys > 0) {
       return { created: false };
     }
 
     const tenant = await this.repository.createTenant({ name: input.tenantName.trim() });
-    const created = await this.repository.createApiKey({
+    const created = await this.repository.create({
       tenantId: tenant.id,
       name: input.keyName.trim(),
       role: ApiKeyRole.ADMIN,
@@ -98,14 +98,14 @@ export class ApiKeyService {
     this.assertAdmin(actor);
     assertNonEmpty(apiKeyId, 'apiKeyId is required');
 
-    const revoked = await this.repository.revokeApiKey(actor.tenantId, apiKeyId);
+    const revoked = await this.repository.revoke(actor.tenantId, apiKeyId);
     if (!revoked) {
       throw new InvariantViolationError('API key not found');
     }
   }
 
   public async assertAccessTokenIsActive(context: AuthContext): Promise<void> {
-    const key = await this.repository.findApiKeyById(context.apiKeyId);
+    const key = await this.repository.findById(context.apiKeyId);
     if (!key || key.revokedAt !== null) {
       throw new UnauthorizedError('Invalid access token');
     }

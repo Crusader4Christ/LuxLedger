@@ -10,7 +10,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createDbClient } from '../../src/client';
-import { DrizzleLedgerRepository, type RepositoryLogger } from '../../src/repository';
+import { CombinedDrizzleRepositoryFacade, type RepositoryLogger } from '../../src/repository';
 import {
   accounts,
   balanceSnapshots,
@@ -48,7 +48,7 @@ const client = createDbClient({
   connectTimeoutSeconds: 5,
 });
 
-const repository = new DrizzleLedgerRepository(client.db, {
+const repository = new CombinedDrizzleRepositoryFacade(client.db, {
   info: () => {},
 } as unknown as RepositoryLogger);
 
@@ -139,7 +139,7 @@ const createEntry = async (input: {
   return entry.id;
 };
 
-describe('DrizzleLedgerRepository', () => {
+describe('CombinedDrizzleRepositoryFacade', () => {
   beforeAll(async () => {
     await client.db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
     await client.db.execute(sql`DROP SCHEMA IF EXISTS public CASCADE`);
@@ -192,15 +192,15 @@ describe('DrizzleLedgerRepository', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
-  it('findLedgerByIdForTenant returns null when not found', async () => {
-    const result = await repository.findLedgerByIdForTenant(
+  it('findLedger returns null when not found', async () => {
+    const result = await repository.findLedger(
       '11111111-1111-4111-8111-111111111111',
       '00000000-0000-0000-0000-000000000099',
     );
     expect(result).toBeNull();
   });
 
-  it('findLedgersByTenant returns only tenant ledgers', async () => {
+  it('listLedgers returns only tenant ledgers', async () => {
     const tenantA = await createTenant('Tenant A');
     const tenantB = await createTenant('Tenant B');
 
@@ -208,7 +208,7 @@ describe('DrizzleLedgerRepository', () => {
     await repository.createLedger({ tenantId: tenantA, name: 'A-2' });
     await repository.createLedger({ tenantId: tenantB, name: 'B-1' });
 
-    const tenantLedgers = await repository.findLedgersByTenant(tenantA);
+    const tenantLedgers = await repository.listLedgers(tenantA);
 
     expect(tenantLedgers.length).toBe(2);
     expect(tenantLedgers.every((ledger) => ledger.tenantId === tenantA)).toBeTrue();
@@ -277,7 +277,7 @@ describe('DrizzleLedgerRepository', () => {
     ).rejects.toBeInstanceOf(LedgerNotFoundError);
   });
 
-  it('findAccountByIdForTenant enforces tenant scope', async () => {
+  it('findAccount enforces tenant scope', async () => {
     const tenantA = await createTenant('Tenant A');
     const tenantB = await createTenant('Tenant B');
     const ledgerA = await createLedger(tenantA, 'Main A');
@@ -288,8 +288,8 @@ describe('DrizzleLedgerRepository', () => {
       currency: 'USD',
     });
 
-    const ownAccount = await repository.findAccountByIdForTenant(tenantA, accountA);
-    const crossTenant = await repository.findAccountByIdForTenant(tenantB, accountA);
+    const ownAccount = await repository.findAccount(tenantA, accountA);
+    const crossTenant = await repository.findAccount(tenantB, accountA);
 
     expect(ownAccount?.id).toBe(accountA);
     expect(crossTenant).toBeNull();
@@ -681,8 +681,8 @@ describe('DrizzleLedgerRepository', () => {
       idleTimeoutSeconds: 5,
       connectTimeoutSeconds: 5,
     });
-    const repositoryA = new DrizzleLedgerRepository(clientA.db, { info: () => {} });
-    const repositoryB = new DrizzleLedgerRepository(clientB.db, { info: () => {} });
+    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA.db, { info: () => {} });
+    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB.db, { info: () => {} });
 
     try {
       const results = await Promise.all([
@@ -761,10 +761,10 @@ describe('DrizzleLedgerRepository', () => {
       idleTimeoutSeconds: 5,
       connectTimeoutSeconds: 5,
     });
-    const repositoryA = new DrizzleLedgerRepository(clientA.db, { info: () => {} });
-    const repositoryB = new DrizzleLedgerRepository(clientB.db, { info: () => {} });
+    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA.db, { info: () => {} });
+    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB.db, { info: () => {} });
     const createBackdated = (
-      target: DrizzleLedgerRepository,
+      target: CombinedDrizzleRepositoryFacade,
       reference: string,
       amountMinor: bigint,
     ) =>
@@ -1000,7 +1000,7 @@ describe('DrizzleLedgerRepository', () => {
     });
 
     const logs: Array<{ object: Record<string, unknown>; message: string }> = [];
-    const repositoryWithLogger = new DrizzleLedgerRepository(client.db, {
+    const repositoryWithLogger = new CombinedDrizzleRepositoryFacade(client.db, {
       info: (object: Record<string, unknown>, message: string) => {
         logs.push({ object, message });
       },
@@ -1282,7 +1282,7 @@ describe('DrizzleLedgerRepository', () => {
     ).toBeTrue();
   });
 
-  it('findTransactionByIdForTenant returns transaction for tenant and null for missing/cross-tenant', async () => {
+  it('findTransaction returns transaction for tenant and null for missing/cross-tenant', async () => {
     const tenantId = await createTenant('Tenant A');
     const otherTenantId = await createTenant('Tenant B');
     const ledgerId = await createLedger(tenantId, 'Main');
@@ -1359,20 +1359,20 @@ describe('DrizzleLedgerRepository', () => {
       currency: 'USD',
     });
 
-    const found = await repository.findTransactionByIdForTenant(tenantId, transactionId);
+    const found = await repository.findTransaction(tenantId, transactionId);
     expect(found).not.toBeNull();
     expect(found?.id.value).toBe(transactionId);
     expect(found?.tenantId).toBe(tenantId);
     expect(found?.description).toBe('Lookup description');
     expect(found?.entries.length).toBe(2);
 
-    const missing = await repository.findTransactionByIdForTenant(
+    const missing = await repository.findTransaction(
       tenantId,
       '00000000-0000-4000-8000-999999999999',
     );
     expect(missing).toBeNull();
 
-    const crossTenant = await repository.findTransactionByIdForTenant(tenantId, otherTransactionId);
+    const crossTenant = await repository.findTransaction(tenantId, otherTransactionId);
     expect(crossTenant).toBeNull();
   });
 
@@ -1814,8 +1814,8 @@ describe('DrizzleLedgerRepository', () => {
     expect(second.created).toBeFalse();
     expect(first.transactionId).toBe(second.transactionId);
 
-    const original = await repository.findTransactionByIdForTenant(tenantId, created.transactionId);
-    const reversal = await repository.findTransactionByIdForTenant(tenantId, first.transactionId);
+    const original = await repository.findTransaction(tenantId, created.transactionId);
+    const reversal = await repository.findTransaction(tenantId, first.transactionId);
     expect(original?.relatedTransactionId).toBeNull();
     expect(original?.relationType).toBeNull();
     expect(reversal?.relatedTransactionId).toBe(created.transactionId);
@@ -1923,8 +1923,8 @@ describe('DrizzleLedgerRepository', () => {
       idleTimeoutSeconds: 5,
       connectTimeoutSeconds: 5,
     });
-    const repositoryA = new DrizzleLedgerRepository(clientA.db, { info: () => {} });
-    const repositoryB = new DrizzleLedgerRepository(clientB.db, { info: () => {} });
+    const repositoryA = new CombinedDrizzleRepositoryFacade(clientA.db, { info: () => {} });
+    const repositoryB = new CombinedDrizzleRepositoryFacade(clientB.db, { info: () => {} });
 
     try {
       const results = await Promise.all([
@@ -2144,7 +2144,7 @@ describe('DrizzleLedgerRepository', () => {
       ],
     });
     expect(idempotentRetry.created).toBeFalse();
-    const correctedTransaction = await repository.findTransactionByIdForTenant(
+    const correctedTransaction = await repository.findTransaction(
       tenantId,
       corrected.correctedTransactionId,
     );
