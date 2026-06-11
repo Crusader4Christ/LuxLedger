@@ -42,7 +42,7 @@ import { DrizzleLedgerRepository } from './repositories/ledger-repository';
 import { DrizzleReconciliationRepository } from './repositories/reconciliation-repository';
 import { DrizzleTenantRepository } from './repositories/tenant-repository';
 import { DrizzleTransactionRepository } from './repositories/transaction-repository';
-import { DrizzleRepositoryContext, type RepositoryLogger } from './repository-context';
+import type { RepositoryLogger } from './repository-logger';
 import type * as schema from './schema';
 
 export class CombinedDrizzleRepositoryFacade implements LegacyCombinedLedgerRepository {
@@ -55,14 +55,13 @@ export class CombinedDrizzleRepositoryFacade implements LegacyCombinedLedgerRepo
   private readonly transactions: DrizzleTransactionRepository;
 
   public constructor(db: PostgresJsDatabase<typeof schema>, logger: RepositoryLogger) {
-    const context = new DrizzleRepositoryContext(db, logger);
-    this.accounts = new DrizzleAccountRepository(context);
-    this.balances = new DrizzleBalanceRepository(context);
-    this.holds = new DrizzleHoldRepository(context);
-    this.ledgers = new DrizzleLedgerRepository(context);
-    this.reconciliation = new DrizzleReconciliationRepository(context);
-    this.tenants = new DrizzleTenantRepository(context);
-    this.transactions = new DrizzleTransactionRepository(context);
+    this.accounts = new DrizzleAccountRepository(db);
+    this.balances = new DrizzleBalanceRepository(db);
+    this.holds = new DrizzleHoldRepository(db);
+    this.ledgers = new DrizzleLedgerRepository(db);
+    this.reconciliation = new DrizzleReconciliationRepository(db);
+    this.tenants = new DrizzleTenantRepository(db);
+    this.transactions = new DrizzleTransactionRepository(db, logger);
   }
 
   public createTenant(input: {

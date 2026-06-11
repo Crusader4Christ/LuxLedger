@@ -9,7 +9,6 @@ import {
 import {
   createApplicationServices,
   createDbClient,
-  DrizzleRepositoryContext,
   DrizzleTenantRepository,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
@@ -50,11 +49,11 @@ const client = createDbClient({
   connectTimeoutSeconds: 5,
 });
 
-const context = new DrizzleRepositoryContext(client.db, {
+const logger = {
   info: () => {},
-} as unknown as RepositoryLogger);
-const services = createApplicationServices(context);
-const tenants = new DrizzleTenantRepository(context);
+} as unknown as RepositoryLogger;
+const services = createApplicationServices(client.db, logger);
+const tenants = new DrizzleTenantRepository(client.db);
 
 const createAccount = async (input: {
   tenantId: string;
@@ -294,7 +293,10 @@ describe('application services integration (services + repositories + real DB)',
 
   it('applies backdated transactions to historical balances and later snapshots', async () => {
     const tenant = await tenants.create({ name: 'Tenant Backdated' });
-    const ledger = await services.ledgers.create({ tenantId: tenant.id, name: 'Backdated' });
+    const ledger = await services.ledgers.create({
+      tenantId: tenant.id,
+      name: 'Backdated',
+    });
     const cashAccountId = await createAccount({
       tenantId: tenant.id,
       ledgerId: ledger.id,
@@ -374,7 +376,10 @@ describe('application services integration (services + repositories + real DB)',
 
   it('rolls back every item in a bulk posting when one item fails', async () => {
     const tenant = await tenants.create({ name: 'Tenant Bulk' });
-    const ledger = await services.ledgers.create({ tenantId: tenant.id, name: 'Bulk' });
+    const ledger = await services.ledgers.create({
+      tenantId: tenant.id,
+      name: 'Bulk',
+    });
     const cashAccountId = await createAccount({
       tenantId: tenant.id,
       ledgerId: ledger.id,

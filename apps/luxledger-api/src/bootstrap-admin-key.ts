@@ -1,9 +1,4 @@
-import {
-  createApiKeyService,
-  createDbClient,
-  DrizzleRepositoryContext,
-  type RepositoryLogger,
-} from '@lux/ledger-drizzle-adapter';
+import { createApiKeyService, createDbClient } from '@lux/ledger-drizzle-adapter';
 
 const requireEnv = (name: string): string => {
   const value = process.env[name];
@@ -15,8 +10,7 @@ const requireEnv = (name: string): string => {
 
 export const run = async (): Promise<void> => {
   const dbClient = createDbClient();
-  const context = new DrizzleRepositoryContext(dbClient.db, console as unknown as RepositoryLogger);
-  const apiKeyService = createApiKeyService(context);
+  const apiKeyService = createApiKeyService(dbClient.db);
 
   try {
     const result = await apiKeyService.bootstrapInitialAdmin({

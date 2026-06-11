@@ -4,7 +4,6 @@ import { createServerCore, registerApplication } from '@api/server';
 import {
   createApplicationServices,
   createDbClient,
-  DrizzleRepositoryContext,
   type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
 
@@ -44,11 +43,10 @@ export const run = async (): Promise<void> => {
     },
     logger: true,
   });
-  const repositoryContext = new DrizzleRepositoryContext(
+  const services = createApplicationServices(
     dbClient.db,
     server.log as unknown as RepositoryLogger,
   );
-  const services = createApplicationServices(repositoryContext);
   registerApplication(server, {
     services,
     jwtAuth: parseJwtAuthConfig(process.env),
