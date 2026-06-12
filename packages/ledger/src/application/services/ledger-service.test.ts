@@ -13,36 +13,43 @@ import {
 import {
   AccountNotFoundError,
   type AccountPaginationQuery,
+  AccountService,
   type BalanceAtQuery,
   type BalanceHistoryQuery,
+  BalanceService,
   type BalanceSnapshotEvent,
   BulkTransactionError,
+  type CommitHoldInput,
   type CreateAccountInput,
+  type CreateHoldInput,
   type CreateLedgerInput,
   type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
   EntryDirection,
   type HistoricalBalance,
+  HoldService,
   type IngestReconRecordsInput,
   InvariantViolationError,
   type Ledger,
   LedgerNotFoundError,
-  type LedgerRepository,
   LedgerService,
   type LedgerTrialBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
+  ReconciliationService,
   type ReconRule,
   type ReconRun,
   type ReconUpload,
   type RunReconInput,
   TransactionNotFoundError,
   type TransactionPaginationQuery,
+  TransactionService,
   type TrialBalance,
+  type VoidHoldInput,
 } from '@lux/ledger/application';
 
-class InMemoryLedgerRepository implements LedgerRepository {
+class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
   private readonly accounts = new Map<string, AccountEntity>();
   private readonly transactions = new Map<string, TransactionEntity>();
@@ -65,12 +72,12 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return ledger;
   }
 
-  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
+  public async findLedger(tenantId: string, id: string): Promise<Ledger | null> {
     const ledger = this.ledgers.get(id);
     return ledger && ledger.tenantId === tenantId ? ledger : null;
   }
 
-  public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
+  public async listLedgers(tenantId: string): Promise<Ledger[]> {
     return [...this.ledgers.values()].filter((ledger) => ledger.tenantId === tenantId);
   }
 
@@ -151,7 +158,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async createHold(): Promise<{
+  public async createHold(_input: CreateHoldInput): Promise<{
     holdId: string;
     created: boolean;
     state: 'HELD' | 'APPLIED' | 'VOIDED';
@@ -160,7 +167,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { holdId: 'hold-1', created: true, state: 'HELD', remainingAmountMinor: 100n };
   }
 
-  public async commitHold(): Promise<{
+  public async commitHold(_input: CommitHoldInput): Promise<{
     holdId: string;
     state: 'HELD' | 'APPLIED';
     remainingAmountMinor: bigint;
@@ -176,7 +183,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async voidHold(): Promise<{
+  public async voidHold(_input: VoidHoldInput): Promise<{
     holdId: string;
     state: 'VOIDED';
     remainingAmountMinor: bigint;
@@ -207,10 +214,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return account;
   }
 
-  public async findAccountByIdForTenant(
-    tenantId: string,
-    accountId: string,
-  ): Promise<AccountEntity | null> {
+  public async findAccount(tenantId: string, accountId: string): Promise<AccountEntity | null> {
     const account = this.accounts.get(accountId);
     return account && account.tenantId === tenantId ? account : null;
   }
@@ -233,7 +237,7 @@ class InMemoryLedgerRepository implements LedgerRepository {
     return { data, nextCursor: null };
   }
 
-  public async findTransactionByIdForTenant(
+  public async findTransaction(
     tenantId: string,
     transactionId: string,
   ): Promise<TransactionEntity | null> {
@@ -313,11 +317,14 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async listReconciliationMatchingRules(): Promise<ReconRule[]> {
+  public async listReconciliationMatchingRules(_tenantId: string): Promise<ReconRule[]> {
     return [];
   }
 
-  public async getReconciliationMatchingRule(): Promise<ReconRule | null> {
+  public async getReconciliationMatchingRule(
+    _tenantId: string,
+    _ruleId: string,
+  ): Promise<ReconRule | null> {
     return null;
   }
 
@@ -342,17 +349,57 @@ class InMemoryLedgerRepository implements LedgerRepository {
     };
   }
 
-  public async getReconciliationRun(): Promise<ReconRun | null> {
+  public async getReconciliationRun(_tenantId: string, _runId: string): Promise<ReconRun | null> {
     return null;
   }
 }
 
-describe('LedgerService', () => {
+const createServices = (repository: InMemoryLedgerRepository) => ({
+  accounts: new AccountService({
+    create: (input) => repository.createAccount(input),
+    findById: (tenantId, accountId) => repository.findAccount(tenantId, accountId),
+    list: (query) => repository.listAccounts(query),
+  }),
+  balances: new BalanceService({
+    getTrialBalance: (query) => repository.getLedgerTrialBalance(query),
+    getAt: (query) => repository.getBalanceAt(query),
+    listHistory: (query) => repository.listBalanceHistory(query),
+  }),
+  holds: new HoldService({
+    create: (input) => repository.createHold(input),
+    commit: (input) => repository.commitHold(input),
+    void: (input) => repository.voidHold(input),
+  }),
+  ledgers: new LedgerService({
+    create: (input) => repository.createLedger(input),
+    findById: (tenantId, ledgerId) => repository.findLedger(tenantId, ledgerId),
+    list: (tenantId) => repository.listLedgers(tenantId),
+  }),
+  reconciliation: new ReconciliationService({
+    ingest: (input) => repository.ingestExternalRecords(input),
+    createRule: (input) => repository.createReconciliationMatchingRule(input),
+    listRules: (tenantId) => repository.listReconciliationMatchingRules(tenantId),
+    getRule: (tenantId, ruleId) => repository.getReconciliationMatchingRule(tenantId, ruleId),
+    run: (input) => repository.runReconciliation(input),
+    getRun: (tenantId, runId) => repository.getReconciliationRun(tenantId, runId),
+  }),
+  transactions: new TransactionService({
+    create: (input) => repository.createTransaction(input),
+    createBulk: (input) => repository.createTransactionsBulk(input),
+    reverse: (input) => repository.reverseTransaction(input),
+    correct: (input) => repository.correctTransaction(input),
+    findById: (tenantId, transactionId) => repository.findTransaction(tenantId, transactionId),
+    list: (query) => repository.listTransactions(query),
+    listEntries: (query) => repository.listEntries(query),
+  }),
+});
+
+describe('application services', () => {
   it('createLedger returns entity', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    const ledger = await service.createLedger({
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Cash',
     });
@@ -364,23 +411,23 @@ describe('LedgerService', () => {
 
   it('createLedger throws InvariantViolationError for empty tenantId', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    await expect(service.createLedger({ tenantId: '  ', name: 'Cash' })).rejects.toBeInstanceOf(
+    await expect(services.ledgers.create({ tenantId: '  ', name: 'Cash' })).rejects.toBeInstanceOf(
       InvariantViolationError,
     );
   });
 
   it('getLedgerById returns correct ledger', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    const created = await service.createLedger({
+    const created = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Cash',
     });
 
-    const found = await service.getLedgerById('tenant-1', created.id);
+    const found = await services.ledgers.getById('tenant-1', created.id);
 
     expect(found.id).toBe(created.id);
     expect(found.tenantId).toBe('tenant-1');
@@ -388,39 +435,39 @@ describe('LedgerService', () => {
 
   it('getLedgerById throws LedgerNotFoundError if not found', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    await expect(service.getLedgerById('tenant-1', 'missing-ledger')).rejects.toBeInstanceOf(
+    await expect(services.ledgers.getById('tenant-1', 'missing-ledger')).rejects.toBeInstanceOf(
       LedgerNotFoundError,
     );
   });
 
   it('getLedgerById throws LedgerNotFoundError for another tenant ledger', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    const created = await service.createLedger({
+    const created = await services.ledgers.create({
       tenantId: 'tenant-a',
       name: 'Cash',
     });
 
-    await expect(service.getLedgerById('tenant-b', created.id)).rejects.toBeInstanceOf(
+    await expect(services.ledgers.getById('tenant-b', created.id)).rejects.toBeInstanceOf(
       LedgerNotFoundError,
     );
   });
 
-  it('getLedgersByTenant throws InvariantViolationError for empty tenantId', async () => {
+  it('listLedgers throws InvariantViolationError for empty tenantId', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    await expect(service.getLedgersByTenant('')).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(services.ledgers.list('')).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
   it('createTransaction delegates to repository', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
-    const result = await service.createTransaction({
+    const result = await services.transactions.create({
       tenantId: 'tenant-1',
       ledgerId: 'ledger-1',
       reference: 'ref-1',
@@ -449,10 +496,10 @@ describe('LedgerService', () => {
 
   it('createTransaction delegates effectiveAt to repository', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
     const effectiveAt = new Date('2024-01-15T10:00:00.000Z');
 
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId: 'tenant-1',
       ledgerId: 'ledger-1',
       reference: 'ref-effective',
@@ -479,7 +526,7 @@ describe('LedgerService', () => {
 
   it('createTransactionsBulk rejects duplicate references before repository write', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
     const transaction = {
       tenantId: 'tenant-1',
       ledgerId: 'ledger-1',
@@ -501,8 +548,8 @@ describe('LedgerService', () => {
       ],
     };
 
-    const error = await service
-      .createTransactionsBulk({
+    const error = await services.transactions
+      .createBulk({
         tenantId: 'tenant-1',
         transactions: [transaction, transaction],
       })
@@ -518,10 +565,10 @@ describe('LedgerService', () => {
 
   it('createTransaction validates description when provided', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.createTransaction({
+      services.transactions.create({
         tenantId: 'tenant-1',
         ledgerId: 'ledger-1',
         reference: 'ref-1',
@@ -547,10 +594,10 @@ describe('LedgerService', () => {
 
   it('createTransaction validates required fields', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.createTransaction({
+      services.transactions.create({
         tenantId: '',
         ledgerId: 'ledger-1',
         reference: 'ref-1',
@@ -562,13 +609,13 @@ describe('LedgerService', () => {
 
   it('createAccount creates account when ledger exists for tenant', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const ledger = await service.createLedger({
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Main',
     });
 
-    const account = await service.createAccount({
+    const account = await services.accounts.create({
       tenantId: 'tenant-1',
       ledgerId: ledger.id,
       name: 'Cash',
@@ -584,14 +631,14 @@ describe('LedgerService', () => {
 
   it('createAccount rejects unknown tenant ledger', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const tenantALedger = await service.createLedger({
+    const services = createServices(repository);
+    const tenantALedger = await services.ledgers.create({
       tenantId: 'tenant-a',
       name: 'Main A',
     });
 
     await expect(
-      service.createAccount({
+      services.accounts.create({
         tenantId: 'tenant-b',
         ledgerId: tenantALedger.id,
         name: 'Cash',
@@ -604,14 +651,14 @@ describe('LedgerService', () => {
 
   it('createAccount validates side at service layer', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const ledger = await service.createLedger({
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Main',
     });
 
     await expect(
-      service.createAccount({
+      services.accounts.create({
         tenantId: 'tenant-1',
         ledgerId: ledger.id,
         name: 'Cash',
@@ -624,12 +671,12 @@ describe('LedgerService', () => {
 
   it('getAccountById returns account for tenant', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const ledger = await service.createLedger({
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Main',
     });
-    const created = await service.createAccount({
+    const created = await services.accounts.create({
       tenantId: 'tenant-1',
       ledgerId: ledger.id,
       name: 'Cash',
@@ -638,18 +685,18 @@ describe('LedgerService', () => {
       currency: 'USD',
     });
 
-    const found = await service.getAccountById('tenant-1', created.id);
+    const found = await services.accounts.getById('tenant-1', created.id);
     expect(found.id).toBe(created.id);
   });
 
   it('getAccountById throws AccountNotFoundError for missing/cross-tenant account', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const ledger = await service.createLedger({
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-a',
       name: 'Main',
     });
-    const created = await service.createAccount({
+    const created = await services.accounts.create({
       tenantId: 'tenant-a',
       ledgerId: ledger.id,
       name: 'Cash',
@@ -658,23 +705,23 @@ describe('LedgerService', () => {
       currency: 'USD',
     });
 
-    await expect(service.getAccountById('tenant-b', created.id)).rejects.toBeInstanceOf(
+    await expect(services.accounts.getById('tenant-b', created.id)).rejects.toBeInstanceOf(
       AccountNotFoundError,
     );
   });
 
   it('listAccounts supports tenant-scoped ledger filter', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const tenantLedger = await service.createLedger({
+    const services = createServices(repository);
+    const tenantLedger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Main',
     });
-    const otherLedger = await service.createLedger({
+    const otherLedger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Secondary',
     });
-    await service.createAccount({
+    await services.accounts.create({
       tenantId: 'tenant-1',
       ledgerId: tenantLedger.id,
       name: 'Cash',
@@ -682,7 +729,7 @@ describe('LedgerService', () => {
       overdraftPolicy: 'ALLOW',
       currency: 'USD',
     });
-    await service.createAccount({
+    await services.accounts.create({
       tenantId: 'tenant-1',
       ledgerId: otherLedger.id,
       name: 'Revenue',
@@ -691,7 +738,7 @@ describe('LedgerService', () => {
       currency: 'USD',
     });
 
-    const filtered = await service.listAccounts({
+    const filtered = await services.accounts.list({
       tenantId: 'tenant-1',
       limit: 50,
       ledgerId: tenantLedger.id,
@@ -703,13 +750,13 @@ describe('LedgerService', () => {
 
   it('getTransactionById returns transaction for tenant', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const ledger = await service.createLedger({
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Main',
     });
 
-    const created = await service.createTransaction({
+    const created = await services.transactions.create({
       tenantId: 'tenant-1',
       ledgerId: ledger.id,
       reference: 'ref-1',
@@ -730,19 +777,19 @@ describe('LedgerService', () => {
       ],
     });
 
-    const found = await service.getTransactionById('tenant-1', created.transactionId);
+    const found = await services.transactions.getById('tenant-1', created.transactionId);
     expect(found.id.value).toBe(created.transactionId);
   });
 
   it('getTransactionById throws TransactionNotFoundError for missing/cross-tenant transaction', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const ledger = await service.createLedger({
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({
       tenantId: 'tenant-a',
       name: 'Main',
     });
 
-    const created = await service.createTransaction({
+    const created = await services.transactions.create({
       tenantId: 'tenant-a',
       ledgerId: ledger.id,
       reference: 'ref-1',
@@ -764,26 +811,26 @@ describe('LedgerService', () => {
     });
 
     await expect(
-      service.getTransactionById('tenant-b', created.transactionId),
+      services.transactions.getById('tenant-b', created.transactionId),
     ).rejects.toBeInstanceOf(TransactionNotFoundError);
-    await expect(service.getTransactionById('tenant-a', 'missing')).rejects.toBeInstanceOf(
+    await expect(services.transactions.getById('tenant-a', 'missing')).rejects.toBeInstanceOf(
       TransactionNotFoundError,
     );
   });
 
   it('listTransactions supports tenant-scoped ledger filter', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
-    const mainLedger = await service.createLedger({
+    const services = createServices(repository);
+    const mainLedger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Main',
     });
-    const secondaryLedger = await service.createLedger({
+    const secondaryLedger = await services.ledgers.create({
       tenantId: 'tenant-1',
       name: 'Secondary',
     });
 
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId: 'tenant-1',
       ledgerId: mainLedger.id,
       reference: 'main-ref',
@@ -803,7 +850,7 @@ describe('LedgerService', () => {
         },
       ],
     });
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId: 'tenant-1',
       ledgerId: secondaryLedger.id,
       reference: 'secondary-ref',
@@ -824,7 +871,7 @@ describe('LedgerService', () => {
       ],
     });
 
-    const filtered = await service.listTransactions({
+    const filtered = await services.transactions.list({
       tenantId: 'tenant-1',
       limit: 50,
       ledgerId: mainLedger.id,
@@ -836,10 +883,10 @@ describe('LedgerService', () => {
 
   it('listTransactions validates ledgerId when provided', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.listTransactions({
+      services.transactions.list({
         tenantId: 'tenant-1',
         limit: 10,
         ledgerId: '   ',
@@ -849,10 +896,10 @@ describe('LedgerService', () => {
 
   it('commitHold validates required holdId and reference', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.commitHold({
+      services.holds.commit({
         tenantId: 'tenant-1',
         holdId: ' ',
         reference: 'ref-1',
@@ -860,7 +907,7 @@ describe('LedgerService', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
 
     await expect(
-      service.commitHold({
+      services.holds.commit({
         tenantId: 'tenant-1',
         holdId: 'hold-1',
         reference: ' ',
@@ -870,10 +917,10 @@ describe('LedgerService', () => {
 
   it('commitHold rejects non-positive explicit amount', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.commitHold({
+      services.holds.commit({
         tenantId: 'tenant-1',
         holdId: 'hold-1',
         reference: 'ref-1',
@@ -884,10 +931,10 @@ describe('LedgerService', () => {
 
   it('getBalanceAt delegates to repository and preserves timestamp', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
     const at = new Date('2026-01-01T00:00:00.000Z');
 
-    const result = await service.getBalanceAt({
+    const result = await services.balances.getAt({
       tenantId: 'tenant-1',
       accountId: 'account-1',
       at,
@@ -900,10 +947,10 @@ describe('LedgerService', () => {
 
   it('getBalanceAt validates timestamp and required fields', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.getBalanceAt({
+      services.balances.getAt({
         tenantId: 'tenant-1',
         accountId: 'account-1',
         at: new Date('not-a-date'),
@@ -911,7 +958,7 @@ describe('LedgerService', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
 
     await expect(
-      service.getBalanceAt({
+      services.balances.getAt({
         tenantId: 'tenant-1',
         accountId: ' ',
         at: new Date(),
@@ -921,11 +968,11 @@ describe('LedgerService', () => {
 
   it('listBalanceHistory delegates with pagination args', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
     const from = new Date('2026-01-01T00:00:00.000Z');
     const to = new Date('2026-01-02T00:00:00.000Z');
 
-    await service.listBalanceHistory({
+    await services.balances.listHistory({
       tenantId: 'tenant-1',
       accountId: 'account-1',
       from,
@@ -941,10 +988,10 @@ describe('LedgerService', () => {
 
   it('listBalanceHistory validates dates and range', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.listBalanceHistory({
+      services.balances.listHistory({
         tenantId: 'tenant-1',
         accountId: 'account-1',
         from: new Date('not-a-date'),
@@ -954,7 +1001,7 @@ describe('LedgerService', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
 
     await expect(
-      service.listBalanceHistory({
+      services.balances.listHistory({
         tenantId: 'tenant-1',
         accountId: 'account-1',
         from: new Date('2026-01-03T00:00:00.000Z'),
@@ -966,10 +1013,10 @@ describe('LedgerService', () => {
 
   it('listBalanceHistory validates pagination limits', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.listBalanceHistory({
+      services.balances.listHistory({
         tenantId: 'tenant-1',
         accountId: 'account-1',
         from: new Date('2026-01-01T00:00:00.000Z'),
@@ -981,10 +1028,10 @@ describe('LedgerService', () => {
 
   it('createReconciliationMatchingRule rejects unsupported numeric operators', async () => {
     const repository = new InMemoryLedgerRepository();
-    const service = new LedgerService(repository);
+    const services = createServices(repository);
 
     await expect(
-      service.createReconciliationMatchingRule({
+      services.reconciliation.createRule({
         tenantId: 'tenant-1',
         name: 'Invalid amount rule',
         criteria: [{ field: 'amount', operator: 'contains' }],

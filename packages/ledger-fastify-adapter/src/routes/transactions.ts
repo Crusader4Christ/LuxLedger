@@ -1,5 +1,5 @@
 import type { TransactionEntity } from '@lux/ledger';
-import type { LedgerService } from '@lux/ledger/application';
+import type { TransactionService } from '@lux/ledger/application';
 import {
   type CorrectTransactionRequest,
   correctTransactionRequestSchema,
@@ -22,7 +22,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
 > {
   protected readonly path = '/v1/transactions';
 
-  public constructor(private readonly ledgerService: LedgerService) {
+  public constructor(private readonly transactions: TransactionService) {
     super();
   }
 
@@ -38,7 +38,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   }
 
   protected list(request: PaginatedRequest<ListTransactionsQuery>) {
-    return this.ledgerService.listTransactions({
+    return this.transactions.list({
       tenantId: request.tenantId as string,
       limit: this.resolveLimit(request.query.limit),
       cursor: request.query.cursor,
@@ -60,7 +60,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const transaction = await this.ledgerService.getTransactionById(
+          const transaction = await this.transactions.getById(
             request.tenantId as string,
             request.params.id,
           );
@@ -80,7 +80,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.reverseTransaction({
+          const result = await this.transactions.reverse({
             tenantId: request.tenantId as string,
             transactionId: request.params.id,
             reference: request.body.reference,
@@ -104,7 +104,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.correctTransaction({
+          const result = await this.transactions.correct({
             tenantId: request.tenantId as string,
             transactionId: request.params.id,
             reversalReference: request.body.reversal_reference,

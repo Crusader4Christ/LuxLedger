@@ -1,4 +1,5 @@
-import type { AccountEntity, AccountSide, LedgerService } from '@lux/ledger';
+import type { AccountEntity, AccountSide } from '@lux/ledger';
+import type { AccountService, BalanceService } from '@lux/ledger/application';
 import {
   type AccountByIdParams,
   type AccountResponse,
@@ -24,7 +25,10 @@ import { mergePaginationQuerySchema } from '../routes/pagination';
 import type { AccountListItemDto } from '../types/list-item-dto';
 
 export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountResponse> {
-  public constructor(private readonly ledgerService: LedgerService) {
+  public constructor(
+    private readonly accounts: AccountService,
+    private readonly balances: BalanceService,
+  ) {
     super();
   }
 
@@ -53,7 +57,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
-          const account = await this.ledgerService.createAccount({
+          const account = await this.accounts.create({
             tenantId: request.tenantId as string,
             ledgerId: request.body.ledger_id,
             name: request.body.name,
@@ -81,7 +85,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
-          const account = await this.ledgerService.getAccountById(
+          const account = await this.accounts.getById(
             request.tenantId as string,
             request.params.id,
           );
@@ -104,7 +108,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
-          const page = await this.ledgerService.listAccounts({
+          const page = await this.accounts.list({
             tenantId: request.tenantId as string,
             limit: resolveLimit(request.query.limit),
             cursor: request.query.cursor,
@@ -132,7 +136,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.getBalanceAt({
+          const result = await this.balances.getAt({
             tenantId: request.tenantId as string,
             accountId: request.params.id,
             at: new Date(request.query.at),
@@ -161,7 +165,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const page = await this.ledgerService.listBalanceHistory({
+          const page = await this.balances.listHistory({
             tenantId: request.tenantId as string,
             accountId: request.params.id,
             from: new Date(request.query.from),

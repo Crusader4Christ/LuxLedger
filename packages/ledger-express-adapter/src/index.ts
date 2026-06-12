@@ -1,8 +1,7 @@
 import { AccountSide } from '@lux/ledger';
 import {
-  type ApiKeyService,
+  type ApplicationServices,
   ForbiddenError,
-  type LedgerService,
   UnauthorizedError,
 } from '@lux/ledger/application';
 import {
@@ -57,8 +56,7 @@ type RequestContext = {
 type RequestWithContext = Request & Partial<RequestContext>;
 
 export type ExpressLedgerAdapterDependencies = {
-  ledgerService: LedgerService;
-  apiKeyService: ApiKeyService;
+  services: ApplicationServices;
 };
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -132,7 +130,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const ledger = await dependencies.ledgerService.createLedger({
+      const ledger = await dependencies.services.ledgers.create({
         tenantId: context.tenantId,
         name: body.name,
       });
@@ -143,7 +141,7 @@ export const registerLedgerAdapter = (
   app.get('/v1/ledgers', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
       const context = requireContext(req);
-      const ledgers = await dependencies.ledgerService.getLedgersByTenant(context.tenantId);
+      const ledgers = await dependencies.services.ledgers.list(context.tenantId);
       res.status(200).json(ledgers);
     }),
   );
@@ -156,7 +154,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const ledger = await dependencies.ledgerService.getLedgerById(context.tenantId, params.id);
+      const ledger = await dependencies.services.ledgers.getById(context.tenantId, params.id);
       res.status(200).json(ledger);
     }),
   );
@@ -169,7 +167,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const trialBalance = await dependencies.ledgerService.getLedgerTrialBalance({
+      const trialBalance = await dependencies.services.balances.getTrialBalance({
         tenantId: context.tenantId,
         ledgerId: params.ledger_id,
       });
@@ -185,7 +183,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const result = await dependencies.ledgerService.createTransaction({
+      const result = await dependencies.services.transactions.create({
         tenantId: context.tenantId,
         ledgerId: body.ledger_id,
         reference: body.reference,
@@ -218,7 +216,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const result = await dependencies.ledgerService.createTransactionsBulk({
+      const result = await dependencies.services.transactions.createBulk({
         tenantId: context.tenantId,
         transactions: body.transactions.map((transaction) => ({
           tenantId: context.tenantId,
@@ -258,7 +256,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const transaction = await dependencies.ledgerService.getTransactionById(
+      const transaction = await dependencies.services.transactions.getById(
         context.tenantId,
         params.id,
       );
@@ -286,7 +284,7 @@ export const registerLedgerAdapter = (
         ledger_id: ledgerId ?? undefined,
       };
       const context = requireContext(req);
-      const page = await dependencies.ledgerService.listTransactions({
+      const page = await dependencies.services.transactions.list({
         tenantId: context.tenantId,
         limit: resolvedLimit,
         cursor: query.cursor,
@@ -307,7 +305,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const account = await dependencies.ledgerService.createAccount({
+      const account = await dependencies.services.accounts.create({
         tenantId: context.tenantId,
         ledgerId: body.ledger_id,
         name: body.name,
@@ -326,7 +324,7 @@ export const registerLedgerAdapter = (
         return;
       }
       const context = requireContext(req);
-      const account = await dependencies.ledgerService.getAccountById(context.tenantId, params.id);
+      const account = await dependencies.services.accounts.getById(context.tenantId, params.id);
       res.status(200).json(toAccountResponse(account));
     }),
   );
@@ -351,7 +349,7 @@ export const registerLedgerAdapter = (
         ledger_id: ledgerId ?? undefined,
       };
       const context = requireContext(req);
-      const page = await dependencies.ledgerService.listAccounts({
+      const page = await dependencies.services.accounts.list({
         tenantId: context.tenantId,
         limit: resolvedLimit,
         cursor: query.cursor,
@@ -378,7 +376,7 @@ export const registerLedgerAdapter = (
         cursor: cursor ?? undefined,
       };
       const context = requireContext(req);
-      const page = await dependencies.ledgerService.listEntries({
+      const page = await dependencies.services.transactions.listEntries({
         tenantId: context.tenantId,
         limit: resolvedLimit,
         cursor: query.cursor,
@@ -394,7 +392,7 @@ export const registerLedgerAdapter = (
     withDomainErrorHandling(res, async () => {
       const context = requireContext(req);
       assertAdmin(context);
-      const keys = await dependencies.apiKeyService.listApiKeys({
+      const keys = await dependencies.services.apiKeys.listApiKeys({
         apiKeyId: context.apiKeyId,
         tenantId: context.tenantId,
         role: context.apiKeyRole,
@@ -414,7 +412,7 @@ export const registerLedgerAdapter = (
       }
       const context = requireContext(req);
       assertAdmin(context);
-      const created = await dependencies.apiKeyService.createApiKey(
+      const created = await dependencies.services.apiKeys.createApiKey(
         {
           apiKeyId: context.apiKeyId,
           tenantId: context.tenantId,
@@ -442,7 +440,7 @@ export const registerLedgerAdapter = (
       }
       const context = requireContext(req);
       assertAdmin(context);
-      await dependencies.apiKeyService.revokeApiKey(
+      await dependencies.services.apiKeys.revokeApiKey(
         {
           apiKeyId: context.apiKeyId,
           tenantId: context.tenantId,

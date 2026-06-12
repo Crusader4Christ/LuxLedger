@@ -2,12 +2,13 @@ import '@api/fastify-extensions';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { issueAccessToken, verifyAccessToken } from '@api/auth/jwt';
+import { issueAccessToken, type JwtAuthConfig, verifyAccessToken } from '@api/auth/jwt';
 import { RateLimitExceededError, sendDomainError } from '@api/errors';
 import { ApiMetrics } from '@api/observability/metrics';
 import { FixedWindowLimiter } from '@api/rate-limit/fixed-window-limiter';
-import type { EndpointRateLimitConfig } from '@api/rate-limit/policy';
-import type { ApplicationDependencies, CreateServerCoreOptions } from '@api/server-types';
+import type { EndpointRateLimitConfig, RateLimitConfig } from '@api/rate-limit/policy';
+import type { CreateServerCoreOptions } from '@api/server-types';
+import type { ApplicationServices } from '@lux/ledger/application';
 import { ApiKeyRole, ForbiddenError, UnauthorizedError } from '@lux/ledger/application';
 import { registerLedgerAdapter } from '@lux/ledger-fastify-adapter';
 import {
@@ -225,7 +226,15 @@ export const createServerCore = (options: CreateServerCoreOptions): FastifyInsta
 
 export const registerApplication = (
   server: FastifyInstance,
-  dependencies: ApplicationDependencies,
+  {
+    services,
+    jwtAuth,
+    rateLimit,
+  }: {
+    services: ApplicationServices;
+    jwtAuth: JwtAuthConfig;
+    rateLimit: RateLimitConfig;
+  },
 ): void => {
   const rateLimiter = new FixedWindowLimiter();
   const metrics = new ApiMetrics();
@@ -250,8 +259,8 @@ export const registerApplication = (
     const target = resolveRateLimitTarget(
       request.method,
       path,
-      dependencies.rateLimit.authToken,
-      dependencies.rateLimit.write,
+      rateLimit.authToken,
+      rateLimit.write,
     );
     if (target === null) {
       return;
@@ -295,7 +304,7 @@ export const registerApplication = (
         throw new UnauthorizedError('API key is required');
       }
 
-      const auth = await dependencies.apiKeyService.authenticate(apiKeyHeader);
+      const auth = await services.apiKeys.authenticate(apiKeyHeader);
       request.tenantId = auth.tenantId;
       request.apiKeyId = auth.apiKeyId;
       request.apiKeyRole = auth.role;
@@ -309,7 +318,7 @@ export const registerApplication = (
 
     const token = authorizationHeader.slice(BEARER_PREFIX.length).trim();
     let previousSigningKeyIndex: number | null = null;
-    const auth = verifyAccessToken(token, dependencies.jwtAuth, {
+    const auth = verifyAccessToken(token, jwtAuth, {
       onPreviousSigningKeyUsed: (details) => {
         previousSigningKeyIndex = details.previousSigningKeyIndex;
       },
@@ -327,7 +336,7 @@ export const registerApplication = (
       );
     }
 
-    await dependencies.apiKeyService.assertAccessTokenIsActive(auth);
+    await services.apiKeys.assertAccessTokenIsActive(auth);
     request.tenantId = auth.tenantId;
     request.apiKeyId = auth.apiKeyId;
     request.apiKeyRole = auth.role;
@@ -383,21 +392,18 @@ export const registerApplication = (
           tenantId: request.tenantId as string,
           role: request.apiKeyRole as ApiKeyRole,
         },
-        dependencies.jwtAuth,
+        jwtAuth,
       );
 
       const response: AuthTokenResponse = {
         access_token: accessToken,
         token_type: 'Bearer',
-        expires_in: dependencies.jwtAuth.accessTokenTtlSeconds,
+        expires_in: jwtAuth.accessTokenTtlSeconds,
       };
 
       return reply.status(200).send(response);
     },
   );
 
-  registerLedgerAdapter(server, {
-    ledgerService: dependencies.ledgerService,
-    apiKeyService: dependencies.apiKeyService,
-  });
+  registerLedgerAdapter(server, services);
 };

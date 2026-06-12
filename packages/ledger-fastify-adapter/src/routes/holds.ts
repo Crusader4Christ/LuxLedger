@@ -1,4 +1,4 @@
-import type { LedgerService } from '@lux/ledger/application';
+import type { HoldService } from '@lux/ledger/application';
 import {
   type CommitHoldRequest,
   type CreateHoldRequest,
@@ -11,7 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { BaseRoute } from '../routes/base-route';
 
 export class HoldsRoutes extends BaseRoute {
-  public constructor(private readonly ledgerService: LedgerService) {
+  public constructor(private readonly holds: HoldService) {
     super();
   }
 
@@ -27,7 +27,7 @@ export class HoldsRoutes extends BaseRoute {
       { schema: { body: createHoldRequestSchema } },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.createHold({
+          const result = await this.holds.create({
             tenantId: request.tenantId as string,
             ledgerId: request.body.ledger_id,
             reference: request.body.reference,
@@ -62,7 +62,7 @@ export class HoldsRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.commitHold({
+          const result = await this.holds.commit({
             tenantId: request.tenantId as string,
             holdId: request.params.id,
             reference: request.body.reference,
@@ -92,7 +92,7 @@ export class HoldsRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.voidHold({
+          const result = await this.holds.void({
             tenantId: request.tenantId as string,
             holdId: request.params.id,
           });

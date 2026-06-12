@@ -4,13 +4,12 @@ import { AccountSide, type EntryDirection } from '@lux/ledger';
 import {
   BulkTransactionError,
   InvariantViolationError,
-  LedgerService,
   RepositoryError,
 } from '@lux/ledger/application';
 import {
+  createApplicationServices,
   createDbClient,
-  DrizzleLedgerRepository,
-  type RepositoryLogger,
+  DrizzleTenantRepository,
 } from '@lux/ledger-drizzle-adapter';
 import {
   accounts,
@@ -19,6 +18,7 @@ import {
   transactions,
 } from '@lux/ledger-drizzle-adapter/schema';
 import { and, eq, sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
 const databaseUrl =
@@ -48,11 +48,10 @@ const client = createDbClient({
   idleTimeoutSeconds: 5,
   connectTimeoutSeconds: 5,
 });
+const db = drizzle(client.sql);
 
-const repository = new DrizzleLedgerRepository(client.db, {
-  info: () => {},
-} as unknown as RepositoryLogger);
-const service = new LedgerService(repository);
+const services = createApplicationServices(client);
+const tenants = new DrizzleTenantRepository(client);
 
 const createAccount = async (input: {
   tenantId: string;
@@ -62,7 +61,7 @@ const createAccount = async (input: {
   currency: string;
   balanceMinor?: bigint;
 }): Promise<string> => {
-  const [account] = await client.db
+  const [account] = await db
     .insert(accounts)
     .values({
       tenantId: input.tenantId,
@@ -78,7 +77,7 @@ const createAccount = async (input: {
 };
 
 const getAccountBalance = async (accountId: string): Promise<bigint> => {
-  const [row] = await client.db
+  const [row] = await db
     .select({ balanceMinor: accounts.balanceMinor })
     .from(accounts)
     .where(eq(accounts.id, accountId))
@@ -91,16 +90,16 @@ const getAccountBalance = async (accountId: string): Promise<bigint> => {
   return row.balanceMinor;
 };
 
-describe('LedgerService integration (service + repository + real DB)', () => {
+describe('application services integration (services + repositories + real DB)', () => {
   beforeAll(async () => {
-    await client.db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
-    await client.db.execute(sql`DROP SCHEMA IF EXISTS public CASCADE`);
-    await client.db.execute(sql`CREATE SCHEMA public`);
-    await migrate(client.db, { migrationsFolder: 'drizzle' });
+    await db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
+    await db.execute(sql`DROP SCHEMA IF EXISTS public CASCADE`);
+    await db.execute(sql`CREATE SCHEMA public`);
+    await migrate(db, { migrationsFolder: 'drizzle' });
   });
 
   beforeEach(async () => {
-    await client.db.execute(sql`
+    await db.execute(sql`
       DO $$
       DECLARE tables_to_truncate text;
       BEGIN
@@ -121,14 +120,14 @@ describe('LedgerService integration (service + repository + real DB)', () => {
   });
 
   it('covers happy-path posting, idempotency, rollback, and cross-ledger guard via service API', async () => {
-    const tenant = await repository.createTenant({ name: 'Tenant A' });
+    const tenant = await tenants.create({ name: 'Tenant A' });
     const tenantId = tenant.id;
 
-    const primaryLedger = await service.createLedger({
+    const primaryLedger = await services.ledgers.create({
       tenantId,
       name: 'Primary',
     });
-    const secondaryLedger = await service.createLedger({
+    const secondaryLedger = await services.ledgers.create({
       tenantId,
       name: 'Secondary',
     });
@@ -186,7 +185,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       },
     ];
 
-    const first = await service.createTransaction({
+    const first = await services.transactions.create({
       tenantId,
       ledgerId: primaryLedger.id,
       reference: 'integration-happy',
@@ -201,7 +200,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     expect(cashAfterFirst).toBe(-100n);
     expect(revenueAfterFirst).toBe(100n);
 
-    const retry = await service.createTransaction({
+    const retry = await services.transactions.create({
       tenantId,
       ledgerId: primaryLedger.id,
       reference: 'integration-happy',
@@ -212,7 +211,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     expect(retry.created).toBeFalse();
     expect(retry.transactionId).toBe(first.transactionId);
 
-    const rowsAfterRetry = await client.db
+    const rowsAfterRetry = await db
       .select({ id: transactions.id, description: transactions.description })
       .from(transactions)
       .where(
@@ -228,7 +227,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     expect(await getAccountBalance(revenueAccountId)).toBe(100n);
 
     await expect(
-      service.createTransaction({
+      services.transactions.create({
         tenantId,
         ledgerId: primaryLedger.id,
         reference: 'integration-rollback',
@@ -250,7 +249,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       }),
     ).rejects.toBeInstanceOf(RepositoryError);
 
-    const rollbackRows = await client.db
+    const rollbackRows = await db
       .select({ id: transactions.id })
       .from(transactions)
       .where(eq(transactions.reference, 'integration-rollback'));
@@ -259,7 +258,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
     expect(await getAccountBalance(overflowAccountId)).toBe(9223372036854775807n);
 
     await expect(
-      service.createTransaction({
+      services.transactions.create({
         tenantId,
         ledgerId: primaryLedger.id,
         reference: 'integration-cross-ledger',
@@ -281,7 +280,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
 
-    const crossLedgerRows = await client.db
+    const crossLedgerRows = await db
       .select({ id: transactions.id })
       .from(transactions)
       .where(eq(transactions.reference, 'integration-cross-ledger'));
@@ -291,8 +290,11 @@ describe('LedgerService integration (service + repository + real DB)', () => {
   });
 
   it('applies backdated transactions to historical balances and later snapshots', async () => {
-    const tenant = await repository.createTenant({ name: 'Tenant Backdated' });
-    const ledger = await service.createLedger({ tenantId: tenant.id, name: 'Backdated' });
+    const tenant = await tenants.create({ name: 'Tenant Backdated' });
+    const ledger = await services.ledgers.create({
+      tenantId: tenant.id,
+      name: 'Backdated',
+    });
     const cashAccountId = await createAccount({
       tenantId: tenant.id,
       ledgerId: ledger.id,
@@ -323,7 +325,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       },
     ];
 
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId: tenant.id,
       ledgerId: ledger.id,
       reference: 'jan-10',
@@ -331,7 +333,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       effectiveAt: new Date('2024-01-10T00:00:00.000Z'),
       entries: entries(100n),
     });
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId: tenant.id,
       ledgerId: ledger.id,
       reference: 'jan-20',
@@ -339,7 +341,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       effectiveAt: new Date('2024-01-20T00:00:00.000Z'),
       entries: entries(50n),
     });
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId: tenant.id,
       ledgerId: ledger.id,
       reference: 'jan-15-backdated',
@@ -348,17 +350,17 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       entries: entries(25n),
     });
 
-    const beforeFirst = await service.getBalanceAt({
+    const beforeFirst = await services.balances.getAt({
       tenantId: tenant.id,
       accountId: cashAccountId,
       at: new Date('2024-01-09T23:59:59.000Z'),
     });
-    const afterBackdated = await service.getBalanceAt({
+    const afterBackdated = await services.balances.getAt({
       tenantId: tenant.id,
       accountId: cashAccountId,
       at: new Date('2024-01-16T00:00:00.000Z'),
     });
-    const afterLater = await service.getBalanceAt({
+    const afterLater = await services.balances.getAt({
       tenantId: tenant.id,
       accountId: cashAccountId,
       at: new Date('2024-01-21T00:00:00.000Z'),
@@ -371,8 +373,11 @@ describe('LedgerService integration (service + repository + real DB)', () => {
   });
 
   it('rolls back every item in a bulk posting when one item fails', async () => {
-    const tenant = await repository.createTenant({ name: 'Tenant Bulk' });
-    const ledger = await service.createLedger({ tenantId: tenant.id, name: 'Bulk' });
+    const tenant = await tenants.create({ name: 'Tenant Bulk' });
+    const ledger = await services.ledgers.create({
+      tenantId: tenant.id,
+      name: 'Bulk',
+    });
     const cashAccountId = await createAccount({
       tenantId: tenant.id,
       ledgerId: ledger.id,
@@ -388,8 +393,8 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       currency: 'USD',
     });
 
-    const error = await service
-      .createTransactionsBulk({
+    const error = await services.transactions
+      .createBulk({
         tenantId: tenant.id,
         transactions: [
           {
@@ -442,7 +447,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       category: 'VALIDATION',
     });
 
-    const rows = await client.db
+    const rows = await db
       .select({ id: transactions.id })
       .from(transactions)
       .where(eq(transactions.tenantId, tenant.id));
@@ -452,9 +457,9 @@ describe('LedgerService integration (service + repository + real DB)', () => {
   });
 
   it('runs baseline reconciliation with persisted report, mismatches, conflicts, and dry-run', async () => {
-    const tenant = await repository.createTenant({ name: 'Reconciliation Tenant' });
+    const tenant = await tenants.create({ name: 'Reconciliation Tenant' });
     const tenantId = tenant.id;
-    const ledger = await service.createLedger({ tenantId, name: 'Primary' });
+    const ledger = await services.ledgers.create({ tenantId, name: 'Primary' });
 
     const cashAccountId = await createAccount({
       tenantId,
@@ -485,28 +490,28 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       },
     ];
 
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId,
       ledgerId: ledger.id,
       reference: 'exact-1',
       currency: 'USD',
       entries: entries(100n),
     });
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId,
       ledgerId: ledger.id,
       reference: 'mismatch-1',
       currency: 'USD',
       entries: entries(200n),
     });
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId,
       ledgerId: ledger.id,
       reference: 'settle-a',
       currency: 'USD',
       entries: entries(50n),
     });
-    await service.createTransaction({
+    await services.transactions.create({
       tenantId,
       ledgerId: ledger.id,
       reference: 'settle-b',
@@ -514,7 +519,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       entries: entries(50n),
     });
 
-    const upload = await service.ingestExternalRecords({
+    const upload = await services.reconciliation.ingest({
       tenantId,
       source: 'bank-feed',
       records: [
@@ -550,7 +555,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       ],
     });
 
-    const exactRule = await service.createReconciliationMatchingRule({
+    const exactRule = await services.reconciliation.createRule({
       tenantId,
       name: 'Baseline exact with contains reference',
       criteria: [
@@ -560,7 +565,7 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       ],
     });
 
-    const run = await service.runReconciliation({
+    const run = await services.reconciliation.run({
       tenantId,
       ledgerId: ledger.id,
       uploadId: upload.id,
@@ -586,11 +591,11 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       ),
     ).toBeTrue();
 
-    const persisted = await service.getReconciliationRun(tenantId, run.id);
+    const persisted = await services.reconciliation.getRun(tenantId, run.id);
     expect(persisted.results).toHaveLength(run.results.length);
 
-    const beforeDryRunRows = await client.db.select({ id: reconRuns.id }).from(reconRuns);
-    const dryRun = await service.runReconciliation({
+    const beforeDryRunRows = await db.select({ id: reconRuns.id }).from(reconRuns);
+    const dryRun = await services.reconciliation.run({
       tenantId,
       ledgerId: ledger.id,
       uploadId: upload.id,
@@ -598,27 +603,27 @@ describe('LedgerService integration (service + repository + real DB)', () => {
       matchingRuleIds: [exactRule.id],
       dryRun: true,
     });
-    const afterDryRunRows = await client.db.select({ id: reconRuns.id }).from(reconRuns);
+    const afterDryRunRows = await db.select({ id: reconRuns.id }).from(reconRuns);
     expect(dryRun.dryRun).toBeTrue();
     expect(afterDryRunRows).toHaveLength(beforeDryRunRows.length);
   });
 
   it('rejects reconciliation when a persisted upload has no records', async () => {
-    const tenant = await repository.createTenant({ name: 'Empty Upload Tenant' });
+    const tenant = await tenants.create({ name: 'Empty Upload Tenant' });
     const tenantId = tenant.id;
-    const ledger = await service.createLedger({ tenantId, name: 'Primary' });
-    const [upload] = await client.db
+    const ledger = await services.ledgers.create({ tenantId, name: 'Primary' });
+    const [upload] = await db
       .insert(reconUploads)
       .values({ tenantId, source: 'bank-feed', recordCount: 0 })
       .returning({ id: reconUploads.id });
-    const rule = await service.createReconciliationMatchingRule({
+    const rule = await services.reconciliation.createRule({
       tenantId,
       name: 'Exact',
       criteria: [{ field: 'reference', operator: 'equals' }],
     });
 
     await expect(
-      service.runReconciliation({
+      services.reconciliation.run({
         tenantId,
         ledgerId: ledger.id,
         uploadId: upload.id,

@@ -19,10 +19,12 @@ import {
 } from '@lux/ledger';
 import {
   type AccountPaginationQuery,
+  AccountService,
   type ApiKeyRepository,
   ApiKeyService,
   type BalanceAtQuery,
   type BalanceHistoryQuery,
+  BalanceService,
   type BalanceSnapshotEvent,
   type CreateAccountInput,
   type CreateLedgerInput,
@@ -31,21 +33,23 @@ import {
   type CreateTransactionResult,
   EntryDirection,
   type HistoricalBalance,
+  HoldService,
   type IngestReconRecordsInput,
   InvariantViolationError,
   type Ledger,
   LedgerNotFoundError,
-  type LedgerRepository,
   LedgerService,
   type LedgerTrialBalanceQuery,
   type PaginatedResult,
   type PaginationQuery,
+  ReconciliationService,
   type ReconRule,
   type ReconRun,
   type ReconUpload,
   RepositoryError,
   type RunReconInput,
   type TransactionPaginationQuery,
+  TransactionService,
   type TrialBalance,
 } from '@lux/ledger/application';
 import type {
@@ -123,12 +127,12 @@ class InMemoryLedgerRepository {
     return ledger;
   }
 
-  public async findLedgerByIdForTenant(tenantId: string, id: string): Promise<Ledger | null> {
+  public async findLedger(tenantId: string, id: string): Promise<Ledger | null> {
     const ledger = this.ledgers.get(id);
     return ledger && ledger.tenantId === tenantId ? ledger : null;
   }
 
-  public async findLedgersByTenant(tenantId: string): Promise<Ledger[]> {
+  public async listLedgers(tenantId: string): Promise<Ledger[]> {
     return [...this.ledgers.values()].filter((ledger) => ledger.tenantId === tenantId);
   }
 
@@ -313,10 +317,7 @@ class InMemoryLedgerRepository {
 }
 
 class InMemoryLedgerReadRepository {
-  public async findAccountByIdForTenant(
-    tenantId: string,
-    accountId: string,
-  ): Promise<AccountEntity | null> {
+  public async findAccount(tenantId: string, accountId: string): Promise<AccountEntity | null> {
     if (tenantId !== VALID_TENANT_ID) {
       return null;
     }
@@ -485,7 +486,7 @@ class InMemoryLedgerReadRepository {
     return { data: [transaction1], nextCursor: 'next-transactions' };
   }
 
-  public async findTransactionByIdForTenant(
+  public async findTransaction(
     tenantId: string,
     transactionId: string,
   ): Promise<TransactionEntity | null> {
@@ -695,7 +696,7 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     });
   }
 
-  public async findActiveApiKeyByHash(keyHash: string): Promise<ApiKeyEntity | null> {
+  public async findActiveByHash(keyHash: string): Promise<ApiKeyEntity | null> {
     for (const key of this.keys.values()) {
       if (key.keyHash === keyHash && key.revokedAt === null) {
         return key;
@@ -704,25 +705,15 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return null;
   }
 
-  public async findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null> {
+  public async findById(apiKeyId: string): Promise<ApiKeyEntity | null> {
     return this.keys.get(apiKeyId) ?? null;
   }
 
-  public async countApiKeys(): Promise<number> {
-    return this.keys.size;
+  public async bootstrapInitialAdmin(): Promise<{ created: false }> {
+    return { created: false };
   }
 
-  public async createTenant(input: {
-    name: string;
-  }): Promise<{ id: string; name: string; createdAt: Date }> {
-    return {
-      id: VALID_TENANT_ID,
-      name: input.name,
-      createdAt: new Date(),
-    };
-  }
-
-  public async createApiKey(input: {
+  public async create(input: {
     tenantId: string;
     name: string;
     role: ApiKeyRole;
@@ -743,11 +734,11 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return created;
   }
 
-  public async listApiKeys(tenantId: string): Promise<ApiKeyEntity[]> {
+  public async list(tenantId: string): Promise<ApiKeyEntity[]> {
     return [...this.keys.values()].filter((key) => key.tenantId === tenantId);
   }
 
-  public async revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean> {
+  public async revoke(tenantId: string, apiKeyId: string): Promise<boolean> {
     const key = this.keys.get(apiKeyId);
     if (!key || key.tenantId !== tenantId || key.revokedAt !== null) {
       return false;
@@ -766,11 +757,8 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
 }
 
 interface ReadRepositoryPort {
-  findAccountByIdForTenant(tenantId: string, accountId: string): Promise<AccountEntity | null>;
-  findTransactionByIdForTenant(
-    tenantId: string,
-    transactionId: string,
-  ): Promise<TransactionEntity | null>;
+  findAccount(tenantId: string, accountId: string): Promise<AccountEntity | null>;
+  findTransaction(tenantId: string, transactionId: string): Promise<TransactionEntity | null>;
   listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
   listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
   listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
@@ -787,13 +775,13 @@ const createServer = (
   logger: FastifyServerOptions['logger'] = false,
 ) => {
   const writeRepository = new InMemoryLedgerRepository();
-  const repository: LedgerRepository = {
+  const repository = {
     createLedger: writeRepository.createLedger.bind(writeRepository),
-    findLedgerByIdForTenant: writeRepository.findLedgerByIdForTenant.bind(writeRepository),
-    findLedgersByTenant: writeRepository.findLedgersByTenant.bind(writeRepository),
+    findLedger: writeRepository.findLedger.bind(writeRepository),
+    listLedgers: writeRepository.listLedgers.bind(writeRepository),
     createAccount: writeRepository.createAccount.bind(writeRepository),
-    findAccountByIdForTenant: readRepository.findAccountByIdForTenant.bind(readRepository),
-    findTransactionByIdForTenant: readRepository.findTransactionByIdForTenant.bind(readRepository),
+    findAccount: readRepository.findAccount.bind(readRepository),
+    findTransaction: readRepository.findTransaction.bind(readRepository),
     createTransaction: writeRepository.createTransaction.bind(writeRepository),
     createTransactionsBulk: writeRepository.createTransactionsBulk.bind(writeRepository),
     reverseTransaction: writeRepository.reverseTransaction.bind(writeRepository),
@@ -822,8 +810,11 @@ const createServer = (
       criteria: input.criteria,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     }),
-    listReconciliationMatchingRules: async (): Promise<ReconRule[]> => [],
-    getReconciliationMatchingRule: async (): Promise<ReconRule | null> => null,
+    listReconciliationMatchingRules: async (_tenantId: string): Promise<ReconRule[]> => [],
+    getReconciliationMatchingRule: async (
+      _tenantId: string,
+      _ruleId: string,
+    ): Promise<ReconRule | null> => null,
     runReconciliation: async (input: RunReconInput): Promise<ReconRun> => {
       const now = new Date('2026-01-01T00:00:00.000Z');
       return {
@@ -844,11 +835,51 @@ const createServer = (
         results: [],
       };
     },
-    getReconciliationRun: async (): Promise<ReconRun | null> => null,
+    getReconciliationRun: async (_tenantId: string, _runId: string): Promise<ReconRun | null> =>
+      null,
   };
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);
-  const ledgerService = new LedgerService(repository);
+  const services = {
+    accounts: new AccountService({
+      create: (input) => repository.createAccount(input),
+      findById: (tenantId, accountId) => repository.findAccount(tenantId, accountId),
+      list: (query) => repository.listAccounts(query),
+    }),
+    apiKeys: apiKeyService,
+    balances: new BalanceService({
+      getTrialBalance: (query) => repository.getLedgerTrialBalance(query),
+      getAt: (query) => repository.getBalanceAt(query),
+      listHistory: (query) => repository.listBalanceHistory(query),
+    }),
+    holds: new HoldService({
+      create: (input) => repository.createHold(input),
+      commit: (input) => repository.commitHold(input),
+      void: (input) => repository.voidHold(input),
+    }),
+    ledgers: new LedgerService({
+      create: (input) => repository.createLedger(input),
+      findById: (tenantId, ledgerId) => repository.findLedger(tenantId, ledgerId),
+      list: (tenantId) => repository.listLedgers(tenantId),
+    }),
+    reconciliation: new ReconciliationService({
+      ingest: (input) => repository.ingestExternalRecords(input),
+      createRule: (input) => repository.createReconciliationMatchingRule(input),
+      listRules: (tenantId) => repository.listReconciliationMatchingRules(tenantId),
+      getRule: (tenantId, ruleId) => repository.getReconciliationMatchingRule(tenantId, ruleId),
+      run: (input) => repository.runReconciliation(input),
+      getRun: (tenantId, runId) => repository.getReconciliationRun(tenantId, runId),
+    }),
+    transactions: new TransactionService({
+      create: (input) => repository.createTransaction(input),
+      createBulk: (input) => repository.createTransactionsBulk(input),
+      reverse: (input) => repository.reverseTransaction(input),
+      correct: (input) => repository.correctTransaction(input),
+      findById: (tenantId, transactionId) => repository.findTransaction(tenantId, transactionId),
+      list: (query) => repository.listTransactions(query),
+      listEntries: (query) => repository.listEntries(query),
+    }),
+  };
 
   const server = createServerCore({
     readinessCheck,
@@ -856,8 +887,7 @@ const createServer = (
   });
 
   registerApplication(server, {
-    apiKeyService,
-    ledgerService,
+    services,
     jwtAuth,
     rateLimit,
   });
@@ -2471,11 +2501,9 @@ describe('server', () => {
 
   it('GET /v1/entries returns 400 when read model contains non-persisted entry fields', async () => {
     const invalidReadRepository = {
-      findAccountByIdForTenant: async (
-        _tenantId: string,
-        _accountId: string,
-      ): Promise<AccountEntity | null> => null,
-      findTransactionByIdForTenant: async (
+      findAccount: async (_tenantId: string, _accountId: string): Promise<AccountEntity | null> =>
+        null,
+      findTransaction: async (
         _tenantId: string,
         _transactionId: string,
       ): Promise<TransactionEntity | null> => null,

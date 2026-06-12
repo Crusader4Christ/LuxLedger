@@ -3,6 +3,8 @@ import { ApiKeyEntity, ApiKeyRole } from '@lux/ledger';
 import type { ApiKeyRepository } from '@lux/ledger/application';
 import {
   ApiKeyService,
+  type BootstrapAdminRepositoryInput,
+  type BootstrapAdminResult,
   ForbiddenError,
   InvariantViolationError,
   UnauthorizedError,
@@ -19,21 +21,24 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     }
   }
 
-  public async countApiKeys(): Promise<number> {
-    return this.keys.size;
+  public async bootstrapInitialAdmin(
+    input: BootstrapAdminRepositoryInput,
+  ): Promise<BootstrapAdminResult> {
+    if (this.keys.size > 0) {
+      return { created: false };
+    }
+
+    const tenantId = `tenant-${input.tenantName.toLowerCase().replaceAll(/\s+/g, '-')}`;
+    const created = await this.create({
+      tenantId,
+      name: input.keyName,
+      role: ApiKeyRole.ADMIN,
+      keyHash: input.keyHash,
+    });
+    return { created: true, tenantId, apiKeyId: created.id };
   }
 
-  public async createTenant(input: {
-    name: string;
-  }): Promise<{ id: string; name: string; createdAt: Date }> {
-    return {
-      id: `tenant-${input.name.toLowerCase().replaceAll(/\s+/g, '-')}`,
-      name: input.name,
-      createdAt: new Date(),
-    };
-  }
-
-  public async findActiveApiKeyByHash(keyHash: string): Promise<ApiKeyEntity | null> {
+  public async findActiveByHash(keyHash: string): Promise<ApiKeyEntity | null> {
     for (const key of this.keys.values()) {
       if (key.keyHash === keyHash && key.revokedAt === null) {
         return key;
@@ -42,11 +47,11 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return null;
   }
 
-  public async findApiKeyById(apiKeyId: string): Promise<ApiKeyEntity | null> {
+  public async findById(apiKeyId: string): Promise<ApiKeyEntity | null> {
     return this.keys.get(apiKeyId) ?? null;
   }
 
-  public async createApiKey(input: {
+  public async create(input: {
     tenantId: string;
     name: string;
     role: ApiKeyRole;
@@ -67,11 +72,11 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return key;
   }
 
-  public async listApiKeys(tenantId: string): Promise<ApiKeyEntity[]> {
+  public async list(tenantId: string): Promise<ApiKeyEntity[]> {
     return [...this.keys.values()].filter((key) => key.tenantId === tenantId);
   }
 
-  public async revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean> {
+  public async revoke(tenantId: string, apiKeyId: string): Promise<boolean> {
     const key = this.keys.get(apiKeyId);
     if (!key || key.tenantId !== tenantId || key.revokedAt !== null) {
       return false;

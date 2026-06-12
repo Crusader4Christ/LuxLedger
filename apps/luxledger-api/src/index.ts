@@ -1,12 +1,7 @@
 import { parseJwtAuthConfig } from '@api/auth/policy';
 import { parseRateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
-import { ApiKeyService, LedgerService } from '@lux/ledger/application';
-import {
-  createDbClient,
-  DrizzleLedgerRepository,
-  type RepositoryLogger,
-} from '@lux/ledger-drizzle-adapter';
+import { createApplicationServices, createDbClient } from '@lux/ledger-drizzle-adapter';
 
 const parsePort = (value: string | undefined): number => {
   if (value === undefined) {
@@ -44,15 +39,9 @@ export const run = async (): Promise<void> => {
     },
     logger: true,
   });
-  const ledgerRepository = new DrizzleLedgerRepository(
-    dbClient.db,
-    server.log as unknown as RepositoryLogger,
-  );
-  const apiKeyService = new ApiKeyService(ledgerRepository);
-  const ledgerService = new LedgerService(ledgerRepository);
+  const services = createApplicationServices(dbClient);
   registerApplication(server, {
-    apiKeyService,
-    ledgerService,
+    services,
     jwtAuth: parseJwtAuthConfig(process.env),
     rateLimit: parseRateLimitConfig(process.env),
   });

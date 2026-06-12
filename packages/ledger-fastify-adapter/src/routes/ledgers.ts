@@ -1,4 +1,4 @@
-import type { LedgerService } from '@lux/ledger/application';
+import type { BalanceService, LedgerService, TransactionService } from '@lux/ledger/application';
 import {
   type BulkCreateTransactionRequest,
   type BulkCreateTransactionResponse,
@@ -22,7 +22,11 @@ import type { FastifyInstance } from 'fastify';
 import { BaseRoute } from '../routes/base-route';
 
 export class LedgerRoutes extends BaseRoute {
-  public constructor(private readonly ledgerService: LedgerService) {
+  public constructor(
+    private readonly ledgers: LedgerService,
+    private readonly transactions: TransactionService,
+    private readonly balances: BalanceService,
+  ) {
     super();
   }
 
@@ -50,7 +54,7 @@ export class LedgerRoutes extends BaseRoute {
         const { name } = request.body;
 
         return this.handle(reply, async () => {
-          const ledger = await this.ledgerService.createLedger({
+          const ledger = await this.ledgers.create({
             tenantId: request.tenantId as string,
             name,
           });
@@ -71,7 +75,7 @@ export class LedgerRoutes extends BaseRoute {
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
-          const result = await this.ledgerService.createTransaction({
+          const result = await this.transactions.create({
             tenantId: request.tenantId as string,
             ledgerId: request.body.ledger_id,
             reference: request.body.reference,
@@ -114,7 +118,7 @@ export class LedgerRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const result = await this.ledgerService.createTransactionsBulk({
+          const result = await this.transactions.createBulk({
             tenantId: request.tenantId as string,
             transactions: request.body.transactions.map((transaction) => ({
               tenantId: request.tenantId as string,
@@ -161,10 +165,7 @@ export class LedgerRoutes extends BaseRoute {
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
-          const ledger = await this.ledgerService.getLedgerById(
-            request.tenantId as string,
-            request.params.id,
-          );
+          const ledger = await this.ledgers.getById(request.tenantId as string, request.params.id);
           return reply.status(200).send(ledger);
         });
       },
@@ -183,7 +184,7 @@ export class LedgerRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const ledgers = await this.ledgerService.getLedgersByTenant(request.tenantId as string);
+          const ledgers = await this.ledgers.list(request.tenantId as string);
           return reply.status(200).send(ledgers);
         }),
     );
@@ -202,7 +203,7 @@ export class LedgerRoutes extends BaseRoute {
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
-          const trialBalance = await this.ledgerService.getLedgerTrialBalance({
+          const trialBalance = await this.balances.getTrialBalance({
             tenantId: request.tenantId as string,
             ledgerId: request.params.ledger_id,
           });
