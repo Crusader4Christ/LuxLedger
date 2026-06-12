@@ -14,11 +14,8 @@ import {
   type BulkCreateTransactionRequest,
   type BulkCreateTransactionResponse,
   balanceAsOfQuerySchema,
-  balanceAsOfResponseSchema,
   balanceHistoryQuerySchema,
-  balanceHistoryResponseSchema,
   bulkCreateTransactionRequestSchema,
-  bulkCreateTransactionResponseSchema,
   type CommitHoldRequest,
   type CommitHoldResponse,
   type CorrectTransactionRequest,
@@ -32,17 +29,13 @@ import {
   type CreateTransactionRequest,
   type CreateTransactionResponse,
   commitHoldRequestSchema,
-  commitHoldResponseSchema,
   correctTransactionRequestSchema,
-  correctTransactionResponseSchema,
   createAccountBodySchema,
   createApiKeyBodySchema,
   createHoldRequestSchema,
-  createHoldResponseSchema,
   createLedgerBodySchema,
   createReconRuleRequestSchema,
   createTransactionRequestSchema,
-  createTransactionResponseSchema,
   type HoldByIdParams,
   type IngestReconRecordsRequest,
   ingestReconRecordsRequestSchema,
@@ -51,6 +44,7 @@ import {
   type ListEntriesQuery,
   type ListTransactionsQuery,
   type ReconRuleResponse,
+  type ReconRulesListResponse,
   type ReconRunByIdParams,
   type ReconRunResponse,
   type ReconUploadResponse,
@@ -58,19 +52,12 @@ import {
   type ReverseTransactionResponse,
   type RevokeApiKeyParams,
   type RunReconRequest,
-  reconRuleResponseSchema,
-  reconRulesListResponseSchema,
-  reconRunResponseSchema,
-  reconUploadResponseSchema,
   reverseTransactionRequestSchema,
-  reverseTransactionResponseSchema,
   runReconRequestSchema,
   type TransactionByIdParams,
+  type TransactionsPage,
   type TrialBalanceParams,
-  transactionResponseSchema,
-  transactionsPageResponseSchema,
   type VoidHoldResponse,
-  voidHoldResponseSchema,
 } from '@lux/ledger-http/contracts';
 import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
 import {
@@ -148,18 +135,6 @@ const validate = <T>(schema: object, value: unknown): T | null => {
     validators.set(schema, validator);
   }
   return validator(value) ? (value as T) : null;
-};
-
-const sendValidatedResponse = <T>(
-  res: Response,
-  status: number,
-  schema: object,
-  value: T,
-): Response => {
-  if (validate<T>(schema, value) === null) {
-    throw new Error(`Response contract violation for status ${status}`);
-  }
-  return res.status(status).json(value);
 };
 
 const assertAdmin = (context: RequestContext): void => {
@@ -260,12 +235,7 @@ export const registerLedgerAdapter = (
         transaction_id: result.transactionId,
         created: result.created,
       };
-      sendValidatedResponse(
-        res,
-        result.created ? 201 : 200,
-        createTransactionResponseSchema,
-        response,
-      );
+      res.status(result.created ? 201 : 200).json(response);
     }),
   );
 
@@ -307,12 +277,7 @@ export const registerLedgerAdapter = (
           created: transaction.created,
         })),
       };
-      sendValidatedResponse(
-        res,
-        result.createdCount > 0 ? 201 : 200,
-        bulkCreateTransactionResponseSchema,
-        response,
-      );
+      res.status(result.createdCount > 0 ? 201 : 200).json(response);
     }),
   );
 
@@ -328,12 +293,7 @@ export const registerLedgerAdapter = (
         context.tenantId,
         params.id,
       );
-      sendValidatedResponse(
-        res,
-        200,
-        transactionResponseSchema,
-        toTransactionResponse(transaction),
-      );
+      res.status(200).json(toTransactionResponse(transaction));
     }),
   );
 
@@ -363,10 +323,11 @@ export const registerLedgerAdapter = (
         cursor: query.cursor,
         ledgerId: query.ledger_id,
       });
-      sendValidatedResponse(res, 200, transactionsPageResponseSchema, {
+      const response: TransactionsPage = {
         data: page.data.map(toTransactionResponse),
         next_cursor: page.nextCursor,
-      });
+      };
+      res.status(200).json(response);
     }),
   );
 
@@ -389,12 +350,7 @@ export const registerLedgerAdapter = (
         transaction_id: result.transactionId,
         created: result.created,
       };
-      sendValidatedResponse(
-        res,
-        result.created ? 201 : 200,
-        reverseTransactionResponseSchema,
-        response,
-      );
+      res.status(result.created ? 201 : 200).json(response);
     }),
   );
 
@@ -425,12 +381,7 @@ export const registerLedgerAdapter = (
         corrected_transaction_id: result.correctedTransactionId,
         created: result.created,
       };
-      sendValidatedResponse(
-        res,
-        result.created ? 201 : 200,
-        correctTransactionResponseSchema,
-        response,
-      );
+      res.status(result.created ? 201 : 200).json(response);
     }),
   );
 
@@ -521,7 +472,7 @@ export const registerLedgerAdapter = (
         inflight_credit_minor: result.inflightCreditMinor.toString(),
         available_minor: result.availableMinor.toString(),
       };
-      sendValidatedResponse(res, 200, balanceAsOfResponseSchema, response);
+      res.status(200).json(response);
     }),
   );
 
@@ -570,7 +521,7 @@ export const registerLedgerAdapter = (
         })),
         next_cursor: page.nextCursor,
       };
-      sendValidatedResponse(res, 200, balanceHistoryResponseSchema, response);
+      res.status(200).json(response);
     }),
   );
 
@@ -601,7 +552,7 @@ export const registerLedgerAdapter = (
         state: result.state,
         remaining_amount_minor: result.remainingAmountMinor.toString(),
       };
-      sendValidatedResponse(res, result.created ? 201 : 200, createHoldResponseSchema, response);
+      res.status(result.created ? 201 : 200).json(response);
     }),
   );
 
@@ -627,7 +578,7 @@ export const registerLedgerAdapter = (
         state: result.state,
         remaining_amount_minor: result.remainingAmountMinor.toString(),
       };
-      sendValidatedResponse(res, result.created ? 201 : 200, commitHoldResponseSchema, response);
+      res.status(result.created ? 201 : 200).json(response);
     }),
   );
 
@@ -649,7 +600,7 @@ export const registerLedgerAdapter = (
         voided: result.voided,
         remaining_amount_minor: result.remainingAmountMinor.toString(),
       };
-      sendValidatedResponse(res, 200, voidHoldResponseSchema, response);
+      res.status(200).json(response);
     }),
   );
 
@@ -675,12 +626,8 @@ export const registerLedgerAdapter = (
           dateToleranceSeconds: criterion.date_tolerance_seconds,
         })),
       });
-      sendValidatedResponse<ReconRuleResponse>(
-        res,
-        201,
-        reconRuleResponseSchema,
-        toReconRuleResponse(rule),
-      );
+      const response: ReconRuleResponse = toReconRuleResponse(rule);
+      res.status(201).json(response);
     }),
   );
 
@@ -688,9 +635,10 @@ export const registerLedgerAdapter = (
     withDomainErrorHandling(res, async () => {
       const context = requireContext(req);
       const rules = await dependencies.services.reconciliation.listRules(context.tenantId);
-      sendValidatedResponse(res, 200, reconRulesListResponseSchema, {
+      const response: ReconRulesListResponse = {
         data: rules.map(toReconRuleResponse),
-      });
+      };
+      res.status(200).json(response);
     }),
   );
 
@@ -715,12 +663,8 @@ export const registerLedgerAdapter = (
           raw: record.raw ?? null,
         })),
       });
-      sendValidatedResponse<ReconUploadResponse>(
-        res,
-        201,
-        reconUploadResponseSchema,
-        toReconUploadResponse(upload),
-      );
+      const response: ReconUploadResponse = toReconUploadResponse(upload);
+      res.status(201).json(response);
     }),
   );
 
@@ -740,12 +684,8 @@ export const registerLedgerAdapter = (
         matchingRuleIds: body.matching_rule_ids,
         dryRun: body.dry_run,
       });
-      sendValidatedResponse<ReconRunResponse>(
-        res,
-        body.dry_run ? 200 : 201,
-        reconRunResponseSchema,
-        toReconRunResponse(run),
-      );
+      const response: ReconRunResponse = toReconRunResponse(run);
+      res.status(body.dry_run ? 200 : 201).json(response);
     }),
   );
 
@@ -758,12 +698,8 @@ export const registerLedgerAdapter = (
       }
       const context = requireContext(req);
       const run = await dependencies.services.reconciliation.getRun(context.tenantId, params.id);
-      sendValidatedResponse<ReconRunResponse>(
-        res,
-        200,
-        reconRunResponseSchema,
-        toReconRunResponse(run),
-      );
+      const response: ReconRunResponse = toReconRunResponse(run);
+      res.status(200).json(response);
     }),
   );
 
