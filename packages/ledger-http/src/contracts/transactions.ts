@@ -1,4 +1,6 @@
 import { EntryDirection } from '@lux/ledger/application';
+import type { InferSchema } from '../schema-types';
+import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
 
 const NON_EMPTY_TRIMMED_PATTERN = '^(?=.*\\S).+$';
 
@@ -6,92 +8,6 @@ const nonEmptyTrimmedStringSchema = {
   type: 'string',
   pattern: NON_EMPTY_TRIMMED_PATTERN,
 } as const;
-
-export type TransactionEntryRequest = {
-  account_id: string;
-  direction: EntryDirection;
-  amount_minor: string;
-  currency: string;
-};
-
-export type CreateTransactionRequest = {
-  ledger_id: string;
-  reference: string;
-  currency: string;
-  description?: string;
-  effective_at?: string;
-  entries: TransactionEntryRequest[];
-};
-
-export type CreateTransactionResponse = {
-  transaction_id: string;
-  created: boolean;
-};
-
-export type BulkCreateTransactionRequest = {
-  transactions: CreateTransactionRequest[];
-};
-
-export type BulkCreateTransactionResponse = {
-  created_count: number;
-  idempotent_count: number;
-  transactions: Array<{
-    reference: string;
-    transaction_id: string;
-    created: boolean;
-  }>;
-};
-
-export type TransactionResponse = {
-  id: string;
-  tenant_id: string;
-  ledger_id: string;
-  reference: string;
-  currency: string;
-  description: string | null;
-  related_transaction_id: string | null;
-  relation_type: 'REVERSAL' | 'CORRECTION' | null;
-  effective_at: string;
-  created_at: string;
-};
-
-export type ReverseTransactionRequest = {
-  reference: string;
-  description?: string;
-};
-
-export type ReverseTransactionResponse = {
-  transaction_id: string;
-  created: boolean;
-};
-
-export type CorrectTransactionRequest = {
-  reversal_reference: string;
-  corrected_reference: string;
-  description?: string;
-  entries: TransactionEntryRequest[];
-};
-
-export type CorrectTransactionResponse = {
-  reversal_transaction_id: string;
-  corrected_transaction_id: string;
-  created: boolean;
-};
-
-export type ListTransactionsQuery = {
-  limit?: number;
-  cursor?: string;
-  ledger_id?: string;
-};
-
-export type TransactionByIdParams = {
-  id: string;
-};
-
-export type TransactionsPage = {
-  data: TransactionResponse[];
-  next_cursor: string | null;
-};
 
 export const transactionEntryRequestSchema = {
   type: 'object',
@@ -152,8 +68,24 @@ export const bulkCreateTransactionRequestSchema = {
   },
 } as const;
 
+export const createTransactionResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['transaction_id', 'created'],
+  properties: {
+    transaction_id: {
+      type: 'string',
+      format: 'uuid',
+    },
+    created: {
+      type: 'boolean',
+    },
+  },
+} as const;
+
 export const bulkCreateTransactionResponseSchema = {
   type: 'object',
+  additionalProperties: false,
   required: ['created_count', 'idempotent_count', 'transactions'],
   properties: {
     created_count: {
@@ -168,6 +100,7 @@ export const bulkCreateTransactionResponseSchema = {
       type: 'array',
       items: {
         type: 'object',
+        additionalProperties: false,
         required: ['reference', 'transaction_id', 'created'],
         properties: {
           reference: {
@@ -188,6 +121,7 @@ export const bulkCreateTransactionResponseSchema = {
 
 export const transactionResponseSchema = {
   type: 'object',
+  additionalProperties: false,
   required: [
     'id',
     'tenant_id',
@@ -270,6 +204,27 @@ export const correctTransactionRequestSchema = {
   },
 } as const;
 
+export const reverseTransactionResponseSchema = createTransactionResponseSchema;
+
+export const correctTransactionResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reversal_transaction_id', 'corrected_transaction_id', 'created'],
+  properties: {
+    reversal_transaction_id: {
+      type: 'string',
+      format: 'uuid',
+    },
+    corrected_transaction_id: {
+      type: 'string',
+      format: 'uuid',
+    },
+    created: {
+      type: 'boolean',
+    },
+  },
+} as const;
+
 export const transactionByIdParamsSchema = {
   type: 'object',
   additionalProperties: false,
@@ -290,3 +245,24 @@ export const listTransactionsQuerySchemaExtra = {
     },
   },
 } as const;
+
+export const listTransactionsQuerySchema = mergePaginationQuerySchema(
+  listTransactionsQuerySchemaExtra,
+);
+
+export const transactionsPageResponseSchema =
+  createPaginatedResponseSchema(transactionResponseSchema);
+
+export type TransactionEntryRequest = InferSchema<typeof transactionEntryRequestSchema>;
+export type CreateTransactionRequest = InferSchema<typeof createTransactionRequestSchema>;
+export type CreateTransactionResponse = InferSchema<typeof createTransactionResponseSchema>;
+export type BulkCreateTransactionRequest = InferSchema<typeof bulkCreateTransactionRequestSchema>;
+export type BulkCreateTransactionResponse = InferSchema<typeof bulkCreateTransactionResponseSchema>;
+export type TransactionResponse = InferSchema<typeof transactionResponseSchema>;
+export type ReverseTransactionRequest = InferSchema<typeof reverseTransactionRequestSchema>;
+export type ReverseTransactionResponse = InferSchema<typeof reverseTransactionResponseSchema>;
+export type CorrectTransactionRequest = InferSchema<typeof correctTransactionRequestSchema>;
+export type CorrectTransactionResponse = InferSchema<typeof correctTransactionResponseSchema>;
+export type ListTransactionsQuery = InferSchema<typeof listTransactionsQuerySchema>;
+export type TransactionByIdParams = InferSchema<typeof transactionByIdParamsSchema>;
+export type TransactionsPage = InferSchema<typeof transactionsPageResponseSchema>;

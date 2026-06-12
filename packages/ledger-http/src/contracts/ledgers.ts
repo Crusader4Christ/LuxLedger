@@ -1,42 +1,5 @@
+import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
-
-export type CreateLedgerRequest = {
-  name: string;
-};
-
-export type LedgerResponse = {
-  id: string;
-  tenantId: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type LedgerByIdParams = {
-  id: string;
-};
-
-export type TrialBalanceParams = {
-  ledger_id: string;
-};
-
-export type TrialBalanceAccountResponse = {
-  account_id: string;
-  code: string;
-  name: string;
-  normal_balance: 'DEBIT' | 'CREDIT';
-  balance: string;
-  is_contra: boolean;
-};
-
-export type TrialBalanceResponse = {
-  ledger_id: string;
-  accounts: TrialBalanceAccountResponse[];
-  total_debits: string;
-  total_credits: string;
-};
-
-export type LedgersListResponse = LedgerResponse[];
 
 export const createLedgerBodySchema = {
   type: 'object',
@@ -111,3 +74,11 @@ export const trialBalanceResponseSchema = {
     total_credits: { type: 'string' },
   },
 } as const;
+
+export type CreateLedgerRequest = InferSchema<typeof createLedgerBodySchema>;
+export type LedgerResponse = InferSchema<typeof ledgerResponseSchema>;
+export type LedgerByIdParams = InferSchema<typeof ledgerByIdParamsSchema>;
+export type TrialBalanceParams = InferSchema<typeof trialBalanceParamsSchema>;
+export type TrialBalanceAccountResponse = InferSchema<typeof trialBalanceAccountResponseSchema>;
+export type TrialBalanceResponse = InferSchema<typeof trialBalanceResponseSchema>;
+export type LedgersListResponse = InferSchema<typeof ledgersListResponseSchema>;

@@ -3,13 +3,17 @@ import type { TransactionService } from '@lux/ledger/application';
 import {
   type CorrectTransactionRequest,
   correctTransactionRequestSchema,
+  correctTransactionResponseSchema,
   type ListTransactionsQuery,
   listTransactionsQuerySchemaExtra,
   type ReverseTransactionRequest,
   reverseTransactionRequestSchema,
+  reverseTransactionResponseSchema,
   type TransactionByIdParams,
   type TransactionResponse,
   transactionByIdParamsSchema,
+  transactionResponseSchema,
+  transactionsPageResponseSchema,
 } from '@lux/ledger-http/contracts';
 import { toTransactionResponse } from '@lux/ledger-http/mappers';
 import type { FastifyInstance } from 'fastify';
@@ -50,12 +54,17 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     return toTransactionResponse(transaction);
   }
 
+  protected responseSchema() {
+    return transactionsPageResponseSchema;
+  }
+
   private registerGetTransactionById(server: FastifyInstance): void {
     server.get<{ Params: TransactionByIdParams }>(
       '/v1/transactions/:id',
       {
         schema: {
           params: transactionByIdParamsSchema,
+          response: { 200: transactionResponseSchema },
         },
       },
       async (request, reply) =>
@@ -76,6 +85,10 @@ export class TransactionsRoutes extends BasePaginatedRoute<
         schema: {
           params: transactionByIdParamsSchema,
           body: reverseTransactionRequestSchema,
+          response: {
+            200: reverseTransactionResponseSchema,
+            201: reverseTransactionResponseSchema,
+          },
         },
       },
       async (request, reply) =>
@@ -100,6 +113,10 @@ export class TransactionsRoutes extends BasePaginatedRoute<
         schema: {
           params: transactionByIdParamsSchema,
           body: correctTransactionRequestSchema,
+          response: {
+            200: correctTransactionResponseSchema,
+            201: correctTransactionResponseSchema,
+          },
         },
       },
       async (request, reply) =>

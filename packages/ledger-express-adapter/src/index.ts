@@ -7,32 +7,79 @@ import {
 import {
   type AccountByIdParams,
   ApiKeyRole,
+  type BalanceAsOfQuery,
+  type BalanceAsOfResponse,
+  type BalanceHistoryQuery,
+  type BalanceHistoryResponse,
   type BulkCreateTransactionRequest,
   type BulkCreateTransactionResponse,
+  balanceAsOfQuerySchema,
+  balanceAsOfResponseSchema,
+  balanceHistoryQuerySchema,
+  balanceHistoryResponseSchema,
   bulkCreateTransactionRequestSchema,
   bulkCreateTransactionResponseSchema,
+  type CommitHoldRequest,
+  type CommitHoldResponse,
+  type CorrectTransactionRequest,
+  type CorrectTransactionResponse,
   type CreateAccountRequest,
   type CreateApiKeyRequest,
+  type CreateHoldRequest,
+  type CreateHoldResponse,
   type CreateLedgerRequest,
+  type CreateReconRuleRequest,
   type CreateTransactionRequest,
   type CreateTransactionResponse,
+  commitHoldRequestSchema,
+  commitHoldResponseSchema,
+  correctTransactionRequestSchema,
+  correctTransactionResponseSchema,
   createAccountBodySchema,
   createApiKeyBodySchema,
+  createHoldRequestSchema,
+  createHoldResponseSchema,
   createLedgerBodySchema,
+  createReconRuleRequestSchema,
   createTransactionRequestSchema,
+  createTransactionResponseSchema,
+  type HoldByIdParams,
+  type IngestReconRecordsRequest,
+  ingestReconRecordsRequestSchema,
   type LedgerByIdParams,
   type ListAccountsQuery,
   type ListEntriesQuery,
   type ListTransactionsQuery,
+  type ReconRuleResponse,
+  type ReconRunByIdParams,
+  type ReconRunResponse,
+  type ReconUploadResponse,
+  type ReverseTransactionRequest,
+  type ReverseTransactionResponse,
   type RevokeApiKeyParams,
+  type RunReconRequest,
+  reconRuleResponseSchema,
+  reconRulesListResponseSchema,
+  reconRunResponseSchema,
+  reconUploadResponseSchema,
+  reverseTransactionRequestSchema,
+  reverseTransactionResponseSchema,
+  runReconRequestSchema,
   type TransactionByIdParams,
   type TrialBalanceParams,
+  transactionResponseSchema,
+  transactionsPageResponseSchema,
+  type VoidHoldResponse,
+  voidHoldResponseSchema,
 } from '@lux/ledger-http/contracts';
 import { invalidInputPayload, toHttpErrorPayload } from '@lux/ledger-http/errors';
 import {
   toAccountResponse,
   toApiKeyContract,
   toEntryResponse,
+  toReconRuleResponse,
+  toReconRunResponse,
+  toReconUploadResponse,
   toTransactionResponse,
   toTrialBalanceResponse,
 } from '@lux/ledger-http/mappers';
@@ -101,6 +148,18 @@ const validate = <T>(schema: object, value: unknown): T | null => {
     validators.set(schema, validator);
   }
   return validator(value) ? (value as T) : null;
+};
+
+const sendValidatedResponse = <T>(
+  res: Response,
+  status: number,
+  schema: object,
+  value: T,
+): Response => {
+  if (validate<T>(schema, value) === null) {
+    throw new Error(`Response contract violation for status ${status}`);
+  }
+  return res.status(status).json(value);
 };
 
 const assertAdmin = (context: RequestContext): void => {
@@ -201,7 +260,12 @@ export const registerLedgerAdapter = (
         transaction_id: result.transactionId,
         created: result.created,
       };
-      res.status(result.created ? 201 : 200).json(response);
+      sendValidatedResponse(
+        res,
+        result.created ? 201 : 200,
+        createTransactionResponseSchema,
+        response,
+      );
     }),
   );
 
@@ -243,8 +307,12 @@ export const registerLedgerAdapter = (
           created: transaction.created,
         })),
       };
-      validate<BulkCreateTransactionResponse>(bulkCreateTransactionResponseSchema, response);
-      res.status(result.createdCount > 0 ? 201 : 200).json(response);
+      sendValidatedResponse(
+        res,
+        result.createdCount > 0 ? 201 : 200,
+        bulkCreateTransactionResponseSchema,
+        response,
+      );
     }),
   );
 
@@ -260,7 +328,12 @@ export const registerLedgerAdapter = (
         context.tenantId,
         params.id,
       );
-      res.status(200).json(toTransactionResponse(transaction));
+      sendValidatedResponse(
+        res,
+        200,
+        transactionResponseSchema,
+        toTransactionResponse(transaction),
+      );
     }),
   );
 
@@ -290,10 +363,74 @@ export const registerLedgerAdapter = (
         cursor: query.cursor,
         ledgerId: query.ledger_id,
       });
-      res.status(200).json({
+      sendValidatedResponse(res, 200, transactionsPageResponseSchema, {
         data: page.data.map(toTransactionResponse),
         next_cursor: page.nextCursor,
       });
+    }),
+  );
+
+  app.post('/v1/transactions/:id/reverse', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam<keyof TransactionByIdParams>(req.params.id, 'id');
+      const body = validate<ReverseTransactionRequest>(reverseTransactionRequestSchema, req.body);
+      if (params === null || body === null) {
+        sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const result = await dependencies.services.transactions.reverse({
+        tenantId: context.tenantId,
+        transactionId: params.id,
+        reference: body.reference,
+        description: body.description,
+      });
+      const response: ReverseTransactionResponse = {
+        transaction_id: result.transactionId,
+        created: result.created,
+      };
+      sendValidatedResponse(
+        res,
+        result.created ? 201 : 200,
+        reverseTransactionResponseSchema,
+        response,
+      );
+    }),
+  );
+
+  app.post('/v1/transactions/:id/correct', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam<keyof TransactionByIdParams>(req.params.id, 'id');
+      const body = validate<CorrectTransactionRequest>(correctTransactionRequestSchema, req.body);
+      if (params === null || body === null) {
+        sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const result = await dependencies.services.transactions.correct({
+        tenantId: context.tenantId,
+        transactionId: params.id,
+        reversalReference: body.reversal_reference,
+        correctedReference: body.corrected_reference,
+        description: body.description,
+        entries: body.entries.map((entry) => ({
+          accountId: entry.account_id,
+          direction: entry.direction,
+          amountMinor: BigInt(entry.amount_minor),
+          currency: entry.currency,
+        })),
+      });
+      const response: CorrectTransactionResponse = {
+        reversal_transaction_id: result.reversalTransactionId,
+        corrected_transaction_id: result.correctedTransactionId,
+        created: result.created,
+      };
+      sendValidatedResponse(
+        res,
+        result.created ? 201 : 200,
+        correctTransactionResponseSchema,
+        response,
+      );
     }),
   );
 
@@ -359,6 +496,274 @@ export const registerLedgerAdapter = (
         data: page.data.map(toAccountResponse),
         next_cursor: page.nextCursor,
       });
+    }),
+  );
+
+  app.get('/v1/accounts/:id/balance-as-of', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam<keyof AccountByIdParams>(req.params.id, 'id');
+      const query = validate<BalanceAsOfQuery>(balanceAsOfQuerySchema, req.query);
+      if (params === null || query === null) {
+        sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid querystring');
+        return;
+      }
+      const context = requireContext(req);
+      const result = await dependencies.services.balances.getAt({
+        tenantId: context.tenantId,
+        accountId: params.id,
+        at: new Date(query.at),
+      });
+      const response: BalanceAsOfResponse = {
+        account_id: result.accountId,
+        timestamp: result.at.toISOString(),
+        posted_minor: result.postedMinor.toString(),
+        inflight_debit_minor: result.inflightDebitMinor.toString(),
+        inflight_credit_minor: result.inflightCreditMinor.toString(),
+        available_minor: result.availableMinor.toString(),
+      };
+      sendValidatedResponse(res, 200, balanceAsOfResponseSchema, response);
+    }),
+  );
+
+  app.get('/v1/accounts/:id/balance-history', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam<keyof AccountByIdParams>(req.params.id, 'id');
+      const limit = parseLimitQuery(req.query.limit);
+      const cursor = parseCursorQuery(req.query.cursor);
+      const query = validate<BalanceHistoryQuery>(balanceHistoryQuerySchema, {
+        from: req.query.from,
+        to: req.query.to,
+        limit,
+        ...(cursor === null ? {} : { cursor }),
+      });
+      if (
+        params === null ||
+        limit === null ||
+        (req.query.cursor !== undefined && cursor === null) ||
+        query === null
+      ) {
+        sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid querystring');
+        return;
+      }
+      const context = requireContext(req);
+      const page = await dependencies.services.balances.listHistory({
+        tenantId: context.tenantId,
+        accountId: params.id,
+        from: new Date(query.from),
+        to: new Date(query.to),
+        limit,
+        cursor: cursor ?? undefined,
+      });
+      const response: BalanceHistoryResponse = {
+        data: page.data.map((item) => ({
+          id: item.id,
+          tenant_id: item.tenantId,
+          ledger_id: item.ledgerId,
+          account_id: item.accountId,
+          event_type: item.eventType,
+          source_id: item.sourceId,
+          posted_minor: item.postedMinor.toString(),
+          inflight_debit_minor: item.inflightDebitMinor.toString(),
+          inflight_credit_minor: item.inflightCreditMinor.toString(),
+          effective_at: item.effectiveAt.toISOString(),
+          created_at: item.createdAt.toISOString(),
+        })),
+        next_cursor: page.nextCursor,
+      };
+      sendValidatedResponse(res, 200, balanceHistoryResponseSchema, response);
+    }),
+  );
+
+  app.post('/v1/holds', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const body = validate<CreateHoldRequest>(createHoldRequestSchema, req.body);
+      if (body === null) {
+        sendInvalidInput(res, 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const result = await dependencies.services.holds.create({
+        tenantId: context.tenantId,
+        ledgerId: body.ledger_id,
+        reference: body.reference,
+        currency: body.currency,
+        description: body.description,
+        entries: body.entries.map((entry) => ({
+          accountId: entry.account_id,
+          direction: entry.direction,
+          amountMinor: BigInt(entry.amount_minor),
+          currency: entry.currency,
+        })),
+      });
+      const response: CreateHoldResponse = {
+        hold_id: result.holdId,
+        created: result.created,
+        state: result.state,
+        remaining_amount_minor: result.remainingAmountMinor.toString(),
+      };
+      sendValidatedResponse(res, result.created ? 201 : 200, createHoldResponseSchema, response);
+    }),
+  );
+
+  app.post('/v1/holds/:id/commit', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam<keyof HoldByIdParams>(req.params.id, 'id');
+      const body = validate<CommitHoldRequest>(commitHoldRequestSchema, req.body);
+      if (params === null || body === null) {
+        sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const result = await dependencies.services.holds.commit({
+        tenantId: context.tenantId,
+        holdId: params.id,
+        reference: body.reference,
+        amountMinor: body.amount_minor === undefined ? undefined : BigInt(body.amount_minor),
+      });
+      const response: CommitHoldResponse = {
+        hold_id: result.holdId,
+        transaction_id: result.transactionId,
+        created: result.created,
+        state: result.state,
+        remaining_amount_minor: result.remainingAmountMinor.toString(),
+      };
+      sendValidatedResponse(res, result.created ? 201 : 200, commitHoldResponseSchema, response);
+    }),
+  );
+
+  app.post('/v1/holds/:id/void', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam<keyof HoldByIdParams>(req.params.id, 'id');
+      if (params === null) {
+        sendInvalidInput(res, 'Invalid path parameter');
+        return;
+      }
+      const context = requireContext(req);
+      const result = await dependencies.services.holds.void({
+        tenantId: context.tenantId,
+        holdId: params.id,
+      });
+      const response: VoidHoldResponse = {
+        hold_id: result.holdId,
+        state: result.state,
+        voided: result.voided,
+        remaining_amount_minor: result.remainingAmountMinor.toString(),
+      };
+      sendValidatedResponse(res, 200, voidHoldResponseSchema, response);
+    }),
+  );
+
+  app.post('/v1/reconciliation/matching-rules', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const body = validate<CreateReconRuleRequest>(createReconRuleRequestSchema, req.body);
+      if (body === null) {
+        sendInvalidInput(res, 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const rule = await dependencies.services.reconciliation.createRule({
+        tenantId: context.tenantId,
+        name: body.name,
+        description: body.description,
+        criteria: body.criteria.map((criterion) => ({
+          field: criterion.field,
+          operator: criterion.operator,
+          amountToleranceMinor:
+            criterion.amount_tolerance_minor === undefined
+              ? undefined
+              : BigInt(criterion.amount_tolerance_minor),
+          dateToleranceSeconds: criterion.date_tolerance_seconds,
+        })),
+      });
+      sendValidatedResponse<ReconRuleResponse>(
+        res,
+        201,
+        reconRuleResponseSchema,
+        toReconRuleResponse(rule),
+      );
+    }),
+  );
+
+  app.get('/v1/reconciliation/matching-rules', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const context = requireContext(req);
+      const rules = await dependencies.services.reconciliation.listRules(context.tenantId);
+      sendValidatedResponse(res, 200, reconRulesListResponseSchema, {
+        data: rules.map(toReconRuleResponse),
+      });
+    }),
+  );
+
+  app.post('/v1/reconciliation/external-records', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const body = validate<IngestReconRecordsRequest>(ingestReconRecordsRequestSchema, req.body);
+      if (body === null) {
+        sendInvalidInput(res, 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const upload = await dependencies.services.reconciliation.ingest({
+        tenantId: context.tenantId,
+        source: body.source,
+        records: body.records.map((record) => ({
+          externalId: record.id,
+          amountMinor: BigInt(record.amount_minor),
+          currency: record.currency,
+          reference: record.reference,
+          description: record.description ?? null,
+          occurredAt: new Date(record.date),
+          raw: record.raw ?? null,
+        })),
+      });
+      sendValidatedResponse<ReconUploadResponse>(
+        res,
+        201,
+        reconUploadResponseSchema,
+        toReconUploadResponse(upload),
+      );
+    }),
+  );
+
+  app.post('/v1/reconciliation/runs', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const body = validate<RunReconRequest>(runReconRequestSchema, req.body);
+      if (body === null) {
+        sendInvalidInput(res, 'Invalid request body');
+        return;
+      }
+      const context = requireContext(req);
+      const run = await dependencies.services.reconciliation.run({
+        tenantId: context.tenantId,
+        ledgerId: body.ledger_id,
+        uploadId: body.upload_id,
+        strategy: body.strategy,
+        matchingRuleIds: body.matching_rule_ids,
+        dryRun: body.dry_run,
+      });
+      sendValidatedResponse<ReconRunResponse>(
+        res,
+        body.dry_run ? 200 : 201,
+        reconRunResponseSchema,
+        toReconRunResponse(run),
+      );
+    }),
+  );
+
+  app.get('/v1/reconciliation/runs/:id', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam<keyof ReconRunByIdParams>(req.params.id, 'id');
+      if (params === null) {
+        sendInvalidInput(res, 'Invalid path parameter');
+        return;
+      }
+      const context = requireContext(req);
+      const run = await dependencies.services.reconciliation.getRun(context.tenantId, params.id);
+      sendValidatedResponse<ReconRunResponse>(
+        res,
+        200,
+        reconRunResponseSchema,
+        toReconRunResponse(run),
+      );
     }),
   );
 

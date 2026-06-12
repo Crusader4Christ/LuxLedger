@@ -22,7 +22,6 @@ import { resolveLimit } from '@lux/ledger-http/query/pagination';
 import type { FastifyInstance } from 'fastify';
 import { BaseEntityRoute } from '../routes/base-route';
 import { mergePaginationQuerySchema } from '../routes/pagination';
-import type { AccountListItemDto } from '../types/list-item-dto';
 
 export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountResponse> {
   public constructor(
@@ -32,7 +31,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     super();
   }
 
-  protected toDto(account: AccountEntity): AccountListItemDto {
+  protected toDto(account: AccountEntity): AccountResponse {
     return toAccountResponse(account);
   }
 

@@ -1,4 +1,5 @@
 import { ApiKeyRole } from '@lux/ledger/application';
+import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
 export { ApiKeyRole };
 
@@ -9,37 +10,6 @@ export const DEFAULT_JWT_ACCESS_TTL_SECONDS = MAX_JWT_ACCESS_TTL_SECONDS;
 export type AuthTokenRequestHeaders = {
   'x-api-key': string;
 };
-
-export type AuthTokenResponse = {
-  access_token: string;
-  token_type: 'Bearer';
-  expires_in: number;
-};
-
-export type ApiKeyContract = {
-  id: string;
-  tenant_id: string;
-  name: string;
-  role: string;
-  created_at: string;
-  revoked_at: string | null;
-};
-
-export type ListApiKeysResponse = {
-  data: ApiKeyContract[];
-};
-
-export type CreateApiKeyRequest = {
-  name: string;
-  role: ApiKeyRole;
-};
-
-export type CreateApiKeyResponse = {
-  api_key: string;
-  key: ApiKeyContract;
-};
-
-export type RevokeApiKeyParams = { id: string };
 
 export const authTokenResponseSchema = {
   type: 'object',
@@ -100,3 +70,10 @@ export const revokeApiKeyParamsSchema = {
   required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } },
 } as const;
+
+export type AuthTokenResponse = InferSchema<typeof authTokenResponseSchema>;
+export type ApiKeyContract = InferSchema<typeof apiKeyContractSchema>;
+export type ListApiKeysResponse = InferSchema<typeof listApiKeysResponseSchema>;
+export type CreateApiKeyRequest = InferSchema<typeof createApiKeyBodySchema>;
+export type CreateApiKeyResponse = InferSchema<typeof createApiKeyResponseSchema>;
+export type RevokeApiKeyParams = InferSchema<typeof revokeApiKeyParamsSchema>;

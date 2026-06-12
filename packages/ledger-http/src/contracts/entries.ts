@@ -1,25 +1,9 @@
-export type ListEntriesQuery = {
-  limit?: number;
-  cursor?: string;
-};
-
-export type EntryResponse = {
-  id: string;
-  transaction_id: string;
-  account_id: string;
-  direction: string;
-  amount_minor: string;
-  currency: string;
-  created_at: string;
-};
-
-export type EntriesPageResponse = {
-  data: EntryResponse[];
-  next_cursor: string | null;
-};
+import type { InferSchema } from '../schema-types';
+import { createPaginatedResponseSchema, type paginationQuerySchema } from './pagination';
 
 export const entryResponseSchema = {
   type: 'object',
+  additionalProperties: false,
   required: [
     'id',
     'transaction_id',
@@ -40,11 +24,8 @@ export const entryResponseSchema = {
   },
 } as const;
 
-export const entriesPageResponseSchema = {
-  type: 'object',
-  required: ['data', 'next_cursor'],
-  properties: {
-    data: { type: 'array', items: entryResponseSchema },
-    next_cursor: { type: 'string', nullable: true },
-  },
-} as const;
+export const entriesPageResponseSchema = createPaginatedResponseSchema(entryResponseSchema);
+
+export type ListEntriesQuery = InferSchema<typeof paginationQuerySchema>;
+export type EntryResponse = InferSchema<typeof entryResponseSchema>;
+export type EntriesPageResponse = InferSchema<typeof entriesPageResponseSchema>;

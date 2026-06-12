@@ -3,9 +3,12 @@ import {
   type CommitHoldRequest,
   type CreateHoldRequest,
   commitHoldRequestSchema,
+  commitHoldResponseSchema,
   createHoldRequestSchema,
+  createHoldResponseSchema,
   type HoldByIdParams,
   holdByIdParamsSchema,
+  voidHoldResponseSchema,
 } from '@lux/ledger-http/contracts';
 import type { FastifyInstance } from 'fastify';
 import { BaseRoute } from '../routes/base-route';
@@ -24,7 +27,15 @@ export class HoldsRoutes extends BaseRoute {
   private registerCreateHold(server: FastifyInstance): void {
     server.post<{ Body: CreateHoldRequest }>(
       '/v1/holds',
-      { schema: { body: createHoldRequestSchema } },
+      {
+        schema: {
+          body: createHoldRequestSchema,
+          response: {
+            200: createHoldResponseSchema,
+            201: createHoldResponseSchema,
+          },
+        },
+      },
       async (request, reply) =>
         this.handle(reply, async () => {
           const result = await this.holds.create({
@@ -58,6 +69,10 @@ export class HoldsRoutes extends BaseRoute {
         schema: {
           params: holdByIdParamsSchema,
           body: commitHoldRequestSchema,
+          response: {
+            200: commitHoldResponseSchema,
+            201: commitHoldResponseSchema,
+          },
         },
       },
       async (request, reply) =>
@@ -88,6 +103,7 @@ export class HoldsRoutes extends BaseRoute {
       {
         schema: {
           params: holdByIdParamsSchema,
+          response: { 200: voidHoldResponseSchema },
         },
       },
       async (request, reply) =>

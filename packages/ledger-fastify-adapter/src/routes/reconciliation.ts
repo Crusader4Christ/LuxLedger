@@ -7,6 +7,10 @@ import {
   type ReconRunByIdParams,
   type RunReconRequest,
   reconciliationRunByIdParamsSchema,
+  reconRuleResponseSchema,
+  reconRulesListResponseSchema,
+  reconRunResponseSchema,
+  reconUploadResponseSchema,
   runReconRequestSchema,
 } from '@lux/ledger-http/contracts';
 import {
@@ -36,6 +40,7 @@ export class ReconRoutes extends BaseRoute {
       {
         schema: {
           body: createReconRuleRequestSchema,
+          response: { 201: reconRuleResponseSchema },
         },
       },
       async (request, reply) =>
@@ -61,13 +66,16 @@ export class ReconRoutes extends BaseRoute {
   }
 
   private registerListMatchingRules(server: FastifyInstance): void {
-    server.get('/v1/reconciliation/matching-rules', async (request, reply) =>
-      this.handle(reply, async () => {
-        const rules = await this.reconciliation.listRules(request.tenantId as string);
-        return reply.status(200).send({
-          data: rules.map(toReconRuleResponse),
-        });
-      }),
+    server.get(
+      '/v1/reconciliation/matching-rules',
+      { schema: { response: { 200: reconRulesListResponseSchema } } },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const rules = await this.reconciliation.listRules(request.tenantId as string);
+          return reply.status(200).send({
+            data: rules.map(toReconRuleResponse),
+          });
+        }),
     );
   }
 
@@ -77,6 +85,7 @@ export class ReconRoutes extends BaseRoute {
       {
         schema: {
           body: ingestReconRecordsRequestSchema,
+          response: { 201: reconUploadResponseSchema },
         },
       },
       async (request, reply) =>
@@ -106,6 +115,10 @@ export class ReconRoutes extends BaseRoute {
       {
         schema: {
           body: runReconRequestSchema,
+          response: {
+            200: reconRunResponseSchema,
+            201: reconRunResponseSchema,
+          },
         },
       },
       async (request, reply) =>
@@ -130,6 +143,7 @@ export class ReconRoutes extends BaseRoute {
       {
         schema: {
           params: reconciliationRunByIdParamsSchema,
+          response: { 200: reconRunResponseSchema },
         },
       },
       async (request, reply) =>

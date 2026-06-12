@@ -1,30 +1,13 @@
 import type { PaginatedResult } from '@lux/ledger/application';
-import { deepMerge, resolveLimit } from '@lux/ledger-http/query/pagination';
+import { mergePaginationQuerySchema, paginationQuerySchema } from '@lux/ledger-http/contracts';
+import { resolveLimit } from '@lux/ledger-http/query/pagination';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { BaseEntityRoute } from '../routes/base-route';
 import type { PaginationQuery } from '../types/pagination-query';
 
-export const paginationQuerySchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    limit: {
-      type: 'integer',
-      minimum: 1,
-      maximum: 200,
-      default: 50,
-    },
-    cursor: {
-      type: 'string',
-      minLength: 1,
-    },
-  },
-} as const;
-
 type JsonRecord = Record<string, unknown>;
 
-export const mergePaginationQuerySchema = (extra: JsonRecord = {}) =>
-  deepMerge(paginationQuerySchema, extra);
+export { mergePaginationQuerySchema, paginationQuerySchema };
 
 export type PaginatedRequest<Query extends PaginationQuery = PaginationQuery> = FastifyRequest<{
   Querystring: Query;
@@ -47,21 +30,7 @@ export abstract class BasePaginatedRoute<
     return mergePaginationQuerySchema(extra);
   }
 
-  protected responseSchema() {
-    return {
-      type: 'object',
-      required: ['data', 'next_cursor'],
-      properties: {
-        data: {
-          type: 'array',
-        },
-        next_cursor: {
-          type: 'string',
-          nullable: true,
-        },
-      },
-    } as const;
-  }
+  protected abstract responseSchema(): JsonRecord;
 
   public register(server: FastifyInstance): void {
     server.get<{ Querystring: Query }>(

@@ -2,11 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import {
   bulkCreateTransactionRequestSchema,
   bulkCreateTransactionResponseSchema,
+  correctTransactionResponseSchema,
   createTransactionRequestSchema,
+  createTransactionResponseSchema,
   listTransactionsQuerySchemaExtra,
   transactionByIdParamsSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
+  transactionsPageResponseSchema,
 } from './transactions';
 
 describe('transaction contract migration parity', () => {
@@ -74,5 +77,15 @@ describe('transaction contract migration parity', () => {
       'idempotent_count',
       'transactions',
     ]);
+  });
+
+  test('defines concrete response schemas for every transaction operation', () => {
+    expect(createTransactionResponseSchema.required).toEqual(['transaction_id', 'created']);
+    expect(correctTransactionResponseSchema.required).toEqual([
+      'reversal_transaction_id',
+      'corrected_transaction_id',
+      'created',
+    ]);
+    expect(transactionsPageResponseSchema.properties.data.items).toBe(transactionResponseSchema);
   });
 });

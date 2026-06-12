@@ -9,6 +9,7 @@ import {
   type CreateTransactionResponse,
   createLedgerBodySchema,
   createTransactionRequestSchema,
+  createTransactionResponseSchema,
   type LedgerByIdParams,
   ledgerByIdParamsSchema,
   ledgerResponseSchema,
@@ -71,6 +72,10 @@ export class LedgerRoutes extends BaseRoute {
       {
         schema: {
           body: createTransactionRequestSchema,
+          response: {
+            200: createTransactionResponseSchema,
+            201: createTransactionResponseSchema,
+          },
         },
       },
       async (request, reply) => {

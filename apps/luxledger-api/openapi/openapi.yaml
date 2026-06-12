@@ -150,47 +150,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [ledger_id, reference, currency, entries]
-              properties:
-                ledger_id:
-                  type: string
-                  format: uuid
-                reference:
-                  type: string
-                  minLength: 1
-                currency:
-                  type: string
-                  minLength: 1
-                description:
-                  type: string
-                  minLength: 1
-                  description: Optional transaction description. When omitted it is stored as null.
-                effective_at:
-                  type: string
-                  format: date-time
-                  description: Optional accounting effective timestamp for backdated postings.
-                entries:
-                  type: array
-                  minItems: 2
-                  items:
-                    type: object
-                    additionalProperties: false
-                    required: [account_id, direction, amount_minor, currency]
-                    properties:
-                      account_id:
-                        type: string
-                        format: uuid
-                      direction:
-                        type: string
-                        enum: [DEBIT, CREDIT]
-                      amount_minor:
-                        type: string
-                        pattern: '^[1-9][0-9]*$'
-                      currency:
-                        type: string
-                        minLength: 1
+              $ref: '#/components/schemas/CreateTransactionRequest'
       responses:
         '201':
           description: Transaction created
@@ -250,54 +210,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [transactions]
-              properties:
-                transactions:
-                  type: array
-                  minItems: 1
-                  maxItems: 100
-                  items:
-                    type: object
-                    additionalProperties: false
-                    required: [ledger_id, reference, currency, entries]
-                    properties:
-                      ledger_id:
-                        type: string
-                        format: uuid
-                      reference:
-                        type: string
-                        minLength: 1
-                      currency:
-                        type: string
-                        minLength: 1
-                      description:
-                        type: string
-                        minLength: 1
-                      effective_at:
-                        type: string
-                        format: date-time
-                      entries:
-                        type: array
-                        minItems: 2
-                        items:
-                          type: object
-                          additionalProperties: false
-                          required: [account_id, direction, amount_minor, currency]
-                          properties:
-                            account_id:
-                              type: string
-                              format: uuid
-                            direction:
-                              type: string
-                              enum: [DEBIT, CREDIT]
-                            amount_minor:
-                              type: string
-                              pattern: '^[1-9][0-9]*$'
-                            currency:
-                              type: string
-                              minLength: 1
+              $ref: '#/components/schemas/BulkCreateTransactionRequest'
       responses:
         '201':
           description: At least one transaction created
@@ -490,6 +403,162 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+  /v1/accounts/{id}/balance-as-of:
+    get:
+      summary: Get account balance as of a timestamp
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: at
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Historical account balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceAsOfResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/accounts/{id}/balance-history:
+    get:
+      summary: List account balance history
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: from
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Account balance history page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceHistoryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/holds:
+    post:
+      summary: Create a funds hold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateHoldRequest'
+      responses:
+        '201':
+          description: Hold created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateHoldResponse'
+        '200':
+          description: Idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateHoldResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/holds/{id}/commit:
+    post:
+      summary: Commit all or part of a hold
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitHoldRequest'
+      responses:
+        '201':
+          description: Hold commit created a transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitHoldResponse'
+        '200':
+          description: Idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitHoldResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+  /v1/holds/{id}/void:
+    post:
+      summary: Void the remaining amount of a hold
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Hold voided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidHoldResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
   /v1/entries:
     get:
       summary: List entries
@@ -608,6 +677,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [data]
                 properties:
                   data:
@@ -703,6 +773,7 @@ components:
         type: integer
         minimum: 1
         maximum: 200
+        default: 50
       required: false
     Cursor:
       name: cursor
@@ -740,6 +811,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     ForbiddenError:
       description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ConflictError:
+      description: Request conflicts with current resource state
       content:
         application/json:
           schema:
@@ -790,7 +867,7 @@ components:
       properties:
         name:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         role:
           type: string
           enum: [ADMIN, SERVICE]
@@ -823,9 +900,65 @@ components:
       properties:
         name:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
+    TransactionEntryRequest:
+      type: object
+      additionalProperties: false
+      required: [account_id, direction, amount_minor, currency]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        direction:
+          type: string
+          enum: [DEBIT, CREDIT]
+        amount_minor:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        currency:
+          type: string
+          pattern: '^(?=.*\S).+$'
+    CreateTransactionRequest:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, reference, currency, entries]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          pattern: '^(?=.*\S).+$'
+        currency:
+          type: string
+          pattern: '^(?=.*\S).+$'
+        description:
+          type: string
+          pattern: '^(?=.*\S).+$'
+          description: Optional transaction description. When omitted it is stored as null.
+        effective_at:
+          type: string
+          format: date-time
+          description: Optional accounting effective timestamp for backdated postings.
+        entries:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/TransactionEntryRequest'
+    BulkCreateTransactionRequest:
+      type: object
+      additionalProperties: false
+      required: [transactions]
+      properties:
+        transactions:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/CreateTransactionRequest'
     CreateTransactionResponse:
       type: object
+      additionalProperties: false
       required: [transaction_id, created]
       properties:
         transaction_id:
@@ -835,6 +968,7 @@ components:
           type: boolean
     BulkCreateTransactionResponse:
       type: object
+      additionalProperties: false
       required: [created_count, idempotent_count, transactions]
       properties:
         created_count:
@@ -847,6 +981,7 @@ components:
           type: array
           items:
             type: object
+            additionalProperties: false
             required: [reference, transaction_id, created]
             properties:
               reference:
@@ -858,6 +993,7 @@ components:
                 type: boolean
     CorrectTransactionResponse:
       type: object
+      additionalProperties: false
       required: [reversal_transaction_id, corrected_transaction_id, created]
       properties:
         reversal_transaction_id:
@@ -875,10 +1011,10 @@ components:
       properties:
         reference:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         description:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
     CorrectTransactionRequest:
       type: object
       additionalProperties: false
@@ -886,33 +1022,18 @@ components:
       properties:
         reversal_reference:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         corrected_reference:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         description:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         entries:
           type: array
           minItems: 2
           items:
-            type: object
-            additionalProperties: false
-            required: [account_id, direction, amount_minor, currency]
-            properties:
-              account_id:
-                type: string
-                format: uuid
-              direction:
-                type: string
-                enum: [DEBIT, CREDIT]
-              amount_minor:
-                type: string
-                pattern: '^[1-9][0-9]*$'
-              currency:
-                type: string
-                minLength: 1
+            $ref: '#/components/schemas/TransactionEntryRequest'
     CreateAccountRequest:
       type: object
       additionalProperties: false
@@ -932,7 +1053,7 @@ components:
           enum: [ALLOW, DISALLOW]
         currency:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
       example:
         ledger_id: 00000000-0000-4000-8000-000000000001
         name: Cash
@@ -941,6 +1062,7 @@ components:
         currency: USD
     Account:
       type: object
+      additionalProperties: false
       required: [id, tenant_id, ledger_id, name, side, overdraft_policy, currency, balance_minor, created_at]
       properties:
         id:
@@ -979,6 +1101,7 @@ components:
         created_at: '2026-01-01T00:00:00.000Z'
     AccountsPage:
       type: object
+      additionalProperties: false
       required: [data, next_cursor]
       properties:
         data:
@@ -988,8 +1111,75 @@ components:
         next_cursor:
           type: string
           nullable: true
+    BalanceAsOfResponse:
+      type: object
+      additionalProperties: false
+      required: [account_id, timestamp, posted_minor, inflight_debit_minor, inflight_credit_minor, available_minor]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        posted_minor:
+          type: string
+        inflight_debit_minor:
+          type: string
+        inflight_credit_minor:
+          type: string
+        available_minor:
+          type: string
+    BalanceSnapshot:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, ledger_id, account_id, event_type, source_id, posted_minor, inflight_debit_minor, inflight_credit_minor, effective_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        account_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum: [TX_APPLIED, HOLD_CREATED, HOLD_COMMITTED, HOLD_VOIDED, ADJUSTMENT]
+        source_id:
+          type: string
+          format: uuid
+        posted_minor:
+          type: string
+        inflight_debit_minor:
+          type: string
+        inflight_credit_minor:
+          type: string
+        effective_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    BalanceHistoryResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSnapshot'
+        next_cursor:
+          type: string
+          nullable: true
     TransactionsPage:
       type: object
+      additionalProperties: false
       required: [data, next_cursor]
       properties:
         data:
@@ -1001,6 +1191,7 @@ components:
           nullable: true
     Transaction:
       type: object
+      additionalProperties: false
       required: [id, tenant_id, ledger_id, reference, currency, description, related_transaction_id, relation_type, effective_at, created_at]
       properties:
         id:
@@ -1108,6 +1299,90 @@ components:
           type: string
         total_credits:
           type: string
+    CreateHoldRequest:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, reference, currency, entries]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          pattern: '^(?=.*\S).+$'
+        currency:
+          type: string
+          pattern: '^(?=.*\S).+$'
+        description:
+          type: string
+          pattern: '^(?=.*\S).+$'
+        entries:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/TransactionEntryRequest'
+    CreateHoldResponse:
+      type: object
+      additionalProperties: false
+      required: [hold_id, created, state, remaining_amount_minor]
+      properties:
+        hold_id:
+          type: string
+          format: uuid
+        created:
+          type: boolean
+        state:
+          type: string
+          enum: [HELD, APPLIED, VOIDED]
+        remaining_amount_minor:
+          type: string
+          pattern: '^[0-9]+$'
+    CommitHoldRequest:
+      type: object
+      additionalProperties: false
+      required: [reference]
+      properties:
+        reference:
+          type: string
+          pattern: '^(?=.*\S).+$'
+        amount_minor:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+    CommitHoldResponse:
+      type: object
+      additionalProperties: false
+      required: [hold_id, transaction_id, created, state, remaining_amount_minor]
+      properties:
+        hold_id:
+          type: string
+          format: uuid
+        transaction_id:
+          type: string
+          format: uuid
+        created:
+          type: boolean
+        state:
+          type: string
+          enum: [HELD, APPLIED]
+        remaining_amount_minor:
+          type: string
+          pattern: '^[0-9]+$'
+    VoidHoldResponse:
+      type: object
+      additionalProperties: false
+      required: [hold_id, state, voided, remaining_amount_minor]
+      properties:
+        hold_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [VOIDED]
+        voided:
+          type: boolean
+        remaining_amount_minor:
+          type: string
+          pattern: '^[0-9]+$'
     ReconciliationCriterion:
       type: object
       additionalProperties: false
@@ -1132,10 +1407,10 @@ components:
       properties:
         name:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         description:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         criteria:
           type: array
           minItems: 1
@@ -1143,6 +1418,7 @@ components:
             $ref: '#/components/schemas/ReconciliationCriterion'
     ReconciliationMatchingRule:
       type: object
+      additionalProperties: false
       required: [id, tenant_id, name, description, criteria, created_at]
       properties:
         id:
@@ -1170,7 +1446,7 @@ components:
       properties:
         source:
           type: string
-          minLength: 1
+          pattern: '^(?=.*\S).+$'
         records:
           type: array
           minItems: 1
@@ -1181,18 +1457,19 @@ components:
             properties:
               id:
                 type: string
-                minLength: 1
+                pattern: '^(?=.*\S).+$'
               amount_minor:
                 type: string
                 pattern: '^[1-9][0-9]*$'
               currency:
                 type: string
-                minLength: 1
+                pattern: '^(?=.*\S).+$'
               reference:
                 type: string
-                minLength: 1
+                pattern: '^(?=.*\S).+$'
               description:
                 type: string
+                pattern: '^(?=.*\S).+$'
                 nullable: true
               date:
                 type: string
@@ -1203,6 +1480,7 @@ components:
                 additionalProperties: true
     ExternalRecordsUpload:
       type: object
+      additionalProperties: false
       required: [upload_id, tenant_id, source, record_count, created_at]
       properties:
         upload_id:
@@ -1215,6 +1493,7 @@ components:
           type: string
         record_count:
           type: integer
+          minimum: 0
         created_at:
           type: string
           format: date-time
@@ -1243,6 +1522,7 @@ components:
           type: boolean
     ReconciliationRun:
       type: object
+      additionalProperties: false
       required:
         [id, tenant_id, ledger_id, upload_id, strategy, status, dry_run, matched_count, unmatched_external_count, unmatched_internal_count, mismatched_count, conflict_count, started_at, completed_at, results]
       properties:
@@ -1268,14 +1548,19 @@ components:
           type: boolean
         matched_count:
           type: integer
+          minimum: 0
         unmatched_external_count:
           type: integer
+          minimum: 0
         unmatched_internal_count:
           type: integer
+          minimum: 0
         mismatched_count:
           type: integer
+          minimum: 0
         conflict_count:
           type: integer
+          minimum: 0
         started_at:
           type: string
           format: date-time
@@ -1289,6 +1574,7 @@ components:
             $ref: '#/components/schemas/ReconciliationResult'
     ReconciliationResult:
       type: object
+      additionalProperties: false
       required:
         [id, run_id, external_record_id, external_id, transaction_id, status, reason, candidate_transaction_ids, created_at]
       properties:

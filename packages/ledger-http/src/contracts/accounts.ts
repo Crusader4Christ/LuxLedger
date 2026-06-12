@@ -1,70 +1,6 @@
+import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
-
-// Contracts-first transport schema: this module is the shared source for
-// Fastify route validation, DTO typing, and OpenAPI governance assertions.
-export type CreateAccountRequest = {
-  ledger_id: string;
-  name: string;
-  side: string;
-  overdraft_policy?: 'ALLOW' | 'DISALLOW';
-  currency: string;
-};
-
-export type AccountResponse = {
-  id: string;
-  tenant_id: string;
-  ledger_id: string;
-  name: string;
-  side: string;
-  overdraft_policy: 'ALLOW' | 'DISALLOW';
-  currency: string;
-  balance_minor: string;
-  created_at: string;
-};
-
-export type AccountByIdParams = {
-  id: string;
-};
-
-export type ListAccountsQuery = {
-  limit?: number;
-  cursor?: string;
-  ledger_id?: string;
-};
-
-export type AccountsPageResponse = {
-  data: AccountResponse[];
-  next_cursor: string | null;
-};
-
-export type BalanceAsOfQuery = { at: string };
-export type BalanceAsOfResponse = {
-  account_id: string;
-  timestamp: string;
-  posted_minor: string;
-  inflight_debit_minor: string;
-  inflight_credit_minor: string;
-  available_minor: string;
-};
-
-export type BalanceHistoryQuery = { from: string; to: string; limit?: number; cursor?: string };
-export type BalanceSnapshotResponse = {
-  id: string;
-  tenant_id: string;
-  ledger_id: string;
-  account_id: string;
-  event_type: 'TX_APPLIED' | 'HOLD_CREATED' | 'HOLD_COMMITTED' | 'HOLD_VOIDED' | 'ADJUSTMENT';
-  source_id: string;
-  posted_minor: string;
-  inflight_debit_minor: string;
-  inflight_credit_minor: string;
-  effective_at: string;
-  created_at: string;
-};
-export type BalanceHistoryResponse = {
-  data: BalanceSnapshotResponse[];
-  next_cursor: string | null;
-};
+import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
 
 export const createAccountBodySchema = {
   type: 'object',
@@ -90,6 +26,7 @@ export const createAccountBodySchema = {
 
 export const accountResponseSchema = {
   type: 'object',
+  additionalProperties: false,
   required: [
     'id',
     'tenant_id',
@@ -150,20 +87,7 @@ export const accountByIdParamsSchema = {
   },
 } as const;
 
-export const accountsPageResponseSchema = {
-  type: 'object',
-  required: ['data', 'next_cursor'],
-  properties: {
-    data: {
-      type: 'array',
-      items: accountResponseSchema,
-    },
-    next_cursor: {
-      type: 'string',
-      nullable: true,
-    },
-  },
-} as const;
+export const accountsPageResponseSchema = createPaginatedResponseSchema(accountResponseSchema);
 
 export const balanceAsOfQuerySchema = {
   type: 'object',
@@ -174,6 +98,7 @@ export const balanceAsOfQuerySchema = {
 
 export const balanceAsOfResponseSchema = {
   type: 'object',
+  additionalProperties: false,
   required: [
     'account_id',
     'timestamp',
@@ -192,20 +117,19 @@ export const balanceAsOfResponseSchema = {
   },
 } as const;
 
-export const balanceHistoryQuerySchema = {
-  type: 'object',
-  additionalProperties: false,
+const balanceHistoryQuerySchemaExtra = {
   required: ['from', 'to'],
   properties: {
     from: { type: 'string', format: 'date-time' },
     to: { type: 'string', format: 'date-time' },
-    limit: { type: 'integer', minimum: 1, maximum: 200 },
-    cursor: { type: 'string' },
   },
 } as const;
 
+export const balanceHistoryQuerySchema = mergePaginationQuerySchema(balanceHistoryQuerySchemaExtra);
+
 export const balanceSnapshotResponseSchema = {
   type: 'object',
+  additionalProperties: false,
   required: [
     'id',
     'tenant_id',
@@ -237,14 +161,9 @@ export const balanceSnapshotResponseSchema = {
   },
 } as const;
 
-export const balanceHistoryResponseSchema = {
-  type: 'object',
-  required: ['data', 'next_cursor'],
-  properties: {
-    data: { type: 'array', items: balanceSnapshotResponseSchema },
-    next_cursor: { type: 'string', nullable: true },
-  },
-} as const;
+export const balanceHistoryResponseSchema = createPaginatedResponseSchema(
+  balanceSnapshotResponseSchema,
+);
 
 export const listAccountsQuerySchemaExtra = {
   properties: {
@@ -254,3 +173,16 @@ export const listAccountsQuerySchemaExtra = {
     },
   },
 } as const;
+
+export const listAccountsQuerySchema = mergePaginationQuerySchema(listAccountsQuerySchemaExtra);
+
+export type CreateAccountRequest = InferSchema<typeof createAccountBodySchema>;
+export type AccountResponse = InferSchema<typeof accountResponseSchema>;
+export type AccountByIdParams = InferSchema<typeof accountByIdParamsSchema>;
+export type ListAccountsQuery = InferSchema<typeof listAccountsQuerySchema>;
+export type AccountsPageResponse = InferSchema<typeof accountsPageResponseSchema>;
+export type BalanceAsOfQuery = InferSchema<typeof balanceAsOfQuerySchema>;
+export type BalanceAsOfResponse = InferSchema<typeof balanceAsOfResponseSchema>;
+export type BalanceHistoryQuery = InferSchema<typeof balanceHistoryQuerySchema>;
+export type BalanceSnapshotResponse = InferSchema<typeof balanceSnapshotResponseSchema>;
+export type BalanceHistoryResponse = InferSchema<typeof balanceHistoryResponseSchema>;

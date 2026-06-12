@@ -57,6 +57,37 @@ class FakeLedgerService {
       transactions,
     };
   }
+
+  public async reverseTransaction(input: {
+    tenantId: string;
+    reference: string;
+  }): Promise<{ transactionId: string; created: boolean }> {
+    return this.createTransaction(input);
+  }
+
+  public async correctTransaction(input: {
+    tenantId: string;
+    reversalReference: string;
+    correctedReference: string;
+  }): Promise<{
+    reversalTransactionId: string;
+    correctedTransactionId: string;
+    created: boolean;
+  }> {
+    const reversal = await this.createTransaction({
+      tenantId: input.tenantId,
+      reference: input.reversalReference,
+    });
+    const corrected = await this.createTransaction({
+      tenantId: input.tenantId,
+      reference: input.correctedReference,
+    });
+    return {
+      reversalTransactionId: reversal.transactionId,
+      correctedTransactionId: corrected.transactionId,
+      created: reversal.created || corrected.created,
+    };
+  }
 }
 
 class FakeApiKeyService {
@@ -86,6 +117,10 @@ describe('express adapter parity with fastify adapter', () => {
           fakeLedgerService.createTransaction(input),
         createBulk: (input: Parameters<FakeLedgerService['createTransactionsBulk']>[0]) =>
           fakeLedgerService.createTransactionsBulk(input),
+        reverse: (input: Parameters<FakeLedgerService['reverseTransaction']>[0]) =>
+          fakeLedgerService.reverseTransaction(input),
+        correct: (input: Parameters<FakeLedgerService['correctTransaction']>[0]) =>
+          fakeLedgerService.correctTransaction(input),
       },
     } as unknown as ApplicationServices;
 
@@ -299,6 +334,111 @@ describe('express adapter parity with fastify adapter', () => {
               created: false,
             }),
           );
+        },
+      },
+      {
+        name: 'transaction reversal and correction response parity',
+        run: async () => {
+          const transactionId = '00000000-0000-4000-8000-000000000300';
+          const buildCorrectionPayload = (suffix: string) => ({
+            reversal_reference: `correct-reversal-${suffix}`,
+            corrected_reference: `correct-replacement-${suffix}`,
+            entries: [
+              {
+                account_id: '00000000-0000-4000-8000-000000000101',
+                direction: 'DEBIT',
+                amount_minor: '100',
+                currency: 'USD',
+              },
+              {
+                account_id: '00000000-0000-4000-8000-000000000102',
+                direction: 'CREDIT',
+                amount_minor: '100',
+                currency: 'USD',
+              },
+            ],
+          });
+          const [fastifyReverse, expressReverse] = await Promise.all([
+            requestFastify('POST', `/v1/transactions/${transactionId}/reverse`, {
+              reference: 'reverse-fastify',
+            }),
+            requestExpress('POST', `/v1/transactions/${transactionId}/reverse`, {
+              reference: 'reverse-express',
+            }),
+          ]);
+          expect(expressReverse.status).toBe(fastifyReverse.status);
+          expect(expressReverse.json).toEqual(fastifyReverse.json);
+
+          const [fastifyCorrect, expressCorrect] = await Promise.all([
+            requestFastify(
+              'POST',
+              `/v1/transactions/${transactionId}/correct`,
+              buildCorrectionPayload('fastify'),
+            ),
+            requestExpress(
+              'POST',
+              `/v1/transactions/${transactionId}/correct`,
+              buildCorrectionPayload('express'),
+            ),
+          ]);
+          expect(expressCorrect.status).toBe(fastifyCorrect.status);
+          expect(expressCorrect.json).toEqual(fastifyCorrect.json);
+        },
+      },
+      {
+        name: 'new endpoint negative validation parity',
+        run: async () => {
+          const invalidRequests = [
+            {
+              method: 'GET' as const,
+              url: '/v1/accounts/00000000-0000-4000-8000-000000000101/balance-as-of?at=invalid',
+            },
+            {
+              method: 'GET' as const,
+              url: '/v1/accounts/00000000-0000-4000-8000-000000000101/balance-history?from=invalid&to=invalid&limit=201',
+            },
+            { method: 'POST' as const, url: '/v1/holds', payload: {} },
+            {
+              method: 'POST' as const,
+              url: '/v1/holds/00000000-0000-4000-8000-000000000400/commit',
+              payload: { reference: 'commit', amount_minor: '0' },
+            },
+            {
+              method: 'POST' as const,
+              url: '/v1/reconciliation/matching-rules',
+              payload: { name: 'rule', criteria: [] },
+            },
+            {
+              method: 'POST' as const,
+              url: '/v1/reconciliation/external-records',
+              payload: { source: 'bank', records: [] },
+            },
+            {
+              method: 'POST' as const,
+              url: '/v1/reconciliation/runs',
+              payload: {
+                ledger_id: '00000000-0000-4000-8000-000000000001',
+                upload_id: '00000000-0000-4000-8000-000000000500',
+                strategy: 'one_to_one',
+                matching_rule_ids: [],
+              },
+            },
+          ];
+
+          for (const invalidRequest of invalidRequests) {
+            const [fastifyResponse, expressResponse] = await Promise.all([
+              requestFastify(invalidRequest.method, invalidRequest.url, invalidRequest.payload),
+              requestExpress(invalidRequest.method, invalidRequest.url, invalidRequest.payload),
+            ]);
+            expect(fastifyResponse.status).toBe(400);
+            expect(expressResponse.status).toBe(400);
+            expect(fastifyResponse.json).toEqual(
+              expect.objectContaining({ error: 'INVALID_INPUT' }),
+            );
+            expect(expressResponse.json).toEqual(
+              expect.objectContaining({ error: 'INVALID_INPUT' }),
+            );
+          }
         },
       },
     ];

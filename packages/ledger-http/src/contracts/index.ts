@@ -4,5 +4,6 @@ export * from './common';
 export * from './entries';
 export * from './holds';
 export * from './ledgers';
+export * from './pagination';
 export * from './reconciliation';
 export * from './transactions';

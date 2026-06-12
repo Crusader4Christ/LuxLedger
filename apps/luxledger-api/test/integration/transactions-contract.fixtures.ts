@@ -4,14 +4,17 @@ import {
   type CreateTransactionRequest,
   type CreateTransactionResponse,
   createTransactionRequestSchema,
+  createTransactionResponseSchema,
   type TransactionResponse,
   transactionResponseSchema,
+  transactionsPageResponseSchema,
 } from '@lux/ledger-http/contracts';
 import {
-  extractPathMethodSection,
-  extractPropertyNames,
-  extractRequiredList,
-  extractSchemaSection,
+  componentSchema,
+  normalizeSchema,
+  parseOpenApiDocument,
+  requestBodySchema,
+  responseSchema,
 } from './openapi-contract-helpers';
 
 export const createTransactionRequestFactory = (
@@ -56,25 +59,17 @@ export const assertTransactionsPageShape = (payload: {
 };
 
 export const assertOpenApiTransactionContractsSynced = (openapiYaml: string): void => {
-  const createTransactionSection = extractPathMethodSection(
-    openapiYaml,
-    '/v1/transactions',
-    'post',
+  const document = parseOpenApiDocument(openapiYaml);
+  expect(
+    normalizeSchema(document, requestBodySchema(document, '/v1/transactions', 'post')),
+  ).toEqual(normalizeSchema(document, createTransactionRequestSchema));
+  expect(normalizeSchema(document, componentSchema(document, 'Transaction'))).toEqual(
+    normalizeSchema(document, transactionResponseSchema),
   );
-  expect(extractRequiredList(createTransactionSection)).toEqual(
-    [...createTransactionRequestSchema.required].sort(),
-  );
-  for (const field of Object.keys(createTransactionRequestSchema.properties)) {
-    expect(createTransactionSection).toContain(`${field}:`);
-  }
-
-  const transactionSchemaSection = extractSchemaSection(openapiYaml, 'Transaction');
-  expect(extractRequiredList(transactionSchemaSection)).toEqual(
-    [...transactionResponseSchema.required].sort(),
-  );
-  expect(extractPropertyNames(transactionSchemaSection)).toEqual(
-    Object.keys(transactionResponseSchema.properties).sort(),
-  );
-
-  expect(transactionSchemaSection).toMatch(/description:\n(?:\s{10}.+\n)*\s{10}nullable:\s*true/);
+  expect(
+    normalizeSchema(document, responseSchema(document, '/v1/transactions', 'post', 201)),
+  ).toEqual(normalizeSchema(document, createTransactionResponseSchema));
+  expect(
+    normalizeSchema(document, responseSchema(document, '/v1/transactions', 'get', 200)),
+  ).toEqual(normalizeSchema(document, transactionsPageResponseSchema));
 };
