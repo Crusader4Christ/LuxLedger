@@ -74,24 +74,11 @@ export class ApiKeyService {
     assertNonEmpty(input.keyName, 'keyName is required');
     assertNonEmpty(input.rawApiKey, 'rawApiKey is required');
 
-    const existingKeys = await this.repository.count();
-    if (existingKeys > 0) {
-      return { created: false };
-    }
-
-    const tenant = await this.repository.createTenant({ name: input.tenantName.trim() });
-    const created = await this.repository.create({
-      tenantId: tenant.id,
-      name: input.keyName.trim(),
-      role: ApiKeyRole.ADMIN,
+    return this.repository.bootstrapInitialAdmin({
+      tenantName: input.tenantName.trim(),
+      keyName: input.keyName.trim(),
       keyHash: hashApiKey(input.rawApiKey),
     });
-
-    return {
-      created: true,
-      tenantId: tenant.id,
-      apiKeyId: created.id,
-    };
   }
 
   public async revokeApiKey(actor: AuthContext, apiKeyId: string): Promise<void> {

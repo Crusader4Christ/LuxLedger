@@ -40,7 +40,6 @@ import {
   LedgerNotFoundError,
   LedgerService,
   type LedgerTrialBalanceQuery,
-  type LegacyCombinedLedgerRepository,
   type PaginatedResult,
   type PaginationQuery,
   ReconciliationService,
@@ -710,18 +709,8 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     return this.keys.get(apiKeyId) ?? null;
   }
 
-  public async count(): Promise<number> {
-    return this.keys.size;
-  }
-
-  public async createTenant(input: {
-    name: string;
-  }): Promise<{ id: string; name: string; createdAt: Date }> {
-    return {
-      id: VALID_TENANT_ID,
-      name: input.name,
-      createdAt: new Date(),
-    };
+  public async bootstrapInitialAdmin(): Promise<{ created: false }> {
+    return { created: false };
   }
 
   public async create(input: {
@@ -786,7 +775,7 @@ const createServer = (
   logger: FastifyServerOptions['logger'] = false,
 ) => {
   const writeRepository = new InMemoryLedgerRepository();
-  const repository: LegacyCombinedLedgerRepository = {
+  const repository = {
     createLedger: writeRepository.createLedger.bind(writeRepository),
     findLedger: writeRepository.findLedger.bind(writeRepository),
     listLedgers: writeRepository.listLedgers.bind(writeRepository),
@@ -821,8 +810,11 @@ const createServer = (
       criteria: input.criteria,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     }),
-    listReconciliationMatchingRules: async (): Promise<ReconRule[]> => [],
-    getReconciliationMatchingRule: async (): Promise<ReconRule | null> => null,
+    listReconciliationMatchingRules: async (_tenantId: string): Promise<ReconRule[]> => [],
+    getReconciliationMatchingRule: async (
+      _tenantId: string,
+      _ruleId: string,
+    ): Promise<ReconRule | null> => null,
     runReconciliation: async (input: RunReconInput): Promise<ReconRun> => {
       const now = new Date('2026-01-01T00:00:00.000Z');
       return {
@@ -843,7 +835,8 @@ const createServer = (
         results: [],
       };
     },
-    getReconciliationRun: async (): Promise<ReconRun | null> => null,
+    getReconciliationRun: async (_tenantId: string, _runId: string): Promise<ReconRun | null> =>
+      null,
   };
   const apiKeyRepository = new InMemoryApiKeyRepository();
   const apiKeyService = new ApiKeyService(apiKeyRepository);

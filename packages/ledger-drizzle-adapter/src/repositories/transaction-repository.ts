@@ -28,7 +28,6 @@ import type { DbClient } from '../client';
 import { toEntryEntity } from '../mappers/entry-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
-import type { RepositoryLogger } from '../repository-logger';
 import * as schema from '../schema';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
@@ -38,82 +37,46 @@ type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
 
 export class DrizzleTransactionRepository implements TransactionApplicationRepository {
-  public constructor(
-    private readonly client: DbClient,
-    private readonly logger: RepositoryLogger,
-  ) {}
+  public constructor(private readonly client: DbClient) {}
 
   public async create(input: CreateTransactionInput): Promise<CreateTransactionResult> {
-    const result = await this.client.runTenantTx(
-      input.tenantId,
-      'create transaction',
-      async (tx) =>
-        this.createOrResolvePostedTransaction(tx, {
-          ...input,
-          description: input.description ?? null,
-          effectiveAt: input.effectiveAt ?? undefined,
-          payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
-        }),
+    return this.client.runTenantTx(input.tenantId, 'create transaction', async (tx) =>
+      this.createOrResolvePostedTransaction(tx, {
+        ...input,
+        description: input.description ?? null,
+        effectiveAt: input.effectiveAt ?? undefined,
+        payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
+      }),
     );
-
-    if (result.created) {
-      this.logger.info(
-        {
-          transactionId: result.transactionId,
-          tenantId: input.tenantId,
-          ledgerId: input.ledgerId,
-          reference: input.reference,
-          created: true,
-        },
-        'Transaction committed',
-      );
-    } else {
-      this.logger.info(
-        {
-          transactionId: result.transactionId,
-          tenantId: input.tenantId,
-          ledgerId: input.ledgerId,
-          reference: input.reference,
-          created: false,
-        },
-        'Transaction accepted as idempotent retry',
-      );
-    }
-
-    return result;
   }
 
   public async createBulk(input: BulkCreateTransactionInput): Promise<BulkCreateTransactionResult> {
-    return this.client.runTenantTx(
-      input.tenantId,
-      'bulk create transactions',
-      async (tx) => {
-        const results = [];
-        for (const [itemIndex, transaction] of input.transactions.entries()) {
-          try {
-            const result = await this.createOrResolvePostedTransaction(tx, {
-              ...transaction,
-              description: transaction.description ?? null,
-              effectiveAt: transaction.effectiveAt ?? undefined,
-              payloadMismatchMessage:
-                'Unable to bulk create transactions: reference payload mismatch',
-            });
-            results.push({
-              reference: transaction.reference,
-              transactionId: result.transactionId,
-              created: result.created,
-            });
-          } catch (error) {
-            throw this.toBulkTransactionError(error, itemIndex, transaction.reference);
-          }
+    return this.client.runTenantTx(input.tenantId, 'bulk create transactions', async (tx) => {
+      const results = [];
+      for (const [itemIndex, transaction] of input.transactions.entries()) {
+        try {
+          const result = await this.createOrResolvePostedTransaction(tx, {
+            ...transaction,
+            description: transaction.description ?? null,
+            effectiveAt: transaction.effectiveAt ?? undefined,
+            payloadMismatchMessage:
+              'Unable to bulk create transactions: reference payload mismatch',
+          });
+          results.push({
+            reference: transaction.reference,
+            transactionId: result.transactionId,
+            created: result.created,
+          });
+        } catch (error) {
+          throw this.toBulkTransactionError(error, itemIndex, transaction.reference);
         }
-        return {
-          createdCount: results.filter((transaction) => transaction.created).length,
-          idempotentCount: results.filter((transaction) => !transaction.created).length,
-          transactions: results,
-        };
-      },
-    );
+      }
+      return {
+        createdCount: results.filter((transaction) => transaction.created).length,
+        idempotentCount: results.filter((transaction) => !transaction.created).length,
+        transactions: results,
+      };
+    });
   }
 
   public async reverse(input: ReverseTransactionInput): Promise<ReverseTransactionResult> {
@@ -273,32 +236,26 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     tenantId: string,
     transactionId: string,
   ): Promise<TransactionEntity | null> {
-    return this.client.runTenantTx(
-      tenantId,
-      'find transaction by id for tenant',
-      async (tx) => {
-        const [row] = await tx
-          .select()
-          .from(schema.transactions)
-          .where(
-            and(
-              eq(schema.transactions.tenantId, tenantId),
-              eq(schema.transactions.id, transactionId),
-            ),
-          )
-          .limit(1);
+    return this.client.runTenantTx(tenantId, 'find transaction by id for tenant', async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.transactions)
+        .where(
+          and(
+            eq(schema.transactions.tenantId, tenantId),
+            eq(schema.transactions.id, transactionId),
+          ),
+        )
+        .limit(1);
 
-        if (!row) {
-          return null;
-        }
+      if (!row) {
+        return null;
+      }
 
-        const entriesByTransactionId = await this.loadEntriesByTransactionIds(tx, tenantId, [
-          row.id,
-        ]);
+      const entriesByTransactionId = await this.loadEntriesByTransactionIds(tx, tenantId, [row.id]);
 
-        return toTransactionEntity(row, entriesByTransactionId.get(row.id) ?? []);
-      },
-    );
+      return toTransactionEntity(row, entriesByTransactionId.get(row.id) ?? []);
+    });
   }
 
   public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {

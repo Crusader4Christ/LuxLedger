@@ -72,9 +72,9 @@ export interface CreateDbClientOptions {
 }
 
 export interface DbClient {
-  db: DrizzleDatabase;
   sql: Sql;
-  execute<T>(operation: string, action: () => Promise<T>): Promise<T>;
+  execute<T>(operation: string, action: (db: DrizzleDatabase) => Promise<T>): Promise<T>;
+  runTx<T>(operation: string, action: (tx: DrizzleDatabase) => Promise<T>): Promise<T>;
   runTenantTx<T>(
     tenantId: string,
     operation: string,
@@ -105,25 +105,29 @@ export const createDbClient = (options: CreateDbClientOptions = {}): DbClient =>
 
   const db = drizzle(sql, { schema });
 
-  const execute = async <T>(operation: string, action: () => Promise<T>): Promise<T> => {
+  const execute = async <T>(
+    operation: string,
+    action: (database: DrizzleDatabase) => Promise<T>,
+  ): Promise<T> => {
     try {
-      return await action();
+      return await action(db);
     } catch (error) {
       return throwDatabaseError(error, operation);
     }
   };
+
+  const runTx = <T>(operation: string, action: (tx: DrizzleDatabase) => Promise<T>): Promise<T> =>
+    execute(operation, (database) => database.transaction(action));
 
   const runTenantTx = <T>(
     tenantId: string,
     operation: string,
     action: (tx: DrizzleDatabase) => Promise<T>,
   ): Promise<T> =>
-    execute(operation, () =>
-      db.transaction(async (tx) => {
-        await tx.execute(drizzleSql`select set_config('app.tenant_id', ${tenantId}, true)`);
-        return action(tx);
-      }),
-    );
+    runTx(operation, async (tx) => {
+      await tx.execute(drizzleSql`select set_config('app.tenant_id', ${tenantId}, true)`);
+      return action(tx);
+    });
 
-  return { db, sql, execute, runTenantTx };
+  return { sql, execute, runTx, runTenantTx };
 };

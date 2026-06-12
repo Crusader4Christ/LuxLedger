@@ -3,6 +3,8 @@ import { ApiKeyEntity, ApiKeyRole } from '@lux/ledger';
 import type { ApiKeyRepository } from '@lux/ledger/application';
 import {
   ApiKeyService,
+  type BootstrapAdminRepositoryInput,
+  type BootstrapAdminResult,
   ForbiddenError,
   InvariantViolationError,
   UnauthorizedError,
@@ -19,18 +21,21 @@ class InMemoryApiKeyRepository implements ApiKeyRepository {
     }
   }
 
-  public async count(): Promise<number> {
-    return this.keys.size;
-  }
+  public async bootstrapInitialAdmin(
+    input: BootstrapAdminRepositoryInput,
+  ): Promise<BootstrapAdminResult> {
+    if (this.keys.size > 0) {
+      return { created: false };
+    }
 
-  public async createTenant(input: {
-    name: string;
-  }): Promise<{ id: string; name: string; createdAt: Date }> {
-    return {
-      id: `tenant-${input.name.toLowerCase().replaceAll(/\s+/g, '-')}`,
-      name: input.name,
-      createdAt: new Date(),
-    };
+    const tenantId = `tenant-${input.tenantName.toLowerCase().replaceAll(/\s+/g, '-')}`;
+    const created = await this.create({
+      tenantId,
+      name: input.keyName,
+      role: ApiKeyRole.ADMIN,
+      keyHash: input.keyHash,
+    });
+    return { created: true, tenantId, apiKeyId: created.id };
   }
 
   public async findActiveByHash(keyHash: string): Promise<ApiKeyEntity | null> {

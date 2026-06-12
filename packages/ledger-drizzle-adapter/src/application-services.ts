@@ -16,7 +16,6 @@ import { DrizzleHoldRepository } from './repositories/hold-repository';
 import { DrizzleLedgerRepository } from './repositories/ledger-repository';
 import { DrizzleReconciliationRepository } from './repositories/reconciliation-repository';
 import { DrizzleTransactionRepository } from './repositories/transaction-repository';
-import type { RepositoryLogger } from './repository-logger';
 
 export const createAccountService = (client: DbClient): AccountService =>
   new AccountService(new DrizzleAccountRepository(client));
@@ -36,20 +35,15 @@ export const createLedgerService = (client: DbClient): LedgerService =>
 export const createReconciliationService = (client: DbClient): ReconciliationService =>
   new ReconciliationService(new DrizzleReconciliationRepository(client));
 
-export const createTransactionService = (
-  client: DbClient,
-  logger: RepositoryLogger,
-): TransactionService => new TransactionService(new DrizzleTransactionRepository(client, logger));
+export const createTransactionService = (client: DbClient): TransactionService =>
+  new TransactionService(new DrizzleTransactionRepository(client));
 
-export const createApplicationServices = (
-  client: DbClient,
-  logger: RepositoryLogger,
-): ApplicationServices => ({
+export const createApplicationServices = (client: DbClient): ApplicationServices => ({
   accounts: createAccountService(client),
   apiKeys: createApiKeyService(client),
   balances: createBalanceService(client),
   holds: createHoldService(client),
   ledgers: createLedgerService(client),
   reconciliation: createReconciliationService(client),
-  transactions: createTransactionService(client, logger),
+  transactions: createTransactionService(client),
 });

@@ -19,18 +19,14 @@ export class DrizzleLedgerRepository implements LedgerRepository {
   }
 
   public async findById(tenantId: string, id: string): Promise<LedgerEntity | null> {
-    return this.client.runTenantTx(
-      tenantId,
-      'find ledger by id for tenant',
-      async (tx) => {
-        const [row] = await tx
-          .select()
-          .from(schema.ledgers)
-          .where(and(eq(schema.ledgers.tenantId, tenantId), eq(schema.ledgers.id, id)))
-          .limit(1);
-        return row ? toLedgerEntity(row) : null;
-      },
-    );
+    return this.client.runTenantTx(tenantId, 'find ledger by id for tenant', async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.ledgers)
+        .where(and(eq(schema.ledgers.tenantId, tenantId), eq(schema.ledgers.id, id)))
+        .limit(1);
+      return row ? toLedgerEntity(row) : null;
+    });
   }
 
   public async list(tenantId: string): Promise<LedgerEntity[]> {

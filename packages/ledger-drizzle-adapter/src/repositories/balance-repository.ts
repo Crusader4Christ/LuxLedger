@@ -80,37 +80,33 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
   }
 
   public async getAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
-    return this.client.runTenantTx(
-      query.tenantId,
-      'get historical balance',
-      async (tx) => {
-        const [row] = await tx
-          .select()
-          .from(schema.balanceSnapshots)
-          .where(
-            and(
-              eq(schema.balanceSnapshots.tenantId, query.tenantId),
-              eq(schema.balanceSnapshots.accountId, query.accountId),
-              lte(schema.balanceSnapshots.effectiveAt, query.at),
-            ),
-          )
-          .orderBy(desc(schema.balanceSnapshots.effectiveAt), desc(schema.balanceSnapshots.id))
-          .limit(1);
+    return this.client.runTenantTx(query.tenantId, 'get historical balance', async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.balanceSnapshots)
+        .where(
+          and(
+            eq(schema.balanceSnapshots.tenantId, query.tenantId),
+            eq(schema.balanceSnapshots.accountId, query.accountId),
+            lte(schema.balanceSnapshots.effectiveAt, query.at),
+          ),
+        )
+        .orderBy(desc(schema.balanceSnapshots.effectiveAt), desc(schema.balanceSnapshots.id))
+        .limit(1);
 
-        const postedMinor = row?.postedMinor ?? 0n;
-        const inflightDebitMinor = row?.inflightDebitMinor ?? 0n;
-        const inflightCreditMinor = row?.inflightCreditMinor ?? 0n;
-        return {
-          tenantId: query.tenantId,
-          accountId: query.accountId,
-          at: query.at,
-          postedMinor,
-          inflightDebitMinor,
-          inflightCreditMinor,
-          availableMinor: postedMinor - inflightDebitMinor + inflightCreditMinor,
-        };
-      },
-    );
+      const postedMinor = row?.postedMinor ?? 0n;
+      const inflightDebitMinor = row?.inflightDebitMinor ?? 0n;
+      const inflightCreditMinor = row?.inflightCreditMinor ?? 0n;
+      return {
+        tenantId: query.tenantId,
+        accountId: query.accountId,
+        at: query.at,
+        postedMinor,
+        inflightDebitMinor,
+        inflightCreditMinor,
+        availableMinor: postedMinor - inflightDebitMinor + inflightCreditMinor,
+      };
+    });
   }
 
   public async listHistory(

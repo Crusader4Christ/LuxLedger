@@ -291,6 +291,12 @@ export interface BootstrapAdminInput {
   rawApiKey: string;
 }
 
+export interface BootstrapAdminRepositoryInput {
+  tenantName: string;
+  keyName: string;
+  keyHash: string;
+}
+
 export interface BootstrapAdminResult {
   created: boolean;
   tenantId?: string;

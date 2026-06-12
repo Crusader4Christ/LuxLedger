@@ -10,7 +10,6 @@ import {
   createApplicationServices,
   createDbClient,
   DrizzleTenantRepository,
-  type RepositoryLogger,
 } from '@lux/ledger-drizzle-adapter';
 import {
   accounts,
@@ -19,6 +18,7 @@ import {
   transactions,
 } from '@lux/ledger-drizzle-adapter/schema';
 import { and, eq, sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
 const databaseUrl =
@@ -48,11 +48,9 @@ const client = createDbClient({
   idleTimeoutSeconds: 5,
   connectTimeoutSeconds: 5,
 });
+const db = drizzle(client.sql);
 
-const logger = {
-  info: () => {},
-} as unknown as RepositoryLogger;
-const services = createApplicationServices(client, logger);
+const services = createApplicationServices(client);
 const tenants = new DrizzleTenantRepository(client);
 
 const createAccount = async (input: {
@@ -63,7 +61,7 @@ const createAccount = async (input: {
   currency: string;
   balanceMinor?: bigint;
 }): Promise<string> => {
-  const [account] = await client.db
+  const [account] = await db
     .insert(accounts)
     .values({
       tenantId: input.tenantId,
@@ -79,7 +77,7 @@ const createAccount = async (input: {
 };
 
 const getAccountBalance = async (accountId: string): Promise<bigint> => {
-  const [row] = await client.db
+  const [row] = await db
     .select({ balanceMinor: accounts.balanceMinor })
     .from(accounts)
     .where(eq(accounts.id, accountId))
@@ -94,14 +92,14 @@ const getAccountBalance = async (accountId: string): Promise<bigint> => {
 
 describe('application services integration (services + repositories + real DB)', () => {
   beforeAll(async () => {
-    await client.db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
-    await client.db.execute(sql`DROP SCHEMA IF EXISTS public CASCADE`);
-    await client.db.execute(sql`CREATE SCHEMA public`);
-    await migrate(client.db, { migrationsFolder: 'drizzle' });
+    await db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
+    await db.execute(sql`DROP SCHEMA IF EXISTS public CASCADE`);
+    await db.execute(sql`CREATE SCHEMA public`);
+    await migrate(db, { migrationsFolder: 'drizzle' });
   });
 
   beforeEach(async () => {
-    await client.db.execute(sql`
+    await db.execute(sql`
       DO $$
       DECLARE tables_to_truncate text;
       BEGIN
@@ -213,7 +211,7 @@ describe('application services integration (services + repositories + real DB)',
     expect(retry.created).toBeFalse();
     expect(retry.transactionId).toBe(first.transactionId);
 
-    const rowsAfterRetry = await client.db
+    const rowsAfterRetry = await db
       .select({ id: transactions.id, description: transactions.description })
       .from(transactions)
       .where(
@@ -251,7 +249,7 @@ describe('application services integration (services + repositories + real DB)',
       }),
     ).rejects.toBeInstanceOf(RepositoryError);
 
-    const rollbackRows = await client.db
+    const rollbackRows = await db
       .select({ id: transactions.id })
       .from(transactions)
       .where(eq(transactions.reference, 'integration-rollback'));
@@ -282,7 +280,7 @@ describe('application services integration (services + repositories + real DB)',
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
 
-    const crossLedgerRows = await client.db
+    const crossLedgerRows = await db
       .select({ id: transactions.id })
       .from(transactions)
       .where(eq(transactions.reference, 'integration-cross-ledger'));
@@ -449,7 +447,7 @@ describe('application services integration (services + repositories + real DB)',
       category: 'VALIDATION',
     });
 
-    const rows = await client.db
+    const rows = await db
       .select({ id: transactions.id })
       .from(transactions)
       .where(eq(transactions.tenantId, tenant.id));
@@ -596,7 +594,7 @@ describe('application services integration (services + repositories + real DB)',
     const persisted = await services.reconciliation.getRun(tenantId, run.id);
     expect(persisted.results).toHaveLength(run.results.length);
 
-    const beforeDryRunRows = await client.db.select({ id: reconRuns.id }).from(reconRuns);
+    const beforeDryRunRows = await db.select({ id: reconRuns.id }).from(reconRuns);
     const dryRun = await services.reconciliation.run({
       tenantId,
       ledgerId: ledger.id,
@@ -605,7 +603,7 @@ describe('application services integration (services + repositories + real DB)',
       matchingRuleIds: [exactRule.id],
       dryRun: true,
     });
-    const afterDryRunRows = await client.db.select({ id: reconRuns.id }).from(reconRuns);
+    const afterDryRunRows = await db.select({ id: reconRuns.id }).from(reconRuns);
     expect(dryRun.dryRun).toBeTrue();
     expect(afterDryRunRows).toHaveLength(beforeDryRunRows.length);
   });
@@ -614,7 +612,7 @@ describe('application services integration (services + repositories + real DB)',
     const tenant = await tenants.create({ name: 'Empty Upload Tenant' });
     const tenantId = tenant.id;
     const ledger = await services.ledgers.create({ tenantId, name: 'Primary' });
-    const [upload] = await client.db
+    const [upload] = await db
       .insert(reconUploads)
       .values({ tenantId, source: 'bank-feed', recordCount: 0 })
       .returning({ id: reconUploads.id });

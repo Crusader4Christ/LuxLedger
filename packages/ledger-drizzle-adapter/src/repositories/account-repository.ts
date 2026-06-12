@@ -44,18 +44,14 @@ export class DrizzleAccountRepository implements AccountRepository {
   }
 
   public async findById(tenantId: string, accountId: string): Promise<AccountEntity | null> {
-    return this.client.runTenantTx(
-      tenantId,
-      'find account by id for tenant',
-      async (tx) => {
-        const [row] = await tx
-          .select()
-          .from(schema.accounts)
-          .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
-          .limit(1);
-        return row ? toAccountEntity(row) : null;
-      },
-    );
+    return this.client.runTenantTx(tenantId, 'find account by id for tenant', async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.accounts)
+        .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
+        .limit(1);
+      return row ? toAccountEntity(row) : null;
+    });
   }
 
   public async list(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>> {

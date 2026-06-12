@@ -1,11 +1,7 @@
 import { parseJwtAuthConfig } from '@api/auth/policy';
 import { parseRateLimitConfig } from '@api/rate-limit/policy';
 import { createServerCore, registerApplication } from '@api/server';
-import {
-  createApplicationServices,
-  createDbClient,
-  type RepositoryLogger,
-} from '@lux/ledger-drizzle-adapter';
+import { createApplicationServices, createDbClient } from '@lux/ledger-drizzle-adapter';
 
 const parsePort = (value: string | undefined): number => {
   if (value === undefined) {
@@ -43,7 +39,7 @@ export const run = async (): Promise<void> => {
     },
     logger: true,
   });
-  const services = createApplicationServices(dbClient, server.log as unknown as RepositoryLogger);
+  const services = createApplicationServices(dbClient);
   registerApplication(server, {
     services,
     jwtAuth: parseJwtAuthConfig(process.env),

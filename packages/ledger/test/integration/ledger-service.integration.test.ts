@@ -13,7 +13,10 @@ import {
   type BalanceHistoryQuery,
   BalanceService,
   type BalanceSnapshotEvent,
+  type CommitHoldInput,
+  type CorrectTransactionInput,
   type CreateAccountInput,
+  type CreateHoldInput,
   type CreateLedgerInput,
   type CreateReconRuleInput,
   type CreateTransactionInput,
@@ -24,20 +27,21 @@ import {
   type Ledger,
   LedgerService,
   type LedgerTrialBalanceQuery,
-  type LegacyCombinedLedgerRepository,
   type PaginatedResult,
   type PaginationQuery,
   ReconciliationService,
   type ReconRule,
   type ReconRun,
   type ReconUpload,
+  type ReverseTransactionInput,
   type RunReconInput,
   type TransactionPaginationQuery,
   TransactionService,
   type TrialBalance,
+  type VoidHoldInput,
 } from '@lux/ledger/application';
 
-class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
+class InMemoryLedgerRepository {
   private readonly ledgers = new Map<string, Ledger>();
   private readonly accounts = new Map<string, AccountEntity>();
   private readonly transactions: CreateTransactionInput[] = [];
@@ -94,11 +98,14 @@ class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
     };
   }
 
-  public async reverseTransaction(): Promise<{ transactionId: string; created: boolean }> {
+  public async reverseTransaction(_input: ReverseTransactionInput): Promise<{
+    transactionId: string;
+    created: boolean;
+  }> {
     return { transactionId: 'tx-reversal-1', created: true };
   }
 
-  public async correctTransaction(): Promise<{
+  public async correctTransaction(_input: CorrectTransactionInput): Promise<{
     reversalTransactionId: string;
     correctedTransactionId: string;
     created: boolean;
@@ -110,7 +117,7 @@ class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
     };
   }
 
-  public async createHold(): Promise<{
+  public async createHold(_input: CreateHoldInput): Promise<{
     holdId: string;
     created: boolean;
     state: 'HELD' | 'APPLIED' | 'VOIDED';
@@ -119,7 +126,7 @@ class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
     return { holdId: 'hold-1', created: true, state: 'HELD', remainingAmountMinor: 100n };
   }
 
-  public async commitHold(): Promise<{
+  public async commitHold(_input: CommitHoldInput): Promise<{
     holdId: string;
     state: 'HELD' | 'APPLIED';
     remainingAmountMinor: bigint;
@@ -135,7 +142,7 @@ class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
     };
   }
 
-  public async voidHold(): Promise<{
+  public async voidHold(_input: VoidHoldInput): Promise<{
     holdId: string;
     state: 'VOIDED';
     remainingAmountMinor: bigint;
@@ -242,11 +249,14 @@ class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
     };
   }
 
-  public async listReconciliationMatchingRules(): Promise<ReconRule[]> {
+  public async listReconciliationMatchingRules(_tenantId: string): Promise<ReconRule[]> {
     return [];
   }
 
-  public async getReconciliationMatchingRule(): Promise<ReconRule | null> {
+  public async getReconciliationMatchingRule(
+    _tenantId: string,
+    _ruleId: string,
+  ): Promise<ReconRule | null> {
     return null;
   }
 
@@ -271,12 +281,12 @@ class InMemoryLedgerRepository implements LegacyCombinedLedgerRepository {
     };
   }
 
-  public async getReconciliationRun(): Promise<ReconRun | null> {
+  public async getReconciliationRun(_tenantId: string, _runId: string): Promise<ReconRun | null> {
     return null;
   }
 }
 
-const createServices = (repository: LegacyCombinedLedgerRepository) => ({
+const createServices = (repository: InMemoryLedgerRepository) => ({
   accounts: new AccountService({
     create: (input) => repository.createAccount(input),
     findById: (tenantId, accountId) => repository.findAccount(tenantId, accountId),

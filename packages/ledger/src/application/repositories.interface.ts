@@ -4,13 +4,14 @@ import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { EntryEntity } from '../entry/entity';
 import type { LedgerEntity } from '../ledger/entity';
 import type { ReconRule } from '../reconciliation';
-import type { TenantEntity } from '../tenant/entity';
 import type { TransactionEntity } from '../transaction/entity';
 import type {
   AccountPaginationQuery,
   BalanceAtQuery,
   BalanceHistoryQuery,
   BalanceSnapshotEvent,
+  BootstrapAdminRepositoryInput,
+  BootstrapAdminResult,
   BulkCreateTransactionInput,
   BulkCreateTransactionResult,
   CommitHoldInput,
@@ -47,8 +48,7 @@ export interface LedgerRepository {
 }
 
 export interface ApiKeyRepository {
-  count(): Promise<number>;
-  createTenant(input: { name: string }): Promise<TenantEntity>;
+  bootstrapInitialAdmin(input: BootstrapAdminRepositoryInput): Promise<BootstrapAdminResult>;
   findActiveByHash(keyHash: string): Promise<ApiKeyEntity | null>;
   findById(apiKeyId: string): Promise<ApiKeyEntity | null>;
   create(input: CreateApiKeyInput): Promise<ApiKeyEntity>;
@@ -91,33 +91,4 @@ export interface ReconciliationApplicationRepository {
   getRule(tenantId: string, ruleId: string): Promise<ReconRule | null>;
   run(input: RunReconInput): Promise<ReconRun>;
   getRun(tenantId: string, runId: string): Promise<ReconRun | null>;
-}
-
-// Compatibility contract for callers that still use the combined repository API.
-export interface LegacyCombinedLedgerRepository {
-  createLedger(input: CreateLedgerInput): Promise<LedgerEntity>;
-  findLedger(tenantId: string, ledgerId: string): Promise<LedgerEntity | null>;
-  listLedgers(tenantId: string): Promise<LedgerEntity[]>;
-  createAccount(input: CreateAccountInput): Promise<AccountEntity>;
-  findAccount(tenantId: string, accountId: string): Promise<AccountEntity | null>;
-  listAccounts(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>>;
-  createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult>;
-  createTransactionsBulk(input: BulkCreateTransactionInput): Promise<BulkCreateTransactionResult>;
-  reverseTransaction(input: ReverseTransactionInput): Promise<ReverseTransactionResult>;
-  correctTransaction(input: CorrectTransactionInput): Promise<CorrectTransactionResult>;
-  findTransaction(tenantId: string, transactionId: string): Promise<TransactionEntity | null>;
-  listTransactions(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
-  listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>>;
-  createHold(input: CreateHoldInput): Promise<CreateHoldResult>;
-  commitHold(input: CommitHoldInput): Promise<CommitHoldResult>;
-  voidHold(input: VoidHoldInput): Promise<VoidHoldResult>;
-  getLedgerTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
-  getBalanceAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
-  listBalanceHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
-  ingestExternalRecords(input: IngestReconRecordsInput): Promise<ReconUpload>;
-  createReconciliationMatchingRule(input: CreateReconRuleInput): Promise<ReconRule>;
-  listReconciliationMatchingRules(tenantId: string): Promise<ReconRule[]>;
-  getReconciliationMatchingRule(tenantId: string, ruleId: string): Promise<ReconRule | null>;
-  runReconciliation(input: RunReconInput): Promise<ReconRun>;
-  getReconciliationRun(tenantId: string, runId: string): Promise<ReconRun | null>;
 }

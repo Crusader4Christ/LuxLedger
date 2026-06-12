@@ -1,5 +1,9 @@
-import type { ApiKeyEntity, ApiKeyRole } from '@lux/ledger';
-import type { ApiKeyRepository } from '@lux/ledger/application';
+import { type ApiKeyEntity, ApiKeyRole } from '@lux/ledger';
+import type {
+  ApiKeyRepository,
+  BootstrapAdminRepositoryInput,
+  BootstrapAdminResult,
+} from '@lux/ledger/application';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { DbClient } from '../client';
 import { toApiKeyEntity } from '../mappers/api-key-mapper';
@@ -8,35 +12,46 @@ import * as schema from '../schema';
 export class DrizzleApiKeyRepository implements ApiKeyRepository {
   public constructor(private readonly client: DbClient) {}
 
-  public async count(): Promise<number> {
-    return this.client.execute('count api keys', async () => {
-      const [row] = await this.client.db
+  public async bootstrapInitialAdmin(
+    input: BootstrapAdminRepositoryInput,
+  ): Promise<BootstrapAdminResult> {
+    return this.client.runTx('bootstrap initial admin', async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('luxledger.bootstrap_admin'))`);
+
+      const [row] = await tx
         .select({ count: sql<number>`count(*)::int` })
         .from(schema.apiKeys)
         .limit(1);
-      return row?.count ?? 0;
-    });
-  }
+      if ((row?.count ?? 0) > 0) {
+        return { created: false };
+      }
 
-  public async createTenant(input: {
-    name: string;
-  }): Promise<{ id: string; name: string; createdAt: Date }> {
-    return this.client.execute('create tenant', async () => {
-      const [created] = await this.client.db
+      const [tenant] = await tx
         .insert(schema.tenants)
-        .values({ name: input.name })
+        .values({ name: input.tenantName })
         .returning();
+
+      const [apiKey] = await tx
+        .insert(schema.apiKeys)
+        .values({
+          tenantId: tenant.id,
+          name: input.keyName,
+          role: ApiKeyRole.ADMIN,
+          keyHash: input.keyHash,
+        })
+        .returning({ id: schema.apiKeys.id });
+
       return {
-        id: created.id,
-        name: created.name,
-        createdAt: created.createdAt,
+        created: true,
+        tenantId: tenant.id,
+        apiKeyId: apiKey.id,
       };
     });
   }
 
   public async findActiveByHash(keyHash: string): Promise<ApiKeyEntity | null> {
-    return this.client.execute('find api key by hash', async () => {
-      const [row] = await this.client.db
+    return this.client.execute('find api key by hash', async (db) => {
+      const [row] = await db
         .select()
         .from(schema.apiKeys)
         .where(and(eq(schema.apiKeys.keyHash, keyHash), sql`${schema.apiKeys.revokedAt} is null`))
@@ -46,8 +61,8 @@ export class DrizzleApiKeyRepository implements ApiKeyRepository {
   }
 
   public async findById(apiKeyId: string): Promise<ApiKeyEntity | null> {
-    return this.client.execute('find api key by id', async () => {
-      const [row] = await this.client.db
+    return this.client.execute('find api key by id', async (db) => {
+      const [row] = await db
         .select()
         .from(schema.apiKeys)
         .where(eq(schema.apiKeys.id, apiKeyId))

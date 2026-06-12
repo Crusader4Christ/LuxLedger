@@ -84,33 +84,25 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
   }
 
   public async listRules(tenantId: string) {
-    return this.client.runTenantTx(
-      tenantId,
-      'list reconciliation matching rules',
-      async (tx) => {
-        const rows = await tx
-          .select()
-          .from(schema.reconRules)
-          .where(eq(schema.reconRules.tenantId, tenantId))
-          .orderBy(asc(schema.reconRules.createdAt), asc(schema.reconRules.id));
-        return rows.map(toReconRule);
-      },
-    );
+    return this.client.runTenantTx(tenantId, 'list reconciliation matching rules', async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.reconRules)
+        .where(eq(schema.reconRules.tenantId, tenantId))
+        .orderBy(asc(schema.reconRules.createdAt), asc(schema.reconRules.id));
+      return rows.map(toReconRule);
+    });
   }
 
   public async getRule(tenantId: string, ruleId: string) {
-    return this.client.runTenantTx(
-      tenantId,
-      'get reconciliation matching rule',
-      async (tx) => {
-        const [row] = await tx
-          .select()
-          .from(schema.reconRules)
-          .where(and(eq(schema.reconRules.tenantId, tenantId), eq(schema.reconRules.id, ruleId)))
-          .limit(1);
-        return row ? toReconRule(row) : null;
-      },
-    );
+    return this.client.runTenantTx(tenantId, 'get reconciliation matching rule', async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.reconRules)
+        .where(and(eq(schema.reconRules.tenantId, tenantId), eq(schema.reconRules.id, ruleId)))
+        .limit(1);
+      return row ? toReconRule(row) : null;
+    });
   }
 
   public async run(input: RunReconInput): Promise<ReconRun> {
