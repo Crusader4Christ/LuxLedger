@@ -2,13 +2,13 @@ import type { ApplicationServices } from '@lux/ledger/application';
 import type { EntriesPageResponse } from '@lux/ledger-http/contracts';
 import { toEntryResponse } from '@lux/ledger-http/mappers';
 import type { Application, Response } from 'express';
+import { parsePaginationQuery } from '../query/pagination';
 import {
   type RequestWithContext,
   requireContext,
   sendInvalidInput,
   withDomainErrorHandling,
 } from '../route-support';
-import { parsePaginationQuery } from './pagination';
 
 type EntryRouteServices = Pick<ApplicationServices, 'transactions'>;
 

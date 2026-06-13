@@ -17,6 +17,7 @@ import { toAccountResponse } from '@lux/ledger-http/mappers';
 import { parseUuidQuery } from '@lux/ledger-http/query/pagination';
 import { parseUuidParam } from '@lux/ledger-http/validation-utils';
 import type { Application, Response } from 'express';
+import { parsePaginationQuery } from '../query/pagination';
 import {
   type RequestWithContext,
   requireContext,
@@ -24,7 +25,6 @@ import {
   validate,
   withDomainErrorHandling,
 } from '../route-support';
-import { parsePaginationQuery } from './pagination';
 
 type AccountRouteServices = Pick<ApplicationServices, 'accounts' | 'balances'>;
 
