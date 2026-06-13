@@ -1,3 +1,4 @@
+import './fastify-extensions';
 import type { ApplicationServices } from '@lux/ledger/application';
 import type { FastifyInstance } from 'fastify';
 import { AccountsRoutes } from './routes/accounts';

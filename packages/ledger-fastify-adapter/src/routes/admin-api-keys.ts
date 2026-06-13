@@ -12,7 +12,7 @@ import {
 } from '@lux/ledger-http/contracts';
 import { toApiKeyContract } from '@lux/ledger-http/mappers';
 import type { FastifyInstance } from 'fastify';
-import { BaseEntityRoute } from '../routes/base-route';
+import { BaseEntityRoute } from '../routing/base-route';
 
 export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContract> {
   public constructor(private readonly apiKeyService: ApiKeyService) {

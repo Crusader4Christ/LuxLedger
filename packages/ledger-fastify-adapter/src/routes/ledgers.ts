@@ -20,7 +20,7 @@ import {
 } from '@lux/ledger-http/contracts';
 import { toTrialBalanceResponse } from '@lux/ledger-http/mappers';
 import type { FastifyInstance } from 'fastify';
-import { BaseRoute } from '../routes/base-route';
+import { BaseRoute } from '../routing/base-route';
 
 export class LedgerRoutes extends BaseRoute {
   public constructor(

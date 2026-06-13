@@ -18,10 +18,9 @@ import {
   listAccountsQuerySchemaExtra,
 } from '@lux/ledger-http/contracts';
 import { toAccountResponse } from '@lux/ledger-http/mappers';
-import { resolveLimit } from '@lux/ledger-http/query/pagination';
 import type { FastifyInstance } from 'fastify';
-import { BaseEntityRoute } from '../routes/base-route';
-import { mergePaginationQuerySchema } from '../routes/pagination';
+import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
+import { BaseEntityRoute } from '../routing/base-route';
 
 export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountResponse> {
   public constructor(
@@ -99,7 +98,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       '/v1/accounts',
       {
         schema: {
-          querystring: mergePaginationQuerySchema(listAccountsQuerySchemaExtra),
+          querystring: createPaginationQuerySchema(listAccountsQuerySchemaExtra),
           response: {
             200: accountsPageResponseSchema,
           },
@@ -109,7 +108,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
         return this.handle(reply, async () => {
           const page = await this.accounts.list({
             tenantId: request.tenantId as string,
-            limit: resolveLimit(request.query.limit),
+            limit: resolvePaginationLimit(request.query.limit),
             cursor: request.query.cursor,
             ledgerId: request.query.ledger_id,
           });
@@ -169,7 +168,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
             accountId: request.params.id,
             from: new Date(request.query.from),
             to: new Date(request.query.to),
-            limit: resolveLimit(request.query.limit),
+            limit: resolvePaginationLimit(request.query.limit),
             cursor: request.query.cursor,
           });
           return reply.status(200).send({
