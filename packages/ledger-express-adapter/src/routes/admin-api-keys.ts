@@ -9,14 +9,10 @@ import {
 import { toApiKeyContract } from '@lux/ledger-http/mappers';
 import { parseUuidParam } from '@lux/ledger-http/validation-utils';
 import type { Application, Response } from 'express';
-import {
-  assertAdmin,
-  type RequestWithContext,
-  requireContext,
-  sendInvalidInput,
-  validate,
-  withDomainErrorHandling,
-} from './route-support';
+import { sendInvalidInput, withDomainErrorHandling } from '../errors/handlers';
+import { assertAdmin, requireContext } from '../request/context';
+import { validate } from '../request/validation';
+import type { RequestWithContext } from '../types';
 
 type AdminApiKeyRouteServices = Pick<ApplicationServices, 'apiKeys'>;
 

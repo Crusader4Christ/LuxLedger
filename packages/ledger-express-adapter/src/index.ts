@@ -1,4 +1,3 @@
-import type { ApplicationServices } from '@lux/ledger/application';
 import express, { type Application } from 'express';
 import { registerAccountRoutes } from './routes/accounts';
 import { registerAdminApiKeyRoutes } from './routes/admin-api-keys';
@@ -7,10 +6,9 @@ import { registerHoldRoutes } from './routes/holds';
 import { registerLedgerRoutes } from './routes/ledgers';
 import { registerReconciliationRoutes } from './routes/reconciliation';
 import { registerTransactionRoutes } from './routes/transactions';
+import type { ExpressLedgerAdapterDependencies } from './types';
 
-export type ExpressLedgerAdapterDependencies = {
-  services: ApplicationServices;
-};
+export type { ExpressLedgerAdapterDependencies, RequestContext, RequestWithContext } from './types';
 
 const ensureJsonMiddleware = (app: Application): void => {
   const stack = (app as Application & { _router?: { stack?: unknown[] } })._router?.stack;
