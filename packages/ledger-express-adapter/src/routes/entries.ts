@@ -8,7 +8,7 @@ import {
   requireContext,
   sendInvalidInput,
   withDomainErrorHandling,
-} from '../route-support';
+} from './route-support';
 
 type EntryRouteServices = Pick<ApplicationServices, 'transactions'>;
 

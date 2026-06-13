@@ -25,7 +25,7 @@ import {
   sendInvalidInput,
   validate,
   withDomainErrorHandling,
-} from '../route-support';
+} from './route-support';
 
 type ReconciliationRouteServices = Pick<ApplicationServices, 'reconciliation'>;
 

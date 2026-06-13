@@ -16,7 +16,7 @@ import {
   sendInvalidInput,
   validate,
   withDomainErrorHandling,
-} from '../route-support';
+} from './route-support';
 
 type AdminApiKeyRouteServices = Pick<ApplicationServices, 'apiKeys'>;
 

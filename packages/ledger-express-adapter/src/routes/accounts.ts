@@ -24,7 +24,7 @@ import {
   sendInvalidInput,
   validate,
   withDomainErrorHandling,
-} from '../route-support';
+} from './route-support';
 
 type AccountRouteServices = Pick<ApplicationServices, 'accounts' | 'balances'>;
 

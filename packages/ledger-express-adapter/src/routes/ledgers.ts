@@ -14,7 +14,7 @@ import {
   sendInvalidInput,
   validate,
   withDomainErrorHandling,
-} from '../route-support';
+} from './route-support';
 
 type LedgerRouteServices = Pick<ApplicationServices, 'balances' | 'ledgers'>;
 

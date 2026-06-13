@@ -17,7 +17,7 @@ import {
   sendInvalidInput,
   validate,
   withDomainErrorHandling,
-} from '../route-support';
+} from './route-support';
 
 type HoldRouteServices = Pick<ApplicationServices, 'holds'>;
 
