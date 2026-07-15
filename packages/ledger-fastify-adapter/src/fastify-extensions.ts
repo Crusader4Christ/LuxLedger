@@ -1,4 +1,4 @@
-import type { ApiKeyRole } from '@lux/ledger/application';
+import type { ApiKeyRole } from '@lux/ledger-http/contracts';
 import 'fastify';
 
 declare module 'fastify' {
