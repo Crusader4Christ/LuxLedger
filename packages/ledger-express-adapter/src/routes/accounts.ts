@@ -120,14 +120,18 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
     withDomainErrorHandling(res, async () => {
       const params = parseUuidParam<keyof AccountByIdParams>(req.params.id, 'id');
       const pagination = parsePaginationQuery(req.query);
+      if (params === null || pagination === null) {
+        sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid querystring');
+        return;
+      }
       const query = validate<BalanceHistoryQuery>(balanceHistoryQuerySchema, {
         from: req.query.from,
         to: req.query.to,
-        limit: pagination?.limit,
-        ...(pagination?.cursor === undefined ? {} : { cursor: pagination.cursor }),
+        limit: pagination.limit,
+        cursor: pagination.cursor,
       });
-      if (params === null || pagination === null || query === null) {
-        sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid querystring');
+      if (query === null) {
+        sendInvalidInput(res, 'Invalid querystring');
         return;
       }
       const context = requireContext(req);
