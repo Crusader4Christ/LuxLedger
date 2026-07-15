@@ -17,7 +17,7 @@ import {
 } from '@lux/ledger-http/contracts';
 import { toTransactionResponse } from '@lux/ledger-http/mappers';
 import type { FastifyInstance } from 'fastify';
-import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
+import { BasePaginatedRoute, type PaginatedRequest } from '../routing/paginated-route';
 
 export class TransactionsRoutes extends BasePaginatedRoute<
   TransactionEntity,

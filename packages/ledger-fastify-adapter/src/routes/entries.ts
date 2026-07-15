@@ -6,7 +6,7 @@ import {
   type ListEntriesQuery,
 } from '@lux/ledger-http/contracts';
 import { toEntryResponse } from '@lux/ledger-http/mappers';
-import { BasePaginatedRoute, type PaginatedRequest } from '../routes/pagination';
+import { BasePaginatedRoute, type PaginatedRequest } from '../routing/paginated-route';
 
 export class EntriesListRoute extends BasePaginatedRoute<
   EntryEntity,

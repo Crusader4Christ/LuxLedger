@@ -11,7 +11,7 @@ import {
   voidHoldResponseSchema,
 } from '@lux/ledger-http/contracts';
 import type { FastifyInstance } from 'fastify';
-import { BaseRoute } from '../routes/base-route';
+import { BaseRoute } from '../routing/base-route';
 
 export class HoldsRoutes extends BaseRoute {
   public constructor(private readonly holds: HoldService) {

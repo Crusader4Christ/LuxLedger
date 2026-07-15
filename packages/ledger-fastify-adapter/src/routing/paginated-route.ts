@@ -1,13 +1,10 @@
 import type { PaginatedResult } from '@lux/ledger/application';
-import { mergePaginationQuerySchema, paginationQuerySchema } from '@lux/ledger-http/contracts';
-import { resolveLimit } from '@lux/ledger-http/query/pagination';
+import type { PaginationQuery } from '@lux/ledger-http/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { BaseEntityRoute } from '../routes/base-route';
-import type { PaginationQuery } from '../types/pagination-query';
+import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
+import { BaseEntityRoute } from './base-route';
 
 type JsonRecord = Record<string, unknown>;
-
-export { mergePaginationQuerySchema, paginationQuerySchema };
 
 export type PaginatedRequest<Query extends PaginationQuery = PaginationQuery> = FastifyRequest<{
   Querystring: Query;
@@ -23,11 +20,11 @@ export abstract class BasePaginatedRoute<
   protected abstract list(request: PaginatedRequest<Query>): Promise<PaginatedResult<Source>>;
 
   protected resolveLimit(value: number | undefined): number {
-    return resolveLimit(value);
+    return resolvePaginationLimit(value);
   }
 
   protected querystringSchema(extra: JsonRecord = {}) {
-    return mergePaginationQuerySchema(extra);
+    return createPaginationQuerySchema(extra);
   }
 
   protected abstract responseSchema(): JsonRecord;

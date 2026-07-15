@@ -19,7 +19,7 @@ import {
   toReconUploadResponse,
 } from '@lux/ledger-http/mappers';
 import type { FastifyInstance } from 'fastify';
-import { BaseRoute } from '../routes/base-route';
+import { BaseRoute } from '../routing/base-route';
 
 export class ReconRoutes extends BaseRoute {
   public constructor(private readonly reconciliation: ReconciliationService) {

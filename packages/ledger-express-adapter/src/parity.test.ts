@@ -165,7 +165,7 @@ describe('express adapter parity with fastify adapter', () => {
       (req as { apiKeyRole?: ApiKeyRole }).apiKeyRole = ApiKeyRole.ADMIN;
       next();
     });
-    registerExpressLedgerAdapter(expressApp, { services });
+    registerExpressLedgerAdapter(expressApp, services);
   });
 
   afterAll(async () => {
