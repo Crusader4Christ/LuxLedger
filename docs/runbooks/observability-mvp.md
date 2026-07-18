@@ -2,7 +2,7 @@
 
 ## Scope
 
-This runbook defines the minimum production observability baseline for `apps/luxledger-api`.
+This runbook defines the minimum production observability baseline for runnable API applications built on LuxLedger. The reference API demo app lives in a separate repository.
 
 - Metrics endpoint: `GET /metrics` (Prometheus text format).
 - Structured request logs with stable fields: `requestId`, `tenantId`, `apiKeyId`, `route`.

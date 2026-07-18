@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": false,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "paths": {
+      "@luxledger/core": ["packages/core/dist/index.d.ts"],
+      "@luxledger/core/*": ["packages/core/dist/*/index.d.ts", "packages/core/dist/*.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "test", "dist", "node_modules"]
+}

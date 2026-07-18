@@ -1,0 +1,53 @@
+{
+  "name": "@luxledger/postgres-adapter",
+  "version": "0.1.1",
+  "description": "PostgreSQL persistence adapter for LuxLedger using Drizzle ORM.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    },
+    "./drizzle-config": {
+      "types": "./dist/drizzle-config.d.ts",
+      "import": "./dist/drizzle-config.js",
+      "default": "./dist/drizzle-config.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "ledger",
+    "postgres",
+    "drizzle",
+    "persistence"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crusader4Christ/LuxLedger.git",
+    "directory": "packages/postgres-adapter"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@luxledger/core": "^0.1.0",
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.8",
+    "safe-stable-stringify": "^2.5.0"
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts src/schema.ts src/drizzle-config.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/postgres-adapter/dist"
+  }
+}

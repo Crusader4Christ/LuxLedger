@@ -20,49 +20,45 @@
         "typescript": "^5.9.3",
       },
     },
-    "apps/luxledger-api": {
-      "name": "luxledger-api",
+    "packages/core": {
+      "name": "@luxledger/core",
       "version": "0.1.0",
     },
-    "packages/ledger": {
-      "name": "@lux/ledger",
-      "version": "0.1.0",
-    },
-    "packages/ledger-drizzle-adapter": {
-      "name": "@lux/ledger-drizzle-adapter",
+    "packages/postgres-adapter": {
+      "name": "@luxledger/postgres-adapter",
       "version": "0.1.0",
       "dependencies": {
-        "@lux/ledger": "workspace:*",
+        "@luxledger/core": "workspace:*",
         "drizzle-orm": "^0.45.1",
         "postgres": "^3.4.8",
         "safe-stable-stringify": "^2.5.0",
       },
     },
-    "packages/ledger-express-adapter": {
-      "name": "@lux/ledger-express-adapter",
+    "packages/express-routes": {
+      "name": "@luxledger/express-routes",
       "version": "0.1.0",
       "dependencies": {
-        "@lux/ledger": "workspace:*",
-        "@lux/ledger-http": "workspace:*",
+        "@luxledger/core": "workspace:*",
+        "@luxledger/http": "workspace:*",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "express": "^5.1.0",
       },
     },
-    "packages/ledger-fastify-adapter": {
-      "name": "@lux/ledger-fastify-adapter",
+    "packages/fastify-routes": {
+      "name": "@luxledger/fastify-routes",
       "version": "0.1.0",
       "dependencies": {
-        "@lux/ledger": "workspace:*",
-        "@lux/ledger-http": "workspace:*",
+        "@luxledger/core": "workspace:*",
+        "@luxledger/http": "workspace:*",
         "fastify": "^5.7.4",
       },
     },
-    "packages/ledger-http": {
-      "name": "@lux/ledger-http",
+    "packages/http": {
+      "name": "@luxledger/http",
       "version": "0.1.0",
       "dependencies": {
-        "@lux/ledger": "workspace:*",
+        "@luxledger/core": "workspace:*",
       },
     },
   },
@@ -155,15 +151,15 @@
 
     "@fastify/proxy-addr": ["@fastify/proxy-addr@5.1.0", "", { "dependencies": { "@fastify/forwarded": "^3.0.0", "ipaddr.js": "^2.1.0" } }, "sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw=="],
 
-    "@lux/ledger": ["@lux/ledger@workspace:packages/ledger"],
+    "@luxledger/core": ["@luxledger/core@workspace:packages/core"],
 
-    "@lux/ledger-drizzle-adapter": ["@lux/ledger-drizzle-adapter@workspace:packages/ledger-drizzle-adapter"],
+    "@luxledger/postgres-adapter": ["@luxledger/postgres-adapter@workspace:packages/postgres-adapter"],
 
-    "@lux/ledger-express-adapter": ["@lux/ledger-express-adapter@workspace:packages/ledger-express-adapter"],
+    "@luxledger/express-routes": ["@luxledger/express-routes@workspace:packages/express-routes"],
 
-    "@lux/ledger-fastify-adapter": ["@lux/ledger-fastify-adapter@workspace:packages/ledger-fastify-adapter"],
+    "@luxledger/fastify-routes": ["@luxledger/fastify-routes@workspace:packages/fastify-routes"],
 
-    "@lux/ledger-http": ["@lux/ledger-http@workspace:packages/ledger-http"],
+    "@luxledger/http": ["@luxledger/http@workspace:packages/http"],
 
     "@pinojs/redact": ["@pinojs/redact@0.4.0", "", {}, "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg=="],
 
@@ -302,8 +298,6 @@
     "json-schema-traverse": ["json-schema-traverse@1.0.0", "", {}, "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug=="],
 
     "light-my-request": ["light-my-request@6.6.0", "", { "dependencies": { "cookie": "^1.0.1", "process-warning": "^4.0.0", "set-cookie-parser": "^2.6.0" } }, "sha512-CHYbu8RtboSIoVsHZ6Ye4cj4Aw/yg2oAFimlF7mNvfDV192LR7nDiKtSIfCuLT7KokPSTn/9kfVLm5OGN0A28A=="],
-
-    "luxledger-api": ["luxledger-api@workspace:apps/luxledger-api"],
 
     "math-intrinsics": ["math-intrinsics@1.1.0", "", {}, "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="],
 

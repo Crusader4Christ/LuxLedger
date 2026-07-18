@@ -1,0 +1,75 @@
+{
+  "name": "@luxledger/http",
+  "version": "0.1.0",
+  "description": "Framework-agnostic HTTP contracts, schemas, mappers, and OpenAPI source for LuxLedger.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts/index.d.ts",
+      "import": "./dist/contracts/index.js"
+    },
+    "./query/pagination": {
+      "types": "./dist/query/pagination.d.ts",
+      "import": "./dist/query/pagination.js"
+    },
+    "./mappers": {
+      "types": "./dist/mappers/index.d.ts",
+      "import": "./dist/mappers/index.js"
+    },
+    "./validation-utils": {
+      "types": "./dist/validation-utils.d.ts",
+      "import": "./dist/validation-utils.js"
+    },
+    "./route-core": {
+      "types": "./dist/route-core.d.ts",
+      "import": "./dist/route-core.js"
+    },
+    "./route-specs": {
+      "types": "./dist/route-specs.d.ts",
+      "import": "./dist/route-specs.js"
+    },
+    "./test/harness": {
+      "types": "./dist/test/harness.d.ts",
+      "import": "./dist/test/harness.js"
+    },
+    "./openapi/openapi.yaml": "./openapi/openapi.yaml"
+  },
+  "files": [
+    "dist",
+    "openapi",
+    "README.md"
+  ],
+  "keywords": [
+    "ledger",
+    "http",
+    "openapi",
+    "contracts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crusader4Christ/LuxLedger.git",
+    "directory": "packages/http"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@luxledger/core": "^0.1.0"
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts src/errors.ts src/contracts/index.ts src/query/pagination.ts src/mappers/index.ts src/validation-utils.ts src/route-core.ts src/route-specs.ts src/test/harness.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/http/dist",
+    "test": "bun test $(find src -type f -name '*.test.ts' | sort)",
+    "typecheck": "tsc -p ../../tsconfig.json --noEmit"
+  }
+}

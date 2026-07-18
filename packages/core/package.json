@@ -1,0 +1,76 @@
+{
+  "name": "@luxledger/core",
+  "version": "0.1.0",
+  "description": "Double-entry ledger domain primitives and application contracts for LuxLedger.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./account": {
+      "types": "./dist/account/index.d.ts",
+      "import": "./dist/account/index.js"
+    },
+    "./api-key": {
+      "types": "./dist/api-key/index.d.ts",
+      "import": "./dist/api-key/index.js"
+    },
+    "./application": {
+      "types": "./dist/application/index.d.ts",
+      "import": "./dist/application/index.js"
+    },
+    "./base": {
+      "types": "./dist/base/index.d.ts",
+      "import": "./dist/base/index.js"
+    },
+    "./entry": {
+      "types": "./dist/entry/index.d.ts",
+      "import": "./dist/entry/index.js"
+    },
+    "./ledger": {
+      "types": "./dist/ledger/index.d.ts",
+      "import": "./dist/ledger/index.js"
+    },
+    "./reconciliation": {
+      "types": "./dist/reconciliation/index.d.ts",
+      "import": "./dist/reconciliation/index.js"
+    },
+    "./tenant": {
+      "types": "./dist/tenant/index.d.ts",
+      "import": "./dist/tenant/index.js"
+    },
+    "./transaction": {
+      "types": "./dist/transaction/index.d.ts",
+      "import": "./dist/transaction/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "ledger",
+    "double-entry",
+    "accounting",
+    "finance"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crusader4Christ/LuxLedger.git",
+    "directory": "packages/core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts src/account/index.ts src/api-key/index.ts src/application/index.ts src/base/index.ts src/entry/index.ts src/ledger/index.ts src/reconciliation/index.ts src/tenant/index.ts src/transaction/index.ts src/utils/index.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/core/dist"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@luxledger/fastify-routes",
+  "version": "0.1.0",
+  "description": "Fastify route registration package for LuxLedger HTTP routes.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "ledger",
+    "fastify",
+    "routes",
+    "http"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crusader4Christ/LuxLedger.git",
+    "directory": "packages/fastify-routes"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@luxledger/core": "^0.1.0",
+    "@luxledger/http": "^0.1.0",
+    "fastify": "^5.7.4"
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/fastify-routes/dist"
+  }
+}

@@ -90,7 +90,7 @@ jobs:
         run: bun run db:migrate:test
 
       - name: Run integration tests
-        run: bun test --max-concurrency=1 $(find apps packages -type f -path '*/test/integration/*.test.ts' | sort)
+        run: bun test --max-concurrency=1 $(find packages -type f -path '*/test/integration/*.test.ts' | sort)
 
   openapi-contract-governance:
     name: OpenAPI Contract Governance

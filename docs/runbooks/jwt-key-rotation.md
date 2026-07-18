@@ -2,7 +2,7 @@
 
 ## Scope
 
-This runbook covers HS256 access-token signing keys used by `apps/luxledger-api`.
+This runbook covers HS256 access-token signing keys used by runnable API applications built on LuxLedger. The reference API demo app lives in a separate repository.
 
 ## Configuration contract
 
