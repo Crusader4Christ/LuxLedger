@@ -1,5 +1,5 @@
 # LuxLedger
-financial core infrastructure
+Financial core infrastructure: double-entry ledger domain packages, transport contracts, and persistence adapters.
 
 ## Local setup
 
@@ -9,10 +9,10 @@ financial core infrastructure
    `cp .env.example .env`
 3. Install dependencies:
    `bun install`
-4. Migrate the application database:
+4. Migrate the local database:
    `bun run db:migrate`
-5. Start the API:
-   `bun run dev`
+
+The reference API demo app has been moved out of this repository so this repo can stay focused on the reusable ledger packages. New users should treat this repository as the library/core workspace and use the demo repository for an end-to-end runnable API.
 
 ## Test strategy
 
@@ -34,19 +34,21 @@ financial core infrastructure
 ## CI strategy
 
 - The unit job runs `bun run test:unit` and `bun run typecheck` without PostgreSQL.
-- The integration job provisions PostgreSQL 16, checks connectivity, resets the ephemeral test database, runs migrations, and then runs `bun run test:integration:files`.
+- The integration job provisions PostgreSQL 16, checks connectivity, resets the ephemeral test database, runs migrations, and then runs the package integration suite.
 - Pull requests must pass `OpenAPI Contract Governance`: deterministic verification fails on runtime/OpenAPI mismatch for governed contract surface.
 - Local pre-push contract check: `bun run contract:verify`.
 
-## API auth flow
+## Repository contents
 
-- Exchange long-lived API key for JWT: `POST /v1/auth/token` with `x-api-key`.
-- Use access token for API calls: `Authorization: Bearer <jwt>`.
-- JWT signing uses one active key plus optional previous verification keys during rotation. See `apps/luxledger-api/README.md` for env details.
-- Auth and state-changing (`POST /v1/*`) endpoints have configurable fixed-window rate limits with deterministic `429 RATE_LIMIT_EXCEEDED` responses.
-- Operations runbook (bootstrap, API key lifecycle, JWT checks, incidents): `docs/runbooks/operations-auth-mvp.md`.
-- JWT rotation and rollback steps live in `docs/runbooks/jwt-key-rotation.md`.
-- Observability baseline (metrics, structured logs, alerts) lives in `docs/runbooks/observability-mvp.md`.
+- `packages/core`: domain model and application contracts.
+- `packages/http`: framework-agnostic HTTP contracts and OpenAPI source.
+- `packages/fastify-routes`: Fastify route registration package.
+- `packages/express-routes`: Express route registration package.
+- `packages/postgres-adapter`: Drizzle/PostgreSQL persistence adapter.
+- `drizzle`: schema migrations shared by runnable applications.
+
+## API contract
+
 - OpenAPI contract governance policy (CI gating + PR/reviewer process) lives in `docs/governance/openapi-contract-governance.md`.
 - Full docs index: `docs/README.md`.
-- See API contract: `apps/luxledger-api/openapi/openapi.yaml`.
+- See API contract: `packages/http/openapi/openapi.yaml`.

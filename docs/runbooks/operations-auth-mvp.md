@@ -9,6 +9,8 @@ This runbook covers operator workflows for:
 - JWT configuration validation and signing key rotation checks.
 - Auth outage and token issuance incident triage.
 
+The reference API demo app lives in a separate repository. Run host-application commands such as bootstrap and server startup from that repository, not from this package workspace.
+
 For JWT key rotation details, use this runbook together with:
 
 - [JWT Signing Key Rotation Runbook](./jwt-key-rotation.md)
@@ -35,7 +37,7 @@ For JWT key rotation details, use this runbook together with:
 
 ### Action
 
-1. Run bootstrap:
+1. From the runnable API repository, run bootstrap:
 
 ```sh
 BOOTSTRAP_TENANT_NAME="Acme" \
@@ -44,7 +46,7 @@ BOOTSTRAP_ADMIN_API_KEY="llk_acme_admin_seed_2026_05_07" \
 bun run bootstrap:admin-key
 ```
 
-2. Start API:
+2. From the runnable API repository, start the API:
 
 ```sh
 bun run dev

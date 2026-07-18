@@ -1,0 +1,43 @@
+{
+  "name": "@luxledger/express-routes",
+  "version": "0.1.0",
+  "description": "Express route registration package for LuxLedger HTTP routes.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "ledger",
+    "express",
+    "routes",
+    "http"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crusader4Christ/LuxLedger.git",
+    "directory": "packages/express-routes"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@luxledger/core": "^0.1.0",
+    "@luxledger/http": "^0.1.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "express": "^5.1.0"
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/express-routes/dist"
+  }
+}

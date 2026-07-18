@@ -17,7 +17,7 @@ echo "Command: bun run contract:verify"
 if ! bun run contract:verify; then
   echo ""
   echo "OpenAPI contract governance check failed."
-  echo "Required action: align runtime API contract behavior and apps/luxledger-api/openapi/openapi.yaml."
+  echo "Required action: align runtime HTTP contract behavior and packages/ledger-http/openapi/openapi.yaml."
   echo "Then rerun: bun run contract:verify"
   echo "See docs/governance/openapi-contract-governance.md for mandatory process."
   exit 1

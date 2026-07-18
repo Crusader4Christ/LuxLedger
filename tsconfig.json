@@ -15,38 +15,35 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@api/*": [
-        "apps/luxledger-api/src/api/*"
+      "@luxledger/core": [
+        "packages/core/src/index.ts"
       ],
-      "@lux/ledger": [
-        "packages/ledger/src/index.ts"
+      "@luxledger/core/*": [
+        "packages/core/src/*"
       ],
-      "@lux/ledger/*": [
-        "packages/ledger/src/*"
+      "@luxledger/http": [
+        "packages/http/src/index.ts"
       ],
-      "@lux/ledger-http": [
-        "packages/ledger-http/src/index.ts"
+      "@luxledger/http/*": [
+        "packages/http/src/*"
       ],
-      "@lux/ledger-http/*": [
-        "packages/ledger-http/src/*"
+      "@luxledger/postgres-adapter": [
+        "packages/postgres-adapter/src/index.ts"
       ],
-      "@lux/ledger-drizzle-adapter": [
-        "packages/ledger-drizzle-adapter/src/index.ts"
+      "@luxledger/postgres-adapter/*": [
+        "packages/postgres-adapter/src/*"
       ],
-      "@lux/ledger-drizzle-adapter/*": [
-        "packages/ledger-drizzle-adapter/src/*"
+      "@luxledger/express-routes": [
+        "packages/express-routes/src/index.ts"
       ],
-      "@lux/ledger-express-adapter": [
-        "packages/ledger-express-adapter/src/index.ts"
+      "@luxledger/express-routes/*": [
+        "packages/express-routes/src/*"
       ],
-      "@lux/ledger-express-adapter/*": [
-        "packages/ledger-express-adapter/src/*"
+      "@luxledger/fastify-routes": [
+        "packages/fastify-routes/src/index.ts"
       ],
-      "@lux/ledger-fastify-adapter": [
-        "packages/ledger-fastify-adapter/src/index.ts"
-      ],
-      "@lux/ledger-fastify-adapter/*": [
-        "packages/ledger-fastify-adapter/src/*"
+      "@luxledger/fastify-routes/*": [
+        "packages/fastify-routes/src/*"
       ]
     },
     "types": [
@@ -54,8 +51,7 @@
     ]
   },
   "include": [
-    "packages/**/*.ts",
-    "apps/**/*.ts"
+    "packages/**/*.ts"
   ],
   "exclude": [
     "node_modules",

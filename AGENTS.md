@@ -6,30 +6,28 @@ Financial core infrastructure — double-entry ledger component.
 - PostgreSQL 16
 
 ## Stack
-- Fastify — HTTP server
+- Fastify adapter package for Fastify hosts
+- Express adapter package for Express hosts
 - Drizzle ORM — database layer
-- No frameworks (no NestJS, no Express)
+- No framework dependency in `@luxledger/core` or `@luxledger/http`
 
 ## Project Structure
 ```
-apps/
-  luxledger-api/
-    src/
-      services/ — application services, validation, orchestration
-      api/      — Fastify routes, schemas, hooks
 packages/
-  ledger/
+  core/
     src/
       base/         — shared primitives (Id, Money, DomainError, etc.)
       application/  — app-facing contracts and app-level errors
       utils/        — reusable helpers (e.g. assertNonEmpty)
       */            — domain modules (tenant, ledger, account, transaction, entry, api-key)
-  ledger-drizzle-adapter/  — Drizzle/Postgres adapter (@lux/ledger-drizzle-adapter)
+  http/             — framework-agnostic HTTP contracts and OpenAPI source
+  fastify-routes/   — Fastify route registration package (@luxledger/fastify-routes)
+  express-routes/   — Express route registration package (@luxledger/express-routes)
+  postgres-adapter/  — Drizzle/Postgres adapter (@luxledger/postgres-adapter)
 ```
 
 ## Commands
 - `bun install` — install dependencies
-- `bun run dev` — start dev server
 - `bun test` — run tests
 - `bun run lint` — lint
 - `bun run typecheck` — type check
@@ -42,8 +40,9 @@ docker compose up -d          # PostgreSQL on :5432, test DB on :5433
 cp .env.example .env          # configure DATABASE_URL
 bun install
 bunx drizzle-kit migrate
-bun run dev
 ```
+
+The reference API demo app lives in a separate repository. This repository owns the reusable packages, migrations, and HTTP/OpenAPI contract.
 
 ## Environment Variables
 - `DATABASE_URL` — `postgresql://luxledger:luxledger@127.0.0.1:5432/luxledger`
@@ -64,7 +63,7 @@ bun run dev
 - When passing shell arguments that include prose (for example `gh pr create --body`), never use backticks in the inline argument text because `zsh` treats them as command substitution. Prefer plain text without backticks, single-quoted heredoc (`<<'EOF'`), or file-based body input.
 
 ## Definition of Done
-- All `@lux/ledger` domain invariants covered by tests
+- All `@luxledger/core` domain invariants covered by tests
 - `bun test` passes
 - `bun run typecheck` passes
 - No circular dependencies
@@ -78,12 +77,12 @@ bun run dev
 - No soft deletes in core tables
 
 ## Error Policy
-- Domain (`@lux/ledger`) throws domain/application errors only
+- Domain (`@luxledger/core`) throws domain/application errors only
 - API maps domain/application errors to HTTP responses
 - No database errors leaked to API
 
 ## Testing Rules
-- No mocks for `@lux/ledger` domain logic
+- No mocks for `@luxledger/core` domain logic
 - Use real PostgreSQL test DB
 - Each invariant must have positive and negative test case
 
@@ -101,10 +100,9 @@ bun run dev
 - Performance considerations must not break correctness.
 - Any dependency addition must be justified in PR description.
 - Minimum dependencies (Fastify + Drizzle, nothing else unless justified)
-- Tests required for all `@lux/ledger` invariants (double-entry balance, idempotency)
+- Tests required for all `@luxledger/core` invariants (double-entry balance, idempotency)
 - Dependency direction:
-  - `apps/luxledger-api/src/api` → `apps/luxledger-api/src/services`
-  - `apps/luxledger-api/src/services` → `@lux/ledger` and `@lux/ledger/application`
-  - `packages/ledger-drizzle-adapter` → `@lux/ledger` and `@lux/ledger/application` (never `apps/*`)
-- `@lux/ledger` must not import from `apps/*` or adapter implementations.
-- `@lux/ledger` domain layer must have zero external runtime dependencies.
+  - Host applications → adapter packages and application services
+  - `packages/postgres-adapter` → `@luxledger/core` and `@luxledger/core/application` (never `apps/*`)
+- `@luxledger/core` must not import from `apps/*` or adapter implementations.
+- `@luxledger/core` domain layer must have zero external runtime dependencies.

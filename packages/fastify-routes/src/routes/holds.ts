@@ -1,0 +1,124 @@
+import type { HoldService } from '@luxledger/core/application';
+import {
+  type CommitHoldRequest,
+  type CreateHoldRequest,
+  commitHoldRequestSchema,
+  commitHoldResponseSchema,
+  createHoldRequestSchema,
+  createHoldResponseSchema,
+  type HoldByIdParams,
+  holdByIdParamsSchema,
+  voidHoldResponseSchema,
+} from '@luxledger/http/contracts';
+import type { FastifyInstance } from 'fastify';
+import { BaseRoute } from '../routing/base-route';
+
+export class HoldsRoutes extends BaseRoute {
+  public constructor(private readonly holds: HoldService) {
+    super();
+  }
+
+  public register(server: FastifyInstance): void {
+    this.registerCreateHold(server);
+    this.registerCommitHold(server);
+    this.registerVoidHold(server);
+  }
+
+  private registerCreateHold(server: FastifyInstance): void {
+    server.post<{ Body: CreateHoldRequest }>(
+      '/v1/holds',
+      {
+        schema: {
+          body: createHoldRequestSchema,
+          response: {
+            200: createHoldResponseSchema,
+            201: createHoldResponseSchema,
+          },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.holds.create({
+            tenantId: request.tenantId as string,
+            ledgerId: request.body.ledger_id,
+            reference: request.body.reference,
+            currency: request.body.currency,
+            description: request.body.description,
+            entries: request.body.entries.map((entry) => ({
+              accountId: entry.account_id,
+              direction: entry.direction,
+              amountMinor: BigInt(entry.amount_minor),
+              currency: entry.currency,
+            })),
+          });
+
+          return reply.status(result.created ? 201 : 200).send({
+            hold_id: result.holdId,
+            created: result.created,
+            state: result.state,
+            remaining_amount_minor: result.remainingAmountMinor.toString(),
+          });
+        }),
+    );
+  }
+
+  private registerCommitHold(server: FastifyInstance): void {
+    server.post<{ Params: HoldByIdParams; Body: CommitHoldRequest }>(
+      '/v1/holds/:id/commit',
+      {
+        schema: {
+          params: holdByIdParamsSchema,
+          body: commitHoldRequestSchema,
+          response: {
+            200: commitHoldResponseSchema,
+            201: commitHoldResponseSchema,
+          },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.holds.commit({
+            tenantId: request.tenantId as string,
+            holdId: request.params.id,
+            reference: request.body.reference,
+            amountMinor:
+              request.body.amount_minor === undefined
+                ? undefined
+                : BigInt(request.body.amount_minor),
+          });
+          return reply.status(result.created ? 201 : 200).send({
+            hold_id: result.holdId,
+            transaction_id: result.transactionId,
+            created: result.created,
+            state: result.state,
+            remaining_amount_minor: result.remainingAmountMinor.toString(),
+          });
+        }),
+    );
+  }
+
+  private registerVoidHold(server: FastifyInstance): void {
+    server.post<{ Params: HoldByIdParams }>(
+      '/v1/holds/:id/void',
+      {
+        schema: {
+          params: holdByIdParamsSchema,
+          response: { 200: voidHoldResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.holds.void({
+            tenantId: request.tenantId as string,
+            holdId: request.params.id,
+          });
+          return reply.status(200).send({
+            hold_id: result.holdId,
+            state: result.state,
+            voided: result.voided,
+            remaining_amount_minor: result.remainingAmountMinor.toString(),
+          });
+        }),
+    );
+  }
+}
