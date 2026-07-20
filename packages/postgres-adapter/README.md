@@ -11,6 +11,8 @@ This package contains infrastructure implementations:
 
 It is intentionally tied to Drizzle and Postgres.
 
+State-changing repository operations use explicit PostgreSQL transactions. The adapter enforces persistence-level tenant scoping, atomicity, and transaction-reference idempotency required by the repository [invariants guide](../../docs/product/invariants.md).
+
 ## Drizzle config
 
 ```ts
@@ -26,3 +28,5 @@ export default defineConfig({
   },
 });
 ```
+
+Apply migrations before starting application code that depends on a newer adapter schema. Package downgrade does not roll back a database; follow the repository [upgrade procedure](../../docs/integration/versioning.md).

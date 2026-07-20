@@ -42,3 +42,5 @@ The hosting app must add auth middleware before adapter registration.
   Express host must register auth middleware before adapter routes. In Fastify, hook ordering provides this via `onRequest`.
 - JSON parsing:
   Route registration ensures JSON middleware exists for request body parsing.
+
+The complete and versioned route surface is defined by [`@luxledger/http` OpenAPI](../http/openapi/openapi.yaml). See the repository [integration guide](../../docs/integration/README.md) before composing the adapter in a host application.

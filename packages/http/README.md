@@ -3,6 +3,7 @@
 HTTP mapping helpers for `@luxledger/core` domain/application errors.
 
 ## Boundaries
+
 - Owns transport contracts and route-level reusable error response specs.
 - Maps domain/application errors to transport-safe HTTP DTOs.
 - Contains no HTTP server runtime code and no persistence code.
@@ -22,9 +23,6 @@ HTTP mapping helpers for `@luxledger/core` domain/application errors.
 - `@luxledger/http/errors`: error mapping
 - `@luxledger/http/route-specs`: default route error response specs
 
-## Internal
-- `
-
 ## Usage
 
 ```ts
@@ -38,3 +36,7 @@ route.schema.response = { ...defaultErrorResponses };
 ```ts
 import { errorResponseSchema } from '@luxledger/http/errors';
 ```
+
+## Canonical contract
+
+The source-of-truth HTTP contract is [`openapi/openapi.yaml`](./openapi/openapi.yaml). Runtime contract definitions and OpenAPI must change together and pass `bun run contract:verify`. See the repository [integration guide](../../docs/integration/README.md) for host responsibilities and conventions.
