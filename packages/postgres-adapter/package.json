@@ -1,6 +1,6 @@
 {
   "name": "@luxledger/postgres-adapter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "PostgreSQL persistence adapter for LuxLedger using Drizzle ORM.",
   "type": "module",
   "license": "Apache-2.0",
@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@luxledger/core": "^0.1.0",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.8",
     "safe-stable-stringify": "^2.5.0"
   },
