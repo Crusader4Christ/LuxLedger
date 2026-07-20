@@ -1,6 +1,6 @@
 {
   "name": "@luxledger/fastify-routes",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fastify route registration package for LuxLedger HTTP routes.",
   "type": "module",
   "license": "Apache-2.0",
@@ -33,7 +33,7 @@
   "dependencies": {
     "@luxledger/core": "^0.1.0",
     "@luxledger/http": "^0.1.0",
-    "fastify": "^5.7.4"
+    "fastify": "^5.10.0"
   },
   "scripts": {
     "build": "rm -rf dist && bun build src/index.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/fastify-routes/dist"
