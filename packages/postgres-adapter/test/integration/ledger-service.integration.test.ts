@@ -6,6 +6,7 @@ import {
   InvariantViolationError,
   RepositoryError,
 } from '@luxledger/core/application';
+import { CrossLedgerAccountError } from '@luxledger/core/transaction';
 import {
   createApplicationServices,
   createDbClient,
@@ -200,16 +201,16 @@ describe('application services integration (services + repositories + real DB)',
     expect(cashAfterFirst).toBe(-100n);
     expect(revenueAfterFirst).toBe(100n);
 
-    const retry = await services.transactions.create({
-      tenantId,
-      ledgerId: primaryLedger.id,
-      reference: 'integration-happy',
-      currency: 'USD',
-      description: 'Changed integration description on retry',
-      entries: happyPathEntries,
-    });
-    expect(retry.created).toBeFalse();
-    expect(retry.transactionId).toBe(first.transactionId);
+    await expect(
+      services.transactions.create({
+        tenantId,
+        ledgerId: primaryLedger.id,
+        reference: 'integration-happy',
+        currency: 'USD',
+        description: 'Changed integration description on retry',
+        entries: happyPathEntries,
+      }),
+    ).rejects.toThrow('Unable to create transaction: reference payload mismatch');
 
     const rowsAfterRetry = await db
       .select({ id: transactions.id, description: transactions.description })
@@ -278,7 +279,7 @@ describe('application services integration (services + repositories + real DB)',
           },
         ],
       }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
+    ).rejects.toBeInstanceOf(CrossLedgerAccountError);
 
     const crossLedgerRows = await db
       .select({ id: transactions.id })

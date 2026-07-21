@@ -54,38 +54,32 @@ type ErrorWithCodeStatus = {
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 
-const isErrorWithCode = (error: unknown): error is { code: string; message: string } => {
+const isErrorWithCodeAndStatus = (error: unknown): error is ErrorWithCodeStatus => {
   const record = asRecord(error);
   if (record === null) {
     return false;
   }
-  return typeof record.code === 'string' && typeof record.message === 'string';
+  return (
+    error instanceof Error &&
+    typeof record.code === 'string' &&
+    record.code.length > 0 &&
+    typeof record.message === 'string' &&
+    typeof record.httpStatus === 'number' &&
+    Number.isInteger(record.httpStatus) &&
+    record.httpStatus >= 400 &&
+    record.httpStatus <= 599
+  );
 };
 
 export const toHttpErrorPayload = (
   error: unknown,
 ): { statusCode: number; error: string; message: string; details?: Record<string, unknown> } => {
-  if (isErrorWithCode(error)) {
-    const record = asRecord(error) as ErrorWithCodeStatus;
-    if (
-      typeof record.httpStatus === 'number' &&
-      Number.isInteger(record.httpStatus) &&
-      record.httpStatus >= 400 &&
-      record.httpStatus <= 599
-    ) {
-      return {
-        statusCode: record.httpStatus,
-        error: error.code,
-        message: error.message,
-        details: record.details,
-      };
-    }
-    const parsed = /^\d{3}$/.test(error.code) ? Number(error.code) : null;
+  if (isErrorWithCodeAndStatus(error)) {
     return {
-      statusCode: parsed !== null && parsed >= 400 && parsed <= 599 ? parsed : 500,
+      statusCode: error.httpStatus,
       error: error.code,
       message: error.message,
-      details: record.details,
+      details: error.details,
     };
   }
 

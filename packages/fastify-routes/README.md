@@ -15,6 +15,8 @@ registerLedgerAdapter(server, {
 
 `server` must be a `FastifyInstance` that already has request auth context decorators used by the app (`tenantId`, `apiKeyId`, `apiKeyRole`).
 
+This package reads no environment variables. Authentication, JWT, rate limiting, bootstrap, `PORT`, `.env` loading, and graceful shutdown are host responsibilities.
+
 ## Expected dependencies
 
 `registerLedgerAdapter` expects:

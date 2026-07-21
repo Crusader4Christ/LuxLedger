@@ -11,7 +11,20 @@ This package contains infrastructure implementations:
 
 It is intentionally tied to Drizzle and Postgres.
 
+PostgreSQL 16 is the supported persistence model.
+
 State-changing repository operations use explicit PostgreSQL transactions. The adapter enforces persistence-level tenant scoping, atomicity, and transaction-reference idempotency required by the repository [invariants guide](../../docs/product/invariants.md).
+
+## Configuration
+
+The client reads these package-owned variables when equivalent constructor options are not passed:
+
+- `DATABASE_URL` (required)
+- `DB_POOL_MAX` (default `10`)
+- `DB_IDLE_TIMEOUT` in seconds (default `20`)
+- `DB_CONNECT_TIMEOUT` in seconds (default `10`)
+
+JWT, rate-limit, bootstrap, port, and shutdown configuration belongs to the host application, not this package. Environment files must be loaded by the host/runtime before `createDbClient` is called; Node.js does not load `.env` automatically.
 
 ## Drizzle config
 

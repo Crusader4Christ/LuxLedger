@@ -29,6 +29,18 @@ class FakeLedgerService {
     tenantId: string;
     reference: string;
   }): Promise<{ transactionId: string; created: boolean }> {
+    if (input.reference.startsWith('unbalanced-')) {
+      throw Object.assign(new Error('total debits must equal total credits'), {
+        code: 'UNBALANCED_TRANSACTION',
+        httpStatus: 400,
+      });
+    }
+    if (input.reference.startsWith('unexpected-')) {
+      throw Object.assign(new Error('duplicate key violates transactions_reference_key'), {
+        code: '23505',
+        constraint: 'transactions_reference_key',
+      });
+    }
     const key = `${input.tenantId}:${input.reference}`;
     const existing = this.txByReference.get(key);
     if (existing) {
@@ -338,6 +350,53 @@ describe('express adapter parity with fastify adapter', () => {
               created: false,
             }),
           );
+        },
+      },
+      {
+        name: 'POST /v1/transactions domain and unexpected error parity',
+        run: async () => {
+          const buildPayload = (reference: string) => ({
+            ledger_id: '00000000-0000-4000-8000-000000000001',
+            reference,
+            currency: 'USD',
+            entries: [
+              {
+                account_id: '00000000-0000-4000-8000-000000000101',
+                direction: 'DEBIT',
+                amount_minor: '100',
+                currency: 'USD',
+              },
+              {
+                account_id: '00000000-0000-4000-8000-000000000102',
+                direction: 'CREDIT',
+                amount_minor: '100',
+                currency: 'USD',
+              },
+            ],
+          });
+
+          const [fastifyDomain, expressDomain] = await Promise.all([
+            requestFastify('POST', '/v1/transactions', buildPayload('unbalanced-fastify')),
+            requestExpress('POST', '/v1/transactions', buildPayload('unbalanced-express')),
+          ]);
+          expect(fastifyDomain).toEqual({
+            status: 400,
+            json: {
+              error: 'UNBALANCED_TRANSACTION',
+              message: 'total debits must equal total credits',
+            },
+          });
+          expect(expressDomain).toEqual(fastifyDomain);
+
+          const [fastifyUnexpected, expressUnexpected] = await Promise.all([
+            requestFastify('POST', '/v1/transactions', buildPayload('unexpected-fastify')),
+            requestExpress('POST', '/v1/transactions', buildPayload('unexpected-express')),
+          ]);
+          expect(fastifyUnexpected).toEqual({
+            status: 500,
+            json: { error: 'INTERNAL_ERROR', message: 'Internal server error' },
+          });
+          expect(expressUnexpected).toEqual(fastifyUnexpected);
         },
       },
       {

@@ -23,6 +23,8 @@ These rules define the behavior integrators may rely on. The OpenAPI contract de
 
 Idempotency is layered rather than owned by a single component. Application services validate commands before persistence. The PostgreSQL adapter executes the write transaction, compares an existing payload with the retry, and returns the existing result only for an identical request. The database unique index on `(tenant_id, reference)` provides the final concurrency boundary. Reusing a reference with a different payload fails instead of silently changing state. Bulk, reversal, correction, and hold operations preserve their documented idempotent and atomic behavior.
 
+Transaction payload identity includes ledger, currency, normalized nullable description, explicit effective time, relation metadata, and the complete entry multiset (account, direction, amount, and currency). Entry order is not significant; entry multiplicity is significant. Omitting `effective_at` means the server assigns accounting time on first creation, so a retry must also omit it unless the original explicit value is known.
+
 The behavior is covered by the [posting](../../packages/postgres-adapter/test/integration/transaction-posting.integration.test.ts), [reversal](../../packages/postgres-adapter/test/integration/transaction-reversal.integration.test.ts), and [correction](../../packages/postgres-adapter/test/integration/transaction-correction.integration.test.ts) integration suites.
 
 ## Authentication contract

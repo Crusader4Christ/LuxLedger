@@ -44,6 +44,11 @@ bunx drizzle-kit migrate
 
 The reference API demo app lives in a separate repository. This repository owns the reusable packages, migrations, and HTTP/OpenAPI contract.
 
+## Repository Visibility
+- This repository (`Crusader4Christ/LuxLedger`) is public.
+- Public technical information from this repository may be copied into the private LuxLedger Linear workspace without redaction or additional confidentiality confirmation.
+- This does not authorize sharing secrets, credentials, private attachments, local environment values, or information from other private sources.
+
 ## Environment Variables
 - `DATABASE_URL` — `postgresql://luxledger:luxledger@127.0.0.1:5432/luxledger`
 - `DATABASE_URL_TEST` — `postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test`

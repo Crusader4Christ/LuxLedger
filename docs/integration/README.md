@@ -15,11 +15,18 @@
 5. Expose liveness and dependency-aware readiness endpoints (the reference convention is `GET /health` and `GET /ready`), metrics, and structured JSON logs with at least timestamp, level, message, request ID, and tenant-safe context. Handle `SIGTERM`, stop accepting new work, drain in-flight requests, close database connections, and enforce a bounded timeout chosen for the deployment platform.
 6. Keep all state-changing orchestration inside explicit transaction boundaries.
 
+## Configuration ownership
+
+`@luxledger/postgres-adapter` reads `DATABASE_URL`, `DB_POOL_MAX`, `DB_IDLE_TIMEOUT`, and `DB_CONNECT_TIMEOUT`. A host may instead pass the corresponding database-client options directly. The core and HTTP contract packages do not read process configuration.
+
+Authentication, rate limiting, bootstrap, server `PORT`, and `SHUTDOWN_TIMEOUT_MS` belong to the host application. The reference profile uses `JWT_ACCESS_TTL_SECONDS=900`; accepted configurable values are 300 through 900 seconds. Node.js does not load `.env` automatically: the host must use its runtime's env-file option or load a dotenv-compatible file before reading configuration.
+
 ## Contract conventions
 
 - Send money as integer `amount_minor` values plus an ISO-style currency code.
 - Generate a unique stable transaction `reference`; retry the identical payload after timeouts.
 - Treat a reference/payload mismatch as a client correctness error, not as a retryable conflict.
+- Entry order is ignored during retry comparison, but every entry and duplicate occurrence must match by account, direction, amount, and currency.
 - Preserve `effective_at` separately from record creation time.
 - Follow cursor pagination fields from the OpenAPI schemas rather than constructing cursors.
 - Persist returned resource identifiers; do not derive IDs from names or references.
