@@ -6,7 +6,9 @@ HTTP mapping helpers for `@luxledger/core` domain/application errors.
 
 - Owns transport contracts and route-level reusable error response specs.
 - Maps domain/application errors to transport-safe HTTP DTOs.
+- Accepts the stable domain-error shape across bundled public export identities while rejecting raw database/unknown errors as non-leaking `500 INTERNAL_ERROR` responses.
 - Contains no HTTP server runtime code and no persistence code.
+- Reads no environment variables; JWT, rate limiting, port, and lifecycle configuration belong to the host application.
 
 ## Forbidden dependencies
 - No framework runtime deps (for example: `fastify`, `express`, `nestjs`).

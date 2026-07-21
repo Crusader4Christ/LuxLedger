@@ -1,4 +1,4 @@
-import type { DomainError } from '@luxledger/core/base';
+import { type DomainError, isDomainError } from '@luxledger/core/base';
 
 export type ErrorResponse = {
   error: string;
@@ -44,48 +44,23 @@ export function mapDomainErrorToHttp(error: DomainError): HttpErrorDto {
   };
 }
 
-type ErrorWithCodeStatus = {
-  code: string;
-  httpStatus: number;
-  message: string;
-  details?: Record<string, unknown>;
-};
-
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 
-const isErrorWithCode = (error: unknown): error is { code: string; message: string } => {
+const extractDetails = (error: unknown): Record<string, unknown> | undefined => {
   const record = asRecord(error);
-  if (record === null) {
-    return false;
-  }
-  return typeof record.code === 'string' && typeof record.message === 'string';
+  return asRecord(record?.details) ?? undefined;
 };
 
 export const toHttpErrorPayload = (
   error: unknown,
 ): { statusCode: number; error: string; message: string; details?: Record<string, unknown> } => {
-  if (isErrorWithCode(error)) {
-    const record = asRecord(error) as ErrorWithCodeStatus;
-    if (
-      typeof record.httpStatus === 'number' &&
-      Number.isInteger(record.httpStatus) &&
-      record.httpStatus >= 400 &&
-      record.httpStatus <= 599
-    ) {
-      return {
-        statusCode: record.httpStatus,
-        error: error.code,
-        message: error.message,
-        details: record.details,
-      };
-    }
-    const parsed = /^\d{3}$/.test(error.code) ? Number(error.code) : null;
+  if (isDomainError(error)) {
     return {
-      statusCode: parsed !== null && parsed >= 400 && parsed <= 599 ? parsed : 500,
+      statusCode: error.httpStatus,
       error: error.code,
       message: error.message,
-      details: record.details,
+      details: extractDetails(error),
     };
   }
 

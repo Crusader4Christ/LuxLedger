@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { EntryDirection } from '@luxledger/core';
+import { OverdraftPolicyViolationError, RepositoryError } from '@luxledger/core/application';
 import {
-  InvariantViolationError,
-  OverdraftPolicyViolationError,
-  RepositoryError,
-} from '@luxledger/core/application';
+  CrossLedgerAccountError,
+  CurrencyMismatchError,
+  UnbalancedTransactionError,
+} from '@luxledger/core/transaction';
 import { and, eq, sql } from 'drizzle-orm';
 import { createDbClient } from '../../src/client';
 import { DrizzleAccountRepository } from '../../src/repositories/account-repository';
@@ -155,7 +156,7 @@ describe('Drizzle transaction repository posting', () => {
           },
         ],
       }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
+    ).rejects.toBeInstanceOf(UnbalancedTransactionError);
 
     const transactionRows = await db
       .select()
@@ -286,7 +287,7 @@ describe('Drizzle transaction repository posting', () => {
     expect(debitBalance?.balanceMinor).toBe(-100n);
   });
 
-  it('createTransaction handles idempotency conflict without duplicate effects and keeps original description', async () => {
+  it('createTransaction rejects a changed description without mutating persisted state', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
     const debitAccountId = await createAccount({
@@ -324,31 +325,54 @@ describe('Drizzle transaction repository posting', () => {
       ],
     });
 
-    const second = await transactionRepository.create({
+    const identicalRetry = await transactionRepository.create({
       tenantId,
       ledgerId,
       reference: 'ref-1',
       currency: 'USD',
-      description: 'Changed description on retry',
+      description: 'First description',
       entries: [
-        {
-          accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
-          currency: 'USD',
-        },
         {
           accountId: creditAccountId,
           direction: EntryDirection.CREDIT,
           amountMinor: 100n,
           currency: 'USD',
         },
+        {
+          accountId: debitAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
       ],
     });
+    expect(identicalRetry).toEqual({ transactionId: first.transactionId, created: false });
+
+    await expect(
+      transactionRepository.create({
+        tenantId,
+        ledgerId,
+        reference: 'ref-1',
+        currency: 'USD',
+        description: 'Changed description on retry',
+        entries: [
+          {
+            accountId: debitAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+          {
+            accountId: creditAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 100n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toThrow('Unable to create transaction: reference payload mismatch');
 
     expect(first.created).toBeTrue();
-    expect(second.created).toBeFalse();
-    expect(first.transactionId).toBe(second.transactionId);
 
     const transactionRows = await db
       .select()
@@ -368,6 +392,12 @@ describe('Drizzle transaction repository posting', () => {
       .from(entries)
       .where(eq(entries.transactionId, first.transactionId));
     expect(entryRows.length).toBe(2);
+
+    const snapshotRows = await db
+      .select()
+      .from(balanceSnapshots)
+      .where(eq(balanceSnapshots.sourceId, first.transactionId));
+    expect(snapshotRows.length).toBe(2);
 
     const [debitBalance] = await db
       .select({ balanceMinor: accounts.balanceMinor })
@@ -666,7 +696,7 @@ describe('Drizzle transaction repository posting', () => {
           },
         ],
       }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
+    ).rejects.toBeInstanceOf(CurrencyMismatchError);
 
     const transactionRows = await db
       .select()
@@ -718,7 +748,7 @@ describe('Drizzle transaction repository posting', () => {
           },
         ],
       }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
+    ).rejects.toBeInstanceOf(CrossLedgerAccountError);
 
     const transactionRows = await db
       .select()

@@ -32,6 +32,8 @@ Routes require auth context to be pre-populated on the request:
 
 The hosting app must add auth middleware before adapter registration.
 
+This package reads no environment variables. Authentication, JWT, rate limiting, bootstrap, `PORT`, `.env` loading, and graceful shutdown are host responsibilities.
+
 ## Known framework differences and mitigations
 
 - Validation:

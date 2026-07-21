@@ -1,7 +1,7 @@
 import {
   EntryDirection,
   type EntryEntity,
-  DomainError as LedgerDomainError,
+  isDomainError,
   type TransactionEntity,
 } from '@luxledger/core';
 import {
@@ -45,6 +45,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         ...input,
         description: input.description ?? null,
         effectiveAt: input.effectiveAt ?? undefined,
+        compareDescriptionOnRetry: true,
         payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
       }),
     );
@@ -59,6 +60,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
             ...transaction,
             description: transaction.description ?? null,
             effectiveAt: transaction.effectiveAt ?? undefined,
+            compareDescriptionOnRetry: true,
             payloadMismatchMessage:
               'Unable to bulk create transactions: reference payload mismatch',
           });
@@ -661,7 +663,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     itemIndex: number,
     reference: string,
   ): BulkTransactionError {
-    if (error instanceof LedgerDomainError) {
+    if (isDomainError(error)) {
       return new BulkTransactionError({
         itemIndex,
         reference,

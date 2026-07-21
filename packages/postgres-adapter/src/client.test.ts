@@ -40,6 +40,24 @@ describe('db client module', () => {
     }
   });
 
+  it('execute preserves a domain error from a different bundled public export identity', async () => {
+    const client = createDbClient({ databaseUrl: 'postgresql://unused:unused@127.0.0.1:1/unused' });
+    const error = Object.assign(new Error('total debits must equal total credits'), {
+      code: 'UNBALANCED_TRANSACTION',
+      httpStatus: 400,
+    });
+
+    try {
+      await expect(
+        client.execute('test operation', async () => {
+          throw error;
+        }),
+      ).rejects.toBe(error);
+    } finally {
+      await client.sql.end({ timeout: 0 });
+    }
+  });
+
   it('execute maps nested constraint errors', async () => {
     const client = createDbClient({ databaseUrl: 'postgresql://unused:unused@127.0.0.1:1/unused' });
 

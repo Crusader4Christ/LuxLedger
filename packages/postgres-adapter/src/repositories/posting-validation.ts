@@ -1,10 +1,4 @@
-import {
-  AccountId,
-  CreateTransactionUseCase,
-  DomainError,
-  EntryDirection,
-  LedgerId,
-} from '@luxledger/core';
+import { AccountId, CreateTransactionUseCase, EntryDirection, LedgerId } from '@luxledger/core';
 import { type CreateTransactionInput, InvariantViolationError } from '@luxledger/core/application';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { DrizzleDatabase } from '../client';
@@ -37,22 +31,15 @@ export const validatePosting = async (
     },
   });
 
-  try {
-    await useCase.execute({
-      tenantId: input.tenantId,
-      id: generateUuidV7(),
-      ledgerId: input.ledgerId,
-      reference: input.reference,
-      currency: input.currency,
-      description: input.description ?? null,
-      entries: input.entries,
-    });
-  } catch (error) {
-    if (error instanceof DomainError) {
-      throw new InvariantViolationError(error.message, { cause: error });
-    }
-    throw error;
-  }
+  await useCase.execute({
+    tenantId: input.tenantId,
+    id: generateUuidV7(),
+    ledgerId: input.ledgerId,
+    reference: input.reference,
+    currency: input.currency,
+    description: input.description ?? null,
+    entries: input.entries,
+  });
 };
 
 export const validatePostingEntries = (

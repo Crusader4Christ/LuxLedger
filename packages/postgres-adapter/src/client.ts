@@ -1,4 +1,4 @@
-import { DomainError as LedgerDomainError } from '@luxledger/core';
+import { isDomainError } from '@luxledger/core';
 import { InvariantViolationError, RepositoryError } from '@luxledger/core/application';
 import { sql as drizzleSql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -36,7 +36,7 @@ const extractDatabaseCode = (error: unknown): string | null => {
 };
 
 const throwDatabaseError = (error: unknown, operation: string): never => {
-  if (error instanceof LedgerDomainError) {
+  if (isDomainError(error)) {
     throw error;
   }
 
