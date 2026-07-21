@@ -12,7 +12,7 @@ Financial core infrastructure: double-entry ledger domain packages, transport co
 4. Migrate the local database:
    `bun run db:migrate`
 
-The reference API demo app has been moved out of this repository so this repo can stay focused on the reusable ledger packages. New users should treat this repository as the library/core workspace and use the demo repository for an end-to-end runnable API.
+The [reference API demo](https://github.com/Crusader4Christ/LuxLedger-demo) is maintained separately so this repository can stay focused on reusable packages. Start with the [product overview](docs/product/overview.md), then use the [integration guide](docs/integration/README.md) before running the demo.
 
 ## Test strategy
 
@@ -52,3 +52,11 @@ The reference API demo app has been moved out of this repository so this repo ca
 - OpenAPI contract governance policy (CI gating + PR/reviewer process) lives in `docs/governance/openapi-contract-governance.md`.
 - Full docs index: `docs/README.md`.
 - See API contract: `packages/http/openapi/openapi.yaml`.
+
+## Documentation
+
+- [Product and architecture overview](docs/product/overview.md)
+- [Ledger guarantees and invariants](docs/product/invariants.md)
+- [Integrator guide](docs/integration/README.md)
+- [Versioning, migrations, and publication](docs/integration/versioning.md)
+- [Known limitations](docs/product/limitations.md)

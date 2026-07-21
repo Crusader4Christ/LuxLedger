@@ -1,5 +1,13 @@
 # Documentation Index
 
+## Prospects and integrators
+
+- [Product and Architecture Overview](./product/overview.md)
+- [Ledger Guarantees and Invariants](./product/invariants.md)
+- [Known Limitations](./product/limitations.md)
+- [Integration Guide](./integration/README.md)
+- [Versioning, Migrations, and Publication](./integration/versioning.md)
+
 ## Governance
 
 - [OpenAPI Contract Governance (LL-35B)](./governance/openapi-contract-governance.md)

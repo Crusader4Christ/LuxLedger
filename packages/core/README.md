@@ -39,15 +39,18 @@ Each domain module follows this layout:
 - `repository.interface.ts` - persistence port contract.
 - `index.ts` - module exports.
 
-## Current executable domain logic
+## Executable domain and application behavior
 
-Today the executable business invariants are concentrated in `src/transaction`:
+Core contains executable transaction/account invariants and application services for the supported ledger surface, including:
 
 - `EntryEntity`
 - `TransactionEntity`
 - `CreateTransactionUseCase`
+- ledger and account validation
+- transaction, balance, hold, API-key, and reconciliation services
+- deterministic reconciliation matching
 
-Other modules are contract-first and ready for incremental migration of business rules.
+Persistence-dependent atomicity and idempotency are implemented by adapters against these contracts. See the repository [invariants guide](../../docs/product/invariants.md) for the guarantees exposed to integrators.
 
 ## Example
 
@@ -65,3 +68,9 @@ const result = await useCase.execute(command);
 1. Keep API/DB adapters in the host app.
 2. Move invariant checks into module use-cases.
 3. Keep repository interfaces in `@luxledger/core`, implementations outside.
+
+## Integration
+
+Application hosts should normally compose this package through a route adapter and `@luxledger/postgres-adapter`. See the repository [integration guide](../../docs/integration/README.md) and [architecture overview](../../docs/product/overview.md).
+
+Before production use, pin compatible LuxLedger package versions and cross-check behavior against the released OpenAPI shipped with that version; see [versioning and publication](../../docs/integration/versioning.md).
