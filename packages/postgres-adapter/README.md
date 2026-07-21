@@ -30,3 +30,5 @@ export default defineConfig({
 ```
 
 Apply migrations before starting application code that depends on a newer adapter schema. Package downgrade does not roll back a database; follow the repository [upgrade procedure](../../docs/integration/versioning.md).
+
+Before production use, pin compatible LuxLedger package versions and review the [documentation publication checklist](../../docs/integration/versioning.md#documentation-publication-checklist).

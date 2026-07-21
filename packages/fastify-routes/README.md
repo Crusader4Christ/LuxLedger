@@ -35,3 +35,5 @@ The adapter registers these route families:
 - `admin api keys` (`/v1/admin/api-keys`)
 
 The complete and versioned route surface, including bulk posting, reversal/correction, historical balances, holds, and reconciliation, is defined by [`@luxledger/http` OpenAPI](../http/openapi/openapi.yaml). Hosts must register authentication before these routes and keep business logic in application services.
+
+Pin compatible LuxLedger package versions and verify the released OpenAPI before production; see [versioning and publication](../../docs/integration/versioning.md).

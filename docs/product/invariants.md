@@ -1,6 +1,6 @@
 # Ledger Guarantees and Invariants
 
-These rules define the behavior integrators may rely on. The OpenAPI contract defines transport shapes; core and persistence tests define executable behavior.
+These rules define the behavior integrators may rely on. The OpenAPI contract defines transport shapes; core and persistence tests define executable behavior. Posting balance is covered by the [transaction entity tests](../../packages/core/src/transaction/entity.test.ts) and [posting integration tests](../../packages/postgres-adapter/test/integration/transaction-posting.integration.test.ts). Tenant isolation is exercised by the [account](../../packages/postgres-adapter/test/integration/account-repository.integration.test.ts) and [transaction query](../../packages/postgres-adapter/test/integration/transaction-query.integration.test.ts) integration suites.
 
 ## Posting
 
@@ -21,7 +21,9 @@ These rules define the behavior integrators may rely on. The OpenAPI contract de
 
 ## Idempotency
 
-Transaction references are unique by `(tenant_id, reference)`. Repeating the same reference and payload returns the existing result. Reusing a reference with a different payload fails instead of silently changing state. Bulk, reversal, correction, and hold operations preserve their documented idempotent and atomic behavior.
+Idempotency is layered rather than owned by a single component. Application services validate commands before persistence. The PostgreSQL adapter executes the write transaction, compares an existing payload with the retry, and returns the existing result only for an identical request. The database unique index on `(tenant_id, reference)` provides the final concurrency boundary. Reusing a reference with a different payload fails instead of silently changing state. Bulk, reversal, correction, and hold operations preserve their documented idempotent and atomic behavior.
+
+The behavior is covered by the [posting](../../packages/postgres-adapter/test/integration/transaction-posting.integration.test.ts), [reversal](../../packages/postgres-adapter/test/integration/transaction-reversal.integration.test.ts), and [correction](../../packages/postgres-adapter/test/integration/transaction-correction.integration.test.ts) integration suites.
 
 ## Authentication contract
 

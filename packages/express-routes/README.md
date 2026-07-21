@@ -44,3 +44,5 @@ The hosting app must add auth middleware before adapter registration.
   Route registration ensures JSON middleware exists for request body parsing.
 
 The complete and versioned route surface is defined by [`@luxledger/http` OpenAPI](../http/openapi/openapi.yaml). See the repository [integration guide](../../docs/integration/README.md) before composing the adapter in a host application.
+
+Pin compatible LuxLedger package versions and verify the released OpenAPI before production; see [versioning and publication](../../docs/integration/versioning.md).

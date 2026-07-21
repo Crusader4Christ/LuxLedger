@@ -72,3 +72,5 @@ const result = await useCase.execute(command);
 ## Integration
 
 Application hosts should normally compose this package through a route adapter and `@luxledger/postgres-adapter`. See the repository [integration guide](../../docs/integration/README.md) and [architecture overview](../../docs/product/overview.md).
+
+Before production use, pin compatible LuxLedger package versions and cross-check behavior against the released OpenAPI shipped with that version; see [versioning and publication](../../docs/integration/versioning.md).
