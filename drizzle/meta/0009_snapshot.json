@@ -150,6 +150,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"accounts\".\"code\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

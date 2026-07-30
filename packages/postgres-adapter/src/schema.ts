@@ -95,11 +95,9 @@ export const accounts = pgTable(
   (table) => ({
     accountsTenantIdIdx: index('accounts_tenant_id_idx').on(table.tenantId),
     accountsLedgerIdIdx: index('accounts_ledger_id_idx').on(table.ledgerId),
-    accountsLedgerCodeUq: uniqueIndex('accounts_ledger_code_uq').on(
-      table.tenantId,
-      table.ledgerId,
-      table.code,
-    ),
+    accountsLedgerCodeUq: uniqueIndex('accounts_ledger_code_uq')
+      .on(table.tenantId, table.ledgerId, table.code)
+      .where(sql`${table.code} is not null`),
   }),
 );
 
