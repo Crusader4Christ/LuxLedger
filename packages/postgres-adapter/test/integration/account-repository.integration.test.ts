@@ -90,6 +90,43 @@ describe('Drizzle account repository', () => {
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
+  it('createAccount permits the same code in different ledgers and tenants', async () => {
+    const tenantA = await createTenant('Tenant A');
+    const tenantB = await createTenant('Tenant B');
+    const ledgerA1 = await createLedger(tenantA, 'Main');
+    const ledgerA2 = await createLedger(tenantA, 'Secondary');
+    const ledgerB = await createLedger(tenantB, 'Main');
+
+    const accountsWithSharedCode = await Promise.all([
+      accountRepository.create({
+        tenantId: tenantA,
+        ledgerId: ledgerA1,
+        code: '1000',
+        name: 'Primary cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+      accountRepository.create({
+        tenantId: tenantA,
+        ledgerId: ledgerA2,
+        code: '1000',
+        name: 'Secondary cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+      accountRepository.create({
+        tenantId: tenantB,
+        ledgerId: ledgerB,
+        code: '1000',
+        name: 'Tenant B cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+    ]);
+
+    expect(accountsWithSharedCode.map((account) => account.code)).toEqual(['1000', '1000', '1000']);
+  });
+
   it('createAccount permits multiple accounts without a code', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');

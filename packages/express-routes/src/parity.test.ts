@@ -21,6 +21,29 @@ const tenantId = '11111111-1111-4111-8111-111111111111';
 class FakeLedgerService {
   private txByReference = new Map<string, string>();
 
+  public async create(input: {
+    tenantId: string;
+    ledgerId: string;
+    code?: string | null;
+    name: string;
+    side: 'DEBIT' | 'CREDIT';
+    overdraftPolicy?: 'ALLOW' | 'DISALLOW';
+    currency: string;
+  }) {
+    return {
+      id: '00000000-0000-4000-8000-000000000101',
+      tenantId: input.tenantId,
+      ledgerId: input.ledgerId,
+      code: input.code ?? null,
+      name: input.name,
+      side: input.side,
+      overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
+      currency: input.currency,
+      balanceMinor: 0n,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    };
+  }
+
   public async listLedgers(_tenantId: string): Promise<unknown[]> {
     return [];
   }
@@ -290,6 +313,50 @@ describe('express adapter parity with fastify adapter', () => {
               error: 'INVALID_INPUT',
             }),
           );
+        },
+      },
+      {
+        name: 'POST /v1/accounts returns a null code when omitted',
+        run: async () => {
+          const payload = {
+            ledger_id: '00000000-0000-4000-8000-000000000001',
+            name: 'Cash',
+            side: 'DEBIT',
+            overdraft_policy: 'DISALLOW',
+            currency: 'USD',
+          };
+          const [fastifyResponse, expressResponse] = await Promise.all([
+            requestFastify('POST', '/v1/accounts', payload),
+            requestExpress('POST', '/v1/accounts', payload),
+          ]);
+
+          expect(fastifyResponse.status).toBe(201);
+          expect(expressResponse.status).toBe(201);
+          expect(fastifyResponse.json).toEqual(
+            expect.objectContaining({ code: null, overdraft_policy: 'DISALLOW' }),
+          );
+          expect(expressResponse.json).toEqual(fastifyResponse.json);
+        },
+      },
+      {
+        name: 'POST /v1/accounts rejects an empty code',
+        run: async () => {
+          const payload = {
+            ledger_id: '00000000-0000-4000-8000-000000000001',
+            code: '',
+            name: 'Cash',
+            side: 'DEBIT',
+            currency: 'USD',
+          };
+          const [fastifyResponse, expressResponse] = await Promise.all([
+            requestFastify('POST', '/v1/accounts', payload),
+            requestExpress('POST', '/v1/accounts', payload),
+          ]);
+
+          expect(fastifyResponse.status).toBe(400);
+          expect(expressResponse.status).toBe(400);
+          expect(expressResponse.json).toEqual(expect.objectContaining({ error: 'INVALID_INPUT' }));
+          expect(fastifyResponse.json).toEqual(expect.objectContaining({ error: 'INVALID_INPUT' }));
         },
       },
       {

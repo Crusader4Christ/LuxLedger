@@ -112,9 +112,14 @@ describe('framework-agnostic contract suite', () => {
         name: 'account code is optional but not nullable on input',
         assert: () => {
           expect(createAccountBodySchema.required).not.toContain('code');
+          expect(createAccountBodySchema.properties.code).toEqual({
+            type: 'string',
+            pattern: '^(?=.*\\S).+$',
+          });
           expect(
             (createAccountBodySchema.properties.code as { nullable?: boolean }).nullable,
           ).toBeUndefined();
+          expect(accountResponseSchema.required).toContain('code');
         },
       },
       {

@@ -1045,7 +1045,7 @@ components:
         code:
           type: string
           pattern: '^(?=.*\S).+$'
-          description: Optional account code. Stored as null when omitted.
+          description: Optional. When omitted, stored as null; must be non-empty if provided.
         name:
           type: string
           minLength: 1
