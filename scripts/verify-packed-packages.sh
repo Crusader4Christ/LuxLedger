@@ -98,4 +98,9 @@ await import('@luxledger/fastify-routes');
 await import('@luxledger/express-routes');
 NODE
 
+node --input-type=commonjs <<'NODE'
+require('@luxledger/core');
+require('@luxledger/postgres-adapter/schema');
+NODE
+
 echo "Packed package smoke test passed."

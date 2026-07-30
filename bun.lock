@@ -22,7 +22,7 @@
     },
     "packages/core": {
       "name": "@luxledger/core",
-      "version": "0.2.0",
+      "version": "0.2.1",
     },
     "packages/express-routes": {
       "name": "@luxledger/express-routes",
