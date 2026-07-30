@@ -131,4 +131,19 @@ describe('AccountEntity', () => {
 
     expect(account.code).toBeNull();
   });
+
+  it('normalizes an omitted account code to null', () => {
+    const account = new AccountEntity({
+      id: 'acc-1',
+      tenantId: 'tenant-1',
+      ledgerId: 'ledger-1',
+      name: 'cash',
+      side: AccountSide.DEBIT,
+      currency: 'USD',
+      balanceMinor: 0n,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    expect(account.code).toBeNull();
+  });
 });

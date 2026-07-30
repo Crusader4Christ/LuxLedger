@@ -31,7 +31,7 @@ export class AccountEntity {
     id: string;
     tenantId: string;
     ledgerId: string;
-    code: string | null;
+    code?: string | null;
     name: string;
     side: AccountSide;
     overdraftPolicy?: OverdraftPolicy;
@@ -41,14 +41,14 @@ export class AccountEntity {
   }) {
     validateAccountSide(input.side);
     validateOverdraftPolicy(input.overdraftPolicy ?? OverdraftPolicy.ALLOW);
-    if (input.code !== null) {
+    if (input.code != null) {
       assertNonEmpty(input.code, 'account code must not be empty');
     }
 
     this.id = input.id;
     this.tenantId = input.tenantId;
     this.ledgerId = input.ledgerId;
-    this.code = input.code;
+    this.code = input.code ?? null;
     this.name = input.name;
     this.side = input.side;
     this.overdraftPolicy = input.overdraftPolicy ?? OverdraftPolicy.ALLOW;
