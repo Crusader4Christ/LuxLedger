@@ -22,11 +22,11 @@
     },
     "packages/core": {
       "name": "@luxledger/core",
-      "version": "0.1.0",
+      "version": "0.2.0",
     },
     "packages/express-routes": {
       "name": "@luxledger/express-routes",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@luxledger/core": "workspace:*",
         "@luxledger/http": "workspace:*",
@@ -37,25 +37,25 @@
     },
     "packages/fastify-routes": {
       "name": "@luxledger/fastify-routes",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
-        "@luxledger/core": "^0.1.0",
-        "@luxledger/http": "^0.1.0",
+        "@luxledger/core": "^0.2.0",
+        "@luxledger/http": "^0.2.0",
         "fastify": "^5.10.0",
       },
     },
     "packages/http": {
       "name": "@luxledger/http",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
-        "@luxledger/core": "^0.1.0",
+        "@luxledger/core": "^0.2.0",
       },
     },
     "packages/postgres-adapter": {
       "name": "@luxledger/postgres-adapter",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "dependencies": {
-        "@luxledger/core": "^0.1.0",
+        "@luxledger/core": "^0.2.0",
         "drizzle-orm": "^0.45.2",
         "postgres": "^3.4.8",
         "safe-stable-stringify": "^2.5.0",
