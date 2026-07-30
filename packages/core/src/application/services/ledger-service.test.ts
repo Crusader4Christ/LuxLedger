@@ -203,6 +203,7 @@ class InMemoryLedgerRepository {
       id,
       tenantId: input.tenantId,
       ledgerId: input.ledgerId,
+      code: input.code ?? null,
       name: input.name,
       side: input.side,
       overdraftPolicy: 'ALLOW',

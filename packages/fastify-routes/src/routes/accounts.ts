@@ -58,6 +58,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
           const account = await this.accounts.create({
             tenantId: request.tenantId as string,
             ledgerId: request.body.ledger_id,
+            code: request.body.code,
             name: request.body.name,
             side: request.body.side as AccountSide,
             overdraftPolicy: request.body.overdraft_policy,

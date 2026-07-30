@@ -50,8 +50,8 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
       const accounts: TrialBalanceAccount[] = rows.map((row) => {
         const side = parseAccountSide(row.side);
         const isDebit = row.balanceMinor < 0n;
-        const isContra =
-          row.balanceMinor !== 0n && (side === AccountSide.DEBIT ? !isDebit : isDebit);
+        const balanceSide =
+          row.balanceMinor === 0n ? side : isDebit ? AccountSide.DEBIT : AccountSide.CREDIT;
         if (isDebit) {
           totalDebitsMinor += -row.balanceMinor;
         } else if (row.balanceMinor > 0n) {
@@ -59,11 +59,11 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
         }
         return {
           accountId: row.id,
-          code: row.id,
+          code: row.code,
           name: row.name,
           normalBalance: side,
           balanceMinor: isDebit ? -row.balanceMinor : row.balanceMinor,
-          isContra,
+          balanceSide,
         };
       });
 

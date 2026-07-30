@@ -9,7 +9,7 @@ export const toTrialBalanceResponse = (trialBalance: TrialBalance): TrialBalance
     name: account.name,
     normal_balance: account.normalBalance,
     balance: account.balanceMinor.toString(),
-    is_contra: account.isContra,
+    balance_side: account.balanceSide,
   })),
   total_debits: trialBalance.totalDebitsMinor.toString(),
   total_credits: trialBalance.totalCreditsMinor.toString(),

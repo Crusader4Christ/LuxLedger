@@ -53,14 +53,14 @@ export const ledgersListResponseSchema = {
 
 export const trialBalanceAccountResponseSchema = {
   type: 'object',
-  required: ['account_id', 'code', 'name', 'normal_balance', 'balance', 'is_contra'],
+  required: ['account_id', 'code', 'name', 'normal_balance', 'balance', 'balance_side'],
   properties: {
     account_id: { type: 'string', format: 'uuid' },
-    code: { type: 'string' },
+    code: { type: 'string', nullable: true },
     name: { type: 'string' },
     normal_balance: { type: 'string', enum: ['DEBIT', 'CREDIT'] },
     balance: { type: 'string' },
-    is_contra: { type: 'boolean' },
+    balance_side: { type: 'string', enum: ['DEBIT', 'CREDIT'] },
   },
 } as const;
 

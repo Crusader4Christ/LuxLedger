@@ -39,6 +39,14 @@ describe('framework-agnostic contract suite', () => {
             expect(accountResponseSchema.properties.balance_minor).toEqual({ type: 'string' }),
         },
         {
+          name: 'account response keeps code nullable',
+          assert: () =>
+            expect(accountResponseSchema.properties.code).toEqual({
+              type: 'string',
+              nullable: true,
+            }),
+        },
+        {
           name: 'entries response keeps nullable cursor',
           assert: () =>
             expect(entriesPageResponseSchema.properties.next_cursor).toEqual({
@@ -99,6 +107,20 @@ describe('framework-agnostic contract suite', () => {
             type: 'string',
             enum: ['DEBIT', 'CREDIT'],
           }),
+      },
+      {
+        name: 'account code is optional but not nullable on input',
+        assert: () => {
+          expect(createAccountBodySchema.required).not.toContain('code');
+          expect(createAccountBodySchema.properties.code).toEqual({
+            type: 'string',
+            pattern: '^(?=.*\\S).+$',
+          });
+          expect(
+            (createAccountBodySchema.properties.code as { nullable?: boolean }).nullable,
+          ).toBeUndefined();
+          expect(accountResponseSchema.required).toContain('code');
+        },
       },
       {
         name: 'api key payload forbids additional properties',

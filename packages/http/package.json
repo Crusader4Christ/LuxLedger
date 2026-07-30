@@ -1,6 +1,6 @@
 {
   "name": "@luxledger/http",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Framework-agnostic HTTP contracts, schemas, mappers, and OpenAPI source for LuxLedger.",
   "type": "module",
   "license": "Apache-2.0",
@@ -65,7 +65,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@luxledger/core": "^0.1.1"
+    "@luxledger/core": "^0.2.0"
   },
   "scripts": {
     "build": "rm -rf dist && bun build src/index.ts src/errors.ts src/contracts/index.ts src/query/pagination.ts src/mappers/index.ts src/validation-utils.ts src/route-core.ts src/route-specs.ts src/test/harness.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/http/dist",

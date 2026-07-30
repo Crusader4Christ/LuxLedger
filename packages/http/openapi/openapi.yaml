@@ -1042,6 +1042,10 @@ components:
         ledger_id:
           type: string
           format: uuid
+        code:
+          type: string
+          pattern: '^(?=.*\S).+$'
+          description: Optional. When omitted, stored as null; must be non-empty if provided.
         name:
           type: string
           minLength: 1
@@ -1056,6 +1060,7 @@ components:
           pattern: '^(?=.*\S).+$'
       example:
         ledger_id: 00000000-0000-4000-8000-000000000001
+        code: '1000'
         name: Cash
         side: DEBIT
         overdraft_policy: ALLOW
@@ -1063,7 +1068,7 @@ components:
     Account:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, name, side, overdraft_policy, currency, balance_minor, created_at]
+      required: [id, tenant_id, ledger_id, code, name, side, overdraft_policy, currency, balance_minor, created_at]
       properties:
         id:
           type: string
@@ -1074,6 +1079,9 @@ components:
         ledger_id:
           type: string
           format: uuid
+        code:
+          type: string
+          nullable: true
         name:
           type: string
         side:
@@ -1093,6 +1101,7 @@ components:
         id: 00000000-0000-4000-8000-000000000101
         tenant_id: 11111111-1111-4111-8111-111111111111
         ledger_id: 00000000-0000-4000-8000-000000000001
+        code: '1000'
         name: Cash
         side: DEBIT
         overdraft_policy: ALLOW
@@ -1279,13 +1288,14 @@ components:
           type: array
           items:
             type: object
-            required: [account_id, code, name, normal_balance, balance, is_contra]
+            required: [account_id, code, name, normal_balance, balance, balance_side]
             properties:
               account_id:
                 type: string
                 format: uuid
               code:
                 type: string
+                nullable: true
               name:
                 type: string
               normal_balance:
@@ -1293,8 +1303,9 @@ components:
                 enum: [DEBIT, CREDIT]
               balance:
                 type: string
-              is_contra:
-                type: boolean
+              balance_side:
+                type: string
+                enum: [DEBIT, CREDIT]
         total_debits:
           type: string
         total_credits:

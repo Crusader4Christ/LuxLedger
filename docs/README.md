@@ -7,6 +7,7 @@
 - [Known Limitations](./product/limitations.md)
 - [Integration Guide](./integration/README.md)
 - [Versioning, Migrations, and Publication](./integration/versioning.md)
+- [Release 0.2.0 and migration guide](./releases/0.2.0.md)
 
 ## Governance
 

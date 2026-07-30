@@ -5,6 +5,7 @@ export const toAccountResponse = (account: AccountEntity): AccountResponse => ({
   id: account.id,
   tenant_id: account.tenantId,
   ledger_id: account.ledgerId,
+  code: account.code,
   name: account.name,
   side: account.side,
   overdraft_policy: account.overdraftPolicy,

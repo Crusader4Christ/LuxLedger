@@ -1,6 +1,6 @@
 {
   "name": "@luxledger/core",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Double-entry ledger domain primitives and application contracts for LuxLedger.",
   "type": "module",
   "license": "Apache-2.0",

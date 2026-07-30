@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { EntryDirection } from '@luxledger/core';
-import { LedgerNotFoundError } from '@luxledger/core/application';
+import { InvariantViolationError, LedgerNotFoundError } from '@luxledger/core/application';
 import { eq } from 'drizzle-orm';
 import { DrizzleAccountRepository } from '../../src/repositories/account-repository';
 import { DrizzleBalanceRepository } from '../../src/repositories/balance-repository';
@@ -56,10 +56,98 @@ describe('Drizzle account repository', () => {
     expect(row).toBeDefined();
     expect(row?.tenantId).toBe(tenantId);
     expect(row?.ledgerId).toBe(ledgerId);
+    expect(row?.code).toBeNull();
+    expect(created.code).toBeNull();
     expect(row?.name).toBe('Cash');
     expect(row?.side).toBe(EntryDirection.DEBIT);
     expect(row?.overdraftPolicy).toBe('ALLOW');
     expect(row?.currency).toBe('USD');
+  });
+
+  it('createAccount persists an explicit code and rejects a duplicate within the ledger', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    const created = await accountRepository.create({
+      tenantId,
+      ledgerId,
+      code: '1000',
+      name: 'Platform cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+
+    expect(created.code).toBe('1000');
+    await expect(
+      accountRepository.create({
+        tenantId,
+        ledgerId,
+        code: '1000',
+        name: 'Settlement cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('createAccount permits the same code in different ledgers and tenants', async () => {
+    const tenantA = await createTenant('Tenant A');
+    const tenantB = await createTenant('Tenant B');
+    const ledgerA1 = await createLedger(tenantA, 'Main');
+    const ledgerA2 = await createLedger(tenantA, 'Secondary');
+    const ledgerB = await createLedger(tenantB, 'Main');
+
+    const accountsWithSharedCode = await Promise.all([
+      accountRepository.create({
+        tenantId: tenantA,
+        ledgerId: ledgerA1,
+        code: '1000',
+        name: 'Primary cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+      accountRepository.create({
+        tenantId: tenantA,
+        ledgerId: ledgerA2,
+        code: '1000',
+        name: 'Secondary cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+      accountRepository.create({
+        tenantId: tenantB,
+        ledgerId: ledgerB,
+        code: '1000',
+        name: 'Tenant B cash',
+        side: EntryDirection.DEBIT,
+        currency: 'USD',
+      }),
+    ]);
+
+    expect(accountsWithSharedCode.map((account) => account.code)).toEqual(['1000', '1000', '1000']);
+  });
+
+  it('createAccount permits multiple accounts without a code', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    const first = await accountRepository.create({
+      tenantId,
+      ledgerId,
+      name: 'Primary cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+    const second = await accountRepository.create({
+      tenantId,
+      ledgerId,
+      name: 'Settlement cash',
+      side: EntryDirection.DEBIT,
+      currency: 'USD',
+    });
+
+    expect(first.code).toBeNull();
+    expect(second.code).toBeNull();
   });
 
   it('createAccount persists explicit DISALLOW overdraft policy', async () => {

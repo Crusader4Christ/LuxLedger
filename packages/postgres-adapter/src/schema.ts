@@ -77,6 +77,7 @@ export const accounts = pgTable(
     ledgerId: uuid('ledger_id')
       .notNull()
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    code: text('code'),
     name: text('name').notNull(),
     side: accountSideEnum('side').notNull(),
     overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
@@ -94,6 +95,9 @@ export const accounts = pgTable(
   (table) => ({
     accountsTenantIdIdx: index('accounts_tenant_id_idx').on(table.tenantId),
     accountsLedgerIdIdx: index('accounts_ledger_id_idx').on(table.ledgerId),
+    accountsLedgerCodeUq: uniqueIndex('accounts_ledger_code_uq')
+      .on(table.tenantId, table.ledgerId, table.code)
+      .where(sql`${table.code} is not null`),
   }),
 );
 
