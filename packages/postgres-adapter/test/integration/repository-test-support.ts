@@ -101,7 +101,7 @@ export const createAccount = async (
     .values({
       tenantId: input.tenantId,
       ledgerId: input.ledgerId,
-      code: input.code,
+      code: input.code ?? null,
       name: input.name,
       side: input.side ?? 'DEBIT',
       overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
