@@ -1,6 +1,6 @@
 {
   "name": "@luxledger/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Double-entry ledger domain primitives and application contracts for LuxLedger.",
   "type": "module",
   "license": "Apache-2.0",
@@ -9,7 +9,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./account": {
       "types": "./dist/account/index.d.ts",
