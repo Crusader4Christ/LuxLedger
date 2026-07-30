@@ -6,6 +6,7 @@ export const toAccountEntity = (row: typeof schema.accounts.$inferSelect): Accou
     id: row.id,
     tenantId: row.tenantId,
     ledgerId: row.ledgerId,
+    code: row.code,
     name: row.name,
     side: parseAccountSide(row.side),
     overdraftPolicy: parseOverdraftPolicy(row.overdraftPolicy),

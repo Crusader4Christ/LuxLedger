@@ -37,8 +37,10 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
       const account = await services.accounts.create({
         tenantId: context.tenantId,
         ledgerId: body.ledger_id,
+        code: body.code,
         name: body.name,
         side: body.side === 'DEBIT' ? AccountSide.DEBIT : AccountSide.CREDIT,
+        overdraftPolicy: body.overdraft_policy,
         currency: body.currency,
       });
       res.status(201).json(toAccountResponse(account));

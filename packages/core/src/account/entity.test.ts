@@ -10,6 +10,7 @@ describe('AccountEntity', () => {
           id: 'acc-1',
           tenantId: 'tenant-1',
           ledgerId: 'ledger-1',
+          code: '1000',
           name: 'cash',
           side: AccountSide.DEBIT,
           currency: 'USD',
@@ -24,6 +25,7 @@ describe('AccountEntity', () => {
           id: 'acc-2',
           tenantId: 'tenant-1',
           ledgerId: 'ledger-1',
+          code: '4000',
           name: 'revenue',
           side: AccountSide.CREDIT,
           currency: 'USD',
@@ -40,6 +42,7 @@ describe('AccountEntity', () => {
           id: 'acc-1',
           tenantId: 'tenant-1',
           ledgerId: 'ledger-1',
+          code: '1000',
           name: 'cash',
           side: 'INVALID' as unknown as AccountSide,
           currency: 'USD',
@@ -54,6 +57,7 @@ describe('AccountEntity', () => {
       id: 'acc-1',
       tenantId: 'tenant-1',
       ledgerId: 'ledger-1',
+      code: '1000',
       name: 'cash',
       side: AccountSide.DEBIT,
       currency: 'USD',
@@ -66,6 +70,7 @@ describe('AccountEntity', () => {
       id: 'acc-2',
       tenantId: 'tenant-1',
       ledgerId: 'ledger-1',
+      code: '1000',
       name: 'cash',
       side: AccountSide.DEBIT,
       overdraftPolicy: OverdraftPolicy.DISALLOW,
@@ -83,6 +88,7 @@ describe('AccountEntity', () => {
           id: 'acc-1',
           tenantId: 'tenant-1',
           ledgerId: 'ledger-1',
+          code: '1000',
           name: 'cash',
           side: AccountSide.DEBIT,
           overdraftPolicy: 'NOPE' as unknown as OverdraftPolicy,
@@ -91,5 +97,38 @@ describe('AccountEntity', () => {
           createdAt: new Date('2026-01-01T00:00:00.000Z'),
         }),
     ).toThrowError(InvalidOverdraftPolicyError);
+  });
+
+  it('rejects an empty account code', () => {
+    expect(
+      () =>
+        new AccountEntity({
+          id: 'acc-1',
+          tenantId: 'tenant-1',
+          ledgerId: 'ledger-1',
+          code: '   ',
+          name: 'cash',
+          side: AccountSide.DEBIT,
+          currency: 'USD',
+          balanceMinor: 0n,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+    ).toThrow('account code must not be empty');
+  });
+
+  it('accepts a null account code', () => {
+    const account = new AccountEntity({
+      id: 'acc-1',
+      tenantId: 'tenant-1',
+      ledgerId: 'ledger-1',
+      code: null,
+      name: 'cash',
+      side: AccountSide.DEBIT,
+      currency: 'USD',
+      balanceMinor: 0n,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    expect(account.code).toBeNull();
   });
 });

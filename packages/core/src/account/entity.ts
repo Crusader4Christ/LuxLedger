@@ -1,3 +1,4 @@
+import { assertNonEmpty } from '../utils/assert-non-empty';
 import { validateAccountSide, validateOverdraftPolicy } from './validators';
 
 export const AccountSide = {
@@ -18,6 +19,7 @@ export class AccountEntity {
   public readonly id: string;
   public readonly tenantId: string;
   public readonly ledgerId: string;
+  public readonly code: string | null;
   public readonly name: string;
   public readonly side: AccountSide;
   public readonly overdraftPolicy: OverdraftPolicy;
@@ -29,6 +31,7 @@ export class AccountEntity {
     id: string;
     tenantId: string;
     ledgerId: string;
+    code: string | null;
     name: string;
     side: AccountSide;
     overdraftPolicy?: OverdraftPolicy;
@@ -38,10 +41,14 @@ export class AccountEntity {
   }) {
     validateAccountSide(input.side);
     validateOverdraftPolicy(input.overdraftPolicy ?? OverdraftPolicy.ALLOW);
+    if (input.code !== null) {
+      assertNonEmpty(input.code, 'account code must not be empty');
+    }
 
     this.id = input.id;
     this.tenantId = input.tenantId;
     this.ledgerId = input.ledgerId;
+    this.code = input.code;
     this.name = input.name;
     this.side = input.side;
     this.overdraftPolicy = input.overdraftPolicy ?? OverdraftPolicy.ALLOW;

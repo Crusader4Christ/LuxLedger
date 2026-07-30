@@ -144,11 +144,11 @@ export interface PaginatedResult<T> {
 
 export interface TrialBalanceAccount {
   accountId: string;
-  code: string;
+  code: string | null;
   name: string;
   normalBalance: AccountSide;
   balanceMinor: bigint;
-  isContra: boolean;
+  balanceSide: AccountSide;
 }
 
 export interface TrialBalance {

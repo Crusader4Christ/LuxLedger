@@ -11,6 +11,7 @@ export const createAccountBodySchema = {
       type: 'string',
       format: 'uuid',
     },
+    code: NonEmptyTrimmedStringSchema,
     name: NonEmptyTrimmedStringSchema,
     side: {
       type: 'string',
@@ -31,6 +32,7 @@ export const accountResponseSchema = {
     'id',
     'tenant_id',
     'ledger_id',
+    'code',
     'name',
     'side',
     'overdraft_policy',
@@ -50,6 +52,10 @@ export const accountResponseSchema = {
     ledger_id: {
       type: 'string',
       format: 'uuid',
+    },
+    code: {
+      type: 'string',
+      nullable: true,
     },
     name: {
       type: 'string',

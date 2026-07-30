@@ -57,6 +57,7 @@ const tenants = new DrizzleTenantRepository(client);
 const createAccount = async (input: {
   tenantId: string;
   ledgerId: string;
+  code?: string;
   name: string;
   side: AccountSide;
   currency: string;
@@ -67,6 +68,7 @@ const createAccount = async (input: {
     .values({
       tenantId: input.tenantId,
       ledgerId: input.ledgerId,
+      code: input.code,
       name: input.name,
       side: input.side,
       currency: input.currency,

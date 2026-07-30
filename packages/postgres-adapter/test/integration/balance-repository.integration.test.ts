@@ -73,13 +73,13 @@ describe('Drizzle balance repository', () => {
 
     expect(debitAccount?.normalBalance).toBe(EntryDirection.DEBIT);
     expect(debitAccount?.balanceMinor).toBe(100n);
-    expect(debitAccount?.isContra).toBeFalse();
+    expect(debitAccount?.balanceSide).toBe(EntryDirection.DEBIT);
     expect(creditAccount?.normalBalance).toBe(EntryDirection.CREDIT);
     expect(creditAccount?.balanceMinor).toBe(100n);
-    expect(creditAccount?.isContra).toBeFalse();
+    expect(creditAccount?.balanceSide).toBe(EntryDirection.CREDIT);
   });
 
-  it('getLedgerTrialBalance marks contra accounts and computes totals by signed balance', async () => {
+  it('getLedgerTrialBalance reports the actual balance side and computes signed totals', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');
     const debitAccountId = await createAccount({
@@ -111,8 +111,8 @@ describe('Drizzle balance repository', () => {
       (account) => account.accountId === creditAccountId,
     );
 
-    expect(debitAccount?.isContra).toBeTrue();
-    expect(creditAccount?.isContra).toBeTrue();
+    expect(debitAccount?.balanceSide).toBe(EntryDirection.CREDIT);
+    expect(creditAccount?.balanceSide).toBe(EntryDirection.DEBIT);
   });
 
   it('getLedgerTrialBalance throws when totals mismatch', async () => {
