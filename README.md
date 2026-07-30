@@ -50,6 +50,7 @@ The [reference API demo](https://github.com/Crusader4Christ/LuxLedger-demo) is m
 ## API contract
 
 - OpenAPI contract governance policy (CI gating + PR/reviewer process) lives in `docs/governance/openapi-contract-governance.md`.
+- [`0.2.0` release and migration notes](docs/releases/0.2.0.md).
 - Full docs index: `docs/README.md`.
 - See API contract: `packages/http/openapi/openapi.yaml`.
 
