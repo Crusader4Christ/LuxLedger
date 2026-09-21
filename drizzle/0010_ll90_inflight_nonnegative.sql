@@ -1,0 +1,2 @@
+ALTER TABLE "accounts" ADD CONSTRAINT "accounts_inflight_debit_nonnegative_chk" CHECK ("accounts"."inflight_debit_minor" >= 0);--> statement-breakpoint
+ALTER TABLE "accounts" ADD CONSTRAINT "accounts_inflight_credit_nonnegative_chk" CHECK ("accounts"."inflight_credit_minor" >= 0);

@@ -1,10 +1,12 @@
 import {
+  aggregateAccountEntries,
   EntryDirection,
   type EntryEntity,
   isDomainError,
   type TransactionEntity,
 } from '@luxledger/core';
 import {
+  assertAvailableBalance,
   type BulkCreateTransactionInput,
   type BulkCreateTransactionResult,
   BulkTransactionError,
@@ -13,7 +15,6 @@ import {
   type CreateTransactionInput,
   type CreateTransactionResult,
   InvariantViolationError,
-  OverdraftPolicyViolationError,
   type PaginatedResult,
   type PaginationQuery,
   RepositoryError,
@@ -539,12 +540,9 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: entry.currency,
       })),
     );
-    const entriesForBalanceUpdate = [...input.entries].sort((a, b) =>
-      a.accountId.localeCompare(b.accountId),
-    );
+    const entriesForBalanceUpdate = aggregateAccountEntries(input.entries);
     for (const entry of entriesForBalanceUpdate) {
-      const delta =
-        entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
+      const delta = entry.creditMinor - entry.debitMinor;
       const [updatedAccount] = await tx
         .update(schema.accounts)
         .set({
@@ -572,9 +570,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           'Unable to create transaction: account ledger/currency mismatch',
         );
       }
-      if (updatedAccount.overdraftPolicy === 'DISALLOW' && updatedAccount.balanceMinor < 0n) {
-        throw new OverdraftPolicyViolationError(updatedAccount.id, updatedAccount.balanceMinor);
-      }
+      assertAvailableBalance(updatedAccount);
       const [previousSnapshot] = await tx
         .select({ postedMinor: schema.balanceSnapshots.postedMinor })
         .from(schema.balanceSnapshots)

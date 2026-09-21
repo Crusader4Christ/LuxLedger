@@ -1,4 +1,4 @@
-import { AccountSide, isUuidV7, parseAccountSide } from '@luxledger/core';
+import { AccountSide, calculateAvailableMinor, isUuidV7, parseAccountSide } from '@luxledger/core';
 import {
   type BalanceApplicationRepository,
   type BalanceAtQuery,
@@ -104,7 +104,11 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
         postedMinor,
         inflightDebitMinor,
         inflightCreditMinor,
-        availableMinor: postedMinor - inflightDebitMinor + inflightCreditMinor,
+        availableMinor: calculateAvailableMinor({
+          balanceMinor: postedMinor,
+          inflightDebitMinor,
+          inflightCreditMinor,
+        }),
       };
     });
   }
