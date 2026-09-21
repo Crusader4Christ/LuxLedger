@@ -24,6 +24,7 @@ export class AccountEntity {
   public readonly side: AccountSide;
   public readonly overdraftPolicy: OverdraftPolicy;
   public readonly currency: string;
+  public readonly assetId: string | null;
   public readonly balanceMinor: bigint;
   public readonly createdAt: Date;
 
@@ -36,6 +37,7 @@ export class AccountEntity {
     side: AccountSide;
     overdraftPolicy?: OverdraftPolicy;
     currency: string;
+    assetId?: string | null;
     balanceMinor: bigint;
     createdAt: Date;
   }) {
@@ -53,6 +55,7 @@ export class AccountEntity {
     this.side = input.side;
     this.overdraftPolicy = input.overdraftPolicy ?? OverdraftPolicy.ALLOW;
     this.currency = input.currency;
+    this.assetId = input.assetId ?? null;
     this.balanceMinor = input.balanceMinor;
     this.createdAt = input.createdAt;
   }

@@ -14,6 +14,7 @@ import {
 } from '@luxledger/postgres-adapter';
 import {
   accounts,
+  assets,
   reconRuns,
   reconUploads,
   transactions,
@@ -63,6 +64,18 @@ const createAccount = async (input: {
   currency: string;
   balanceMinor?: bigint;
 }): Promise<string> => {
+  await client.runTenantTx(input.tenantId, 'seed test asset', async (tx) => {
+    await tx
+      .insert(assets)
+      .values({ tenantId: input.tenantId, code: input.currency, scale: 2 })
+      .onConflictDoNothing({ target: [assets.tenantId, assets.code] });
+  });
+  const [asset] = await db
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(eq(assets.tenantId, input.tenantId), eq(assets.code, input.currency)))
+    .limit(1);
+  if (!asset) throw new Error(`Test asset was not created: ${input.tenantId}/${input.currency}`);
   const [account] = await db
     .insert(accounts)
     .values({
@@ -72,6 +85,7 @@ const createAccount = async (input: {
       name: input.name,
       side: input.side,
       currency: input.currency,
+      assetId: asset.id,
       balanceMinor: input.balanceMinor ?? 0n,
     })
     .returning({ id: accounts.id });

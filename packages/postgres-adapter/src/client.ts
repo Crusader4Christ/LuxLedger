@@ -17,6 +17,7 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
   '23503',
   '23505',
   '23514',
+  'P0001',
 ]);
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>

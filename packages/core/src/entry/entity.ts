@@ -15,6 +15,7 @@ export class EntryEntity {
   public readonly accountId: AccountId;
   public readonly direction: EntryDirection;
   public readonly money: Money;
+  public readonly assetId: string | null;
   public readonly createdAt: Date | null;
 
   public constructor(input: {
@@ -23,6 +24,7 @@ export class EntryEntity {
     accountId: AccountId;
     direction: EntryDirection;
     money: Money;
+    assetId?: string | null;
     createdAt?: Date | null;
   }) {
     validateEntryDirection(input.direction);
@@ -33,6 +35,7 @@ export class EntryEntity {
     this.accountId = input.accountId;
     this.direction = input.direction;
     this.money = input.money;
+    this.assetId = input.assetId ?? null;
     this.createdAt = input.createdAt ?? null;
   }
 

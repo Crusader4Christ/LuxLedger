@@ -3,7 +3,12 @@ import { Money } from '../../base/money';
 import { EntryEntity } from '../../entry/entity';
 import type { TransactionRepository } from '../';
 import { TransactionEntity } from '../';
-import { AccountNotFoundError, CrossLedgerAccountError, CurrencyMismatchError } from '../errors';
+import {
+  AccountNotFoundError,
+  AssetMismatchError,
+  CrossLedgerAccountError,
+  CurrencyMismatchError,
+} from '../errors';
 import type { CreateTransactionCommand } from './create-transaction.command';
 import type { CreateTransactionResult } from './create-transaction.result';
 
@@ -22,6 +27,7 @@ export class CreateTransactionUseCase {
           accountId: new AccountId(entry.accountId),
           direction: entry.direction,
           money: Money.of(entry.amountMinor, entry.currency),
+          assetId: command.assetId,
         }),
     );
 
@@ -43,6 +49,9 @@ export class CreateTransactionUseCase {
       if (account.currency !== command.currency) {
         throw new CurrencyMismatchError();
       }
+      if (command.assetId !== undefined && account.assetId !== command.assetId) {
+        throw new AssetMismatchError();
+      }
     }
 
     const transaction = new TransactionEntity({
@@ -50,6 +59,7 @@ export class CreateTransactionUseCase {
       ledgerId,
       reference: command.reference,
       currency: command.currency,
+      assetId: command.assetId,
       description: command.description ?? null,
       entries,
     });

@@ -17,6 +17,19 @@ import type { TenantEntity } from '../tenant/entity';
 import type { CreateTransactionCommand } from '../transaction/use-cases/create-transaction.command';
 
 export type Tenant = TenantEntity;
+export interface Asset {
+  id: string;
+  tenantId: string;
+  code: string;
+  scale: number;
+  createdAt: Date;
+}
+
+export interface CreateAssetInput {
+  tenantId: string;
+  code: string;
+  scale: number;
+}
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = LedgerEntity;
 

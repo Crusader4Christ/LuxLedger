@@ -8,5 +8,6 @@ export const toEntryEntity = (row: typeof schema.entries.$inferSelect): EntryEnt
     accountId: new AccountId(row.accountId),
     direction: parseEntryDirection(row.direction),
     money: Money.of(row.amountMinor, row.currency),
+    assetId: row.assetId,
     createdAt: row.createdAt,
   });

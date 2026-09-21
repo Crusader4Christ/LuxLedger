@@ -11,6 +11,7 @@ export const toAccountEntity = (row: typeof schema.accounts.$inferSelect): Accou
     side: parseAccountSide(row.side),
     overdraftPolicy: parseOverdraftPolicy(row.overdraftPolicy),
     currency: row.currency,
+    assetId: row.assetId,
     balanceMinor: row.balanceMinor,
     createdAt: row.createdAt,
   });

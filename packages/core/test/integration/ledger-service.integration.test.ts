@@ -167,6 +167,7 @@ class InMemoryLedgerRepository {
       side: input.side,
       overdraftPolicy: 'ALLOW',
       currency: input.currency,
+      assetId: null,
       balanceMinor: 0n,
       createdAt: new Date(),
     };
