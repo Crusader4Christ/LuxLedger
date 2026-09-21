@@ -85,6 +85,13 @@
       "when": 1790000120529,
       "tag": "0011_tenant_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790017373269,
+      "tag": "0012_credit_grants",
+      "breakpoints": true
     }
   ]
 }

@@ -755,6 +755,115 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+  /v1/credit-grants:
+    post:
+      summary: Create an immutable credit grant and balanced ledger posting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCreditGrantRequest'
+      responses:
+        '201':
+          description: Grant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrant'
+        '200':
+          description: Identical retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrant'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/credit-grants/{id}:
+    get:
+      summary: Read a credit grant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Credit grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrant'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/credit-grants/{id}/reversal:
+    post:
+      summary: Fully compensate an unconsumed grant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseCreditGrantRequest'
+      responses:
+        '201':
+          description: Compensation posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrant'
+        '200':
+          description: Identical retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrant'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/accounts/{id}/credit-balance:
+    get:
+      summary: Read reconciled credit buckets for an account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Bucket balances reconciled with the ledger
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditBalance'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -834,6 +943,81 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    CreateCreditGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, account_id, funding_account_id, asset_id, reference, origin, amount_minor, policy]
+      properties:
+        ledger_id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        funding_account_id: { type: string, format: uuid }
+        asset_id: { type: string, format: uuid }
+        reference: { type: string, minLength: 1 }
+        external_reference: { type: string, minLength: 1 }
+        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
+        amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+        policy:
+          $ref: '#/components/schemas/CreditGrantPolicy'
+    ReverseCreditGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [reference]
+      properties:
+        reference: { type: string, minLength: 1 }
+    CreditGrantPolicy:
+      type: object
+      additionalProperties: false
+      required: [refundable, transferable, consumption_priority, eligibility]
+      properties:
+        refundable: { type: boolean }
+        transferable: { type: boolean }
+        consumption_priority: { type: integer, minimum: 0, maximum: 2147483647 }
+        eligibility: { type: string, nullable: true }
+    CreditGrant:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, ledger_id, account_id, funding_account_id, asset_id, reference, external_reference, origin, amount_minor, policy, transaction_id, created_at, reversed_by_transaction_id]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        ledger_id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        funding_account_id: { type: string, format: uuid }
+        asset_id: { type: string, format: uuid }
+        reference: { type: string }
+        external_reference: { type: string, nullable: true }
+        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
+        amount_minor: { type: string }
+        policy:
+          $ref: '#/components/schemas/CreditGrantPolicy'
+        transaction_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        reversed_by_transaction_id: { type: string, format: uuid, nullable: true }
+    CreditBucket:
+      type: object
+      additionalProperties: false
+      required: [origin, granted_minor, allocated_minor, consumed_minor, expired_minor, reversed_minor, remaining_minor]
+      properties:
+        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
+        granted_minor: { type: string }
+        allocated_minor: { type: string }
+        consumed_minor: { type: string }
+        expired_minor: { type: string }
+        reversed_minor: { type: string }
+        remaining_minor: { type: string }
+    CreditBalance:
+      type: object
+      additionalProperties: false
+      required: [account_id, asset_id, ledger_balance_minor, remaining_minor, buckets]
+      properties:
+        account_id: { type: string, format: uuid }
+        asset_id: { type: string, format: uuid }
+        ledger_balance_minor: { type: string }
+        remaining_minor: { type: string }
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditBucket'
     ErrorResponse:
       type: object
       required: [error, message]

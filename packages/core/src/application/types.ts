@@ -2,6 +2,7 @@ import type { AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
+import type { CreditGrantOrigin, CreditGrantPolicy } from '../credit-grant';
 import type { EntryDirection } from '../entry/entity';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
@@ -29,6 +30,65 @@ export interface CreateAssetInput {
   tenantId: string;
   code: string;
   scale: number;
+}
+
+export type { CreditGrantPolicy } from '../credit-grant';
+export { CreditGrantOrigin } from '../credit-grant';
+
+export interface CreateCreditGrantInput {
+  tenantId: string;
+  ledgerId: string;
+  accountId: string;
+  fundingAccountId: string;
+  assetId: string;
+  reference: string;
+  externalReference?: string | null;
+  origin: CreditGrantOrigin;
+  amountMinor: bigint;
+  policy: CreditGrantPolicy;
+}
+
+export interface CreditGrant {
+  id: string;
+  tenantId: string;
+  ledgerId: string;
+  accountId: string;
+  fundingAccountId: string;
+  assetId: string;
+  reference: string;
+  externalReference: string | null;
+  origin: CreditGrantOrigin;
+  amountMinor: bigint;
+  policy: CreditGrantPolicy;
+  transactionId: string;
+  createdAt: Date;
+  reversedByTransactionId: string | null;
+}
+
+export interface CreditGrantResult {
+  grant: CreditGrant;
+  created: boolean;
+}
+export interface ReverseCreditGrantInput {
+  tenantId: string;
+  grantId: string;
+  reference: string;
+}
+export interface CreditBucketBalance {
+  origin: CreditGrantOrigin;
+  grantedMinor: bigint;
+  allocatedMinor: bigint;
+  consumedMinor: bigint;
+  expiredMinor: bigint;
+  reversedMinor: bigint;
+  remainingMinor: bigint;
+}
+export interface CreditBalance {
+  accountId: string;
+  assetId: string;
+  ledgerBalanceMinor: bigint;
+  remainingMinor: bigint;
+  buckets: CreditBucketBalance[];
 }
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = LedgerEntity;

@@ -5,8 +5,10 @@ import {
   accountResponseSchema,
   createAccountBodySchema,
   createApiKeyBodySchema,
+  createCreditGrantBodySchema,
   createLedgerBodySchema,
   createTransactionRequestSchema,
+  creditBalanceResponseSchema,
   entriesPageResponseSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
@@ -74,6 +76,17 @@ describe('framework-agnostic contract suite', () => {
           name: 'account request forbids additional properties',
           assert: () => expect(createAccountBodySchema.additionalProperties).toBeFalse(),
         },
+        {
+          name: 'grant uses an asset and integer minor units',
+          assert: () => {
+            expect(createCreditGrantBodySchema.required).toContain('asset_id');
+            expect(createCreditGrantBodySchema.properties.amount_minor).toEqual({
+              type: 'string',
+              pattern: '^[1-9][0-9]*$',
+            });
+            expect(creditBalanceResponseSchema.required).toContain('ledger_balance_minor');
+          },
+        },
       ],
     );
   });
@@ -139,5 +152,8 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('required: [ledger_id, reference, currency, entries]');
     expect(openapi).toContain('CreateAccountRequest:');
     expect(openapi).toContain('CreateApiKeyRequest:');
+    expect(openapi).toContain('/v1/credit-grants:');
+    expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');
+    expect(openapi).toContain('CreateCreditGrantRequest:');
   });
 });

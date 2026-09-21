@@ -153,6 +153,19 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             'Unable to create hold: account ledger/currency mismatch',
           );
         }
+        const [creditGrant] = await tx
+          .select({ id: schema.creditGrants.id })
+          .from(schema.creditGrants)
+          .where(
+            and(
+              eq(schema.creditGrants.tenantId, input.tenantId),
+              eq(schema.creditGrants.accountId, entry.accountId),
+            ),
+          )
+          .limit(1);
+        if (creditGrant) {
+          throw new InvariantViolationError('Credit account holds require grant allocation');
+        }
         assertAvailableBalance(updatedAccount);
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,

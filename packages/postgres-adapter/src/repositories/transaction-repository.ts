@@ -42,14 +42,26 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
   public async create(input: CreateTransactionInput): Promise<CreateTransactionResult> {
     return this.client.runTenantTx(input.tenantId, 'create transaction', async (tx) =>
-      this.createOrResolvePostedTransaction(tx, {
-        ...input,
-        description: input.description ?? null,
-        effectiveAt: input.effectiveAt ?? undefined,
-        compareDescriptionOnRetry: true,
-        payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
-      }),
+      this.createInTx(tx, input),
     );
+  }
+
+  public createInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput & {
+      relatedTransactionId?: string;
+      relationType?: 'REVERSAL' | 'CORRECTION';
+    },
+    allowCreditGrantAccounts = false,
+  ): Promise<CreateTransactionResult> {
+    return this.createOrResolvePostedTransaction(tx, {
+      ...input,
+      description: input.description ?? null,
+      effectiveAt: input.effectiveAt ?? undefined,
+      compareDescriptionOnRetry: true,
+      payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
+      allowCreditGrantAccounts,
+    });
   }
 
   public async createBulk(input: BulkCreateTransactionInput): Promise<BulkCreateTransactionResult> {
@@ -328,6 +340,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       }>;
       compareDescriptionOnRetry?: boolean;
       payloadMismatchMessage: string;
+      allowCreditGrantAccounts?: boolean;
     },
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
@@ -365,6 +378,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         { ...input, assetId: asset.id },
         inserted.id,
         effectiveAt,
+        input.allowCreditGrantAccounts ?? false,
       );
       return { transactionId: inserted.id, created: true };
     }
@@ -558,6 +572,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     },
     transactionId: string,
     effectiveAt: Date,
+    allowCreditGrantAccounts = false,
   ): Promise<void> {
     await tx.insert(schema.entries).values(
       input.entries.map((entry) => ({
@@ -599,6 +614,21 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         throw new InvariantViolationError(
           'Unable to create transaction: account ledger/currency mismatch',
         );
+      }
+      if (!allowCreditGrantAccounts) {
+        const [grant] = await tx
+          .select({ id: schema.creditGrants.id })
+          .from(schema.creditGrants)
+          .where(
+            and(
+              eq(schema.creditGrants.tenantId, input.tenantId),
+              eq(schema.creditGrants.accountId, entry.accountId),
+            ),
+          )
+          .limit(1);
+        if (grant) {
+          throw new InvariantViolationError('Credit account postings require grant allocation');
+        }
       }
       assertAvailableBalance(updatedAccount);
       const [previousSnapshot] = await tx

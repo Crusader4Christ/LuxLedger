@@ -1,5 +1,6 @@
 export * from './accounts';
 export * from './api-keys';
+export * from './credit-grants';
 export * from './entries';
 export * from './ledgers';
 export * from './pagination';

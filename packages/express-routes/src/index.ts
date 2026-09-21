@@ -2,6 +2,7 @@ import type { ApplicationServices } from '@luxledger/core/application';
 import express, { type Application } from 'express';
 import { registerAccountRoutes } from './routes/accounts';
 import { registerAdminApiKeyRoutes } from './routes/admin-api-keys';
+import { registerCreditGrantRoutes } from './routes/credit-grants';
 import { registerEntryRoutes } from './routes/entries';
 import { registerHoldRoutes } from './routes/holds';
 import { registerLedgerRoutes } from './routes/ledgers';
@@ -23,6 +24,7 @@ export const registerLedgerAdapter = (app: Application, services: ApplicationSer
   registerLedgerRoutes(app, services);
   registerTransactionRoutes(app, services);
   registerAccountRoutes(app, services);
+  registerCreditGrantRoutes(app, services);
   registerHoldRoutes(app, services);
   registerReconciliationRoutes(app, services);
   registerEntryRoutes(app, services);

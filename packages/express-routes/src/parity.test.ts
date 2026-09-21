@@ -3,6 +3,7 @@ import {
   ApiKeyRole,
   type ApiKeyService,
   type ApplicationServices,
+  type CreditGrant,
 } from '@luxledger/core/application';
 import { registerLedgerAdapter as registerFastifyLedgerAdapter } from '@luxledger/fastify-routes';
 import { createContractHarness } from '@luxledger/http/test/harness';
@@ -142,8 +143,75 @@ describe('express adapter parity with fastify adapter', () => {
   beforeAll(async () => {
     const fakeLedgerService = new FakeLedgerService();
     const apiKeyService = new FakeApiKeyService() as unknown as ApiKeyService;
+    let lastGrant: CreditGrant | null = null;
     const services = {
       accounts: fakeLedgerService,
+      creditGrants: {
+        create: async (input: {
+          tenantId: string;
+          ledgerId: string;
+          accountId: string;
+          fundingAccountId: string;
+          assetId: string;
+          reference: string;
+          externalReference?: string | null;
+          origin: 'PURCHASED';
+          amountMinor: bigint;
+          policy: {
+            refundable: boolean;
+            transferable: boolean;
+            consumptionPriority: number;
+            eligibility: string | null;
+          };
+        }) => {
+          lastGrant = {
+            id: '00000000-0000-4000-8000-000000000901',
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            accountId: input.accountId,
+            fundingAccountId: input.fundingAccountId,
+            assetId: input.assetId,
+            reference: input.reference,
+            externalReference: input.externalReference ?? null,
+            origin: input.origin,
+            amountMinor: input.amountMinor,
+            policy: input.policy,
+            transactionId: '00000000-0000-4000-8000-000000000902',
+            createdAt: new Date('2026-01-01T00:00:00.000Z'),
+            reversedByTransactionId: null,
+          };
+          return { created: true, grant: lastGrant };
+        },
+        getById: async () => {
+          if (!lastGrant) throw new Error('No grant created');
+          return lastGrant;
+        },
+        reverse: async () => {
+          if (!lastGrant) throw new Error('No grant created');
+          lastGrant = {
+            ...lastGrant,
+            reversedByTransactionId: '00000000-0000-4000-8000-000000000904',
+          };
+          return { created: true, grant: lastGrant };
+        },
+        getBalance: async (_tenantId: string, accountId: string) => ({
+          accountId,
+          assetId: '00000000-0000-4000-8000-000000000903',
+          ledgerBalanceMinor: 100n,
+          remainingMinor: 100n,
+          buckets: [
+            {
+              origin: 'PURCHASED',
+              grantedMinor: 100n,
+              allocatedMinor: 0n,
+              consumedMinor: 0n,
+              expiredMinor: 0n,
+              reversedMinor: 0n,
+              remainingMinor: 100n,
+            },
+          ],
+        }),
+      },
       apiKeys: apiKeyService,
       balances: fakeLedgerService,
       holds: fakeLedgerService,
@@ -576,5 +644,43 @@ describe('express adapter parity with fastify adapter', () => {
     for (const check of checks) {
       await check.run();
     }
+  });
+
+  it('keeps credit grant creation and bucket response identical across adapters', async () => {
+    const payload = {
+      ledger_id: '00000000-0000-4000-8000-000000000910',
+      account_id: '00000000-0000-4000-8000-000000000911',
+      funding_account_id: '00000000-0000-4000-8000-000000000912',
+      asset_id: '00000000-0000-4000-8000-000000000903',
+      reference: 'parity-grant',
+      origin: 'PURCHASED',
+      amount_minor: '100',
+      policy: { refundable: true, transferable: false, consumption_priority: 2, eligibility: null },
+    };
+    const [fastifyCreate, expressCreate] = await Promise.all([
+      requestFastify('POST', '/v1/credit-grants', payload),
+      requestExpress('POST', '/v1/credit-grants', payload),
+    ]);
+    expect(fastifyCreate.status).toBe(201);
+    expect(expressCreate).toEqual(fastifyCreate);
+    const grantPath = '/v1/credit-grants/00000000-0000-4000-8000-000000000901';
+    const [fastifyRead, expressRead] = await Promise.all([
+      requestFastify('GET', grantPath),
+      requestExpress('GET', grantPath),
+    ]);
+    expect(expressRead).toEqual(fastifyRead);
+    const [fastifyReverse, expressReverse] = await Promise.all([
+      requestFastify('POST', `${grantPath}/reversal`, { reference: 'parity-reversal' }),
+      requestExpress('POST', `${grantPath}/reversal`, { reference: 'parity-reversal' }),
+    ]);
+    expect(fastifyReverse.status).toBe(201);
+    expect(expressReverse).toEqual(fastifyReverse);
+    const path = `/v1/accounts/${payload.account_id}/credit-balance`;
+    const [fastifyBalance, expressBalance] = await Promise.all([
+      requestFastify('GET', path),
+      requestExpress('GET', path),
+    ]);
+    expect(fastifyBalance.status).toBe(200);
+    expect(expressBalance).toEqual(fastifyBalance);
   });
 });
