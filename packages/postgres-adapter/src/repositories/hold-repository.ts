@@ -300,9 +300,6 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             'Unable to commit hold: account reservation is missing',
           );
         }
-        if (updatedAccount.inflightDebitMinor < 0n || updatedAccount.inflightCreditMinor < 0n) {
-          throw new InvariantViolationError('Unable to commit hold: negative in-flight balance');
-        }
         assertAvailableBalance(updatedAccount);
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,
@@ -408,9 +405,6 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           });
         if (!updated) {
           throw new InvariantViolationError('Unable to void hold: account reservation is missing');
-        }
-        if (updated.inflightDebitMinor < 0n || updated.inflightCreditMinor < 0n) {
-          throw new InvariantViolationError('Unable to void hold: negative in-flight balance');
         }
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,

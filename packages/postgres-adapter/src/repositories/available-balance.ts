@@ -1,12 +1,10 @@
 import { EntryDirection } from '@luxledger/core';
-import {
-  InvariantViolationError,
-  OverdraftPolicyViolationError,
-} from '@luxledger/core/application';
+import { OverdraftPolicyViolationError } from '@luxledger/core/application';
 
 type BalanceEntry = {
   accountId: string;
-  direction: string;
+  // New entries pass core validation; persisted entries use PostgreSQL's entry_direction enum.
+  direction: EntryDirection;
   amountMinor: bigint;
 };
 
@@ -23,10 +21,8 @@ export const aggregateAccountEntries = (entries: BalanceEntry[]) => {
     };
     if (entry.direction === EntryDirection.DEBIT) {
       total.debitMinor += entry.amountMinor;
-    } else if (entry.direction === EntryDirection.CREDIT) {
-      total.creditMinor += entry.amountMinor;
     } else {
-      throw new InvariantViolationError(`Unsupported entry direction: ${entry.direction}`);
+      total.creditMinor += entry.amountMinor;
     }
     byAccount.set(entry.accountId, total);
   }

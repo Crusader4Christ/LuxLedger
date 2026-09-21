@@ -26,10 +26,10 @@ export const accountSideEnum = pgEnum(
   Object.values(AccountSide) as [string, ...string[]],
 );
 export const overdraftPolicyEnum = pgEnum('overdraft_policy', ['ALLOW', 'DISALLOW']);
-export const entryDirectionEnum = pgEnum(
-  'entry_direction',
-  Object.values(EntryDirection) as [string, ...string[]],
-);
+export const entryDirectionEnum = pgEnum('entry_direction', [
+  EntryDirection.DEBIT,
+  EntryDirection.CREDIT,
+]);
 
 export const apiKeys = pgTable(
   'api_keys',

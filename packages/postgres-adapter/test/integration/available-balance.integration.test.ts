@@ -5,6 +5,7 @@ import {
   InvariantViolationError,
   OverdraftPolicyViolationError,
 } from '@luxledger/core/application';
+import { InvalidDirectionError } from '@luxledger/core/transaction';
 import { eq } from 'drizzle-orm';
 import { DrizzleHoldRepository } from '../../src/repositories/hold-repository';
 import { DrizzleTransactionRepository } from '../../src/repositories/transaction-repository';
@@ -87,6 +88,29 @@ describe('DISALLOW available balance across holds and postings', () => {
   afterAll(async () => {
     await client.sql.end({ timeout: 5 });
     await otherClient.sql.end({ timeout: 5 });
+  });
+
+  it('uses core validation for unknown directions before either repository writes', async () => {
+    const f = await setup();
+    const request = f.request('invalid', 10n);
+    const invalid = {
+      ...request,
+      entries: [
+        { ...request.entries[0], direction: 'INVALID' as EntryDirection },
+        request.entries[1],
+      ],
+    };
+    await expect(holdRepository.create(invalid)).rejects.toBeInstanceOf(InvalidDirectionError);
+    await expect(transactionRepository.create(invalid)).rejects.toBeInstanceOf(
+      InvalidDirectionError,
+    );
+    expect(await f.counts()).toEqual({
+      holds: 0,
+      holdEntries: 0,
+      transactions: 0,
+      entries: 0,
+      snapshots: 0,
+    });
   });
 
   it('reserves capacity, rejects a second oversized hold, and keeps retries idempotent', async () => {
