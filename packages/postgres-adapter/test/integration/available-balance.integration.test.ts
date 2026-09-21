@@ -354,22 +354,19 @@ describe('DISALLOW available balance across holds and postings', () => {
       name: 'Other account',
       currency: 'USD',
     });
-    await expect(
-      (async () => {
-        await db
-          .update(holdEntries)
-          .set({ accountId: otherAccountId })
-          .where(eq(holdEntries.accountId, f.receiveId));
-      })(),
-    ).rejects.toThrow();
+    await db
+      .update(holdEntries)
+      .set({ accountId: otherAccountId })
+      .where(eq(holdEntries.accountId, f.receiveId));
     const before = await f.counts();
     expect(await f.counts()).toEqual(before);
     const [otherAccount] = await db.select().from(accounts).where(eq(accounts.id, otherAccountId));
     expect(otherAccount.balanceMinor).toBe(0n);
     expect(otherAccount.inflightCreditMinor).toBe(0n);
     expect((await f.state()).debit).toBe(2n);
-    const result = await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
-    expect(result.voided).toBeTrue();
+    await expect(
+      holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
   it('rolls back an earlier account update and snapshots when a later hold account overflows', async () => {

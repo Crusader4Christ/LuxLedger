@@ -27,6 +27,14 @@ export class DrizzleAccountRepository implements AccountRepository {
       if (!ledger) {
         throw new LedgerNotFoundError(input.ledgerId);
       }
+      const [asset] = await tx
+        .select({ id: schema.assets.id })
+        .from(schema.assets)
+        .where(
+          and(eq(schema.assets.tenantId, input.tenantId), eq(schema.assets.code, input.currency)),
+        )
+        .limit(1);
+      if (!asset) throw new Error(`Asset must be created before account: ${input.currency}`);
 
       const [created] = await tx
         .insert(schema.accounts)
@@ -38,7 +46,7 @@ export class DrizzleAccountRepository implements AccountRepository {
           side: input.side,
           overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
           currency: input.currency,
-          assetId: input.assetId,
+          assetId: asset.id,
         })
         .returning();
       return toAccountEntity(created);

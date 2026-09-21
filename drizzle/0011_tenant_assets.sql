@@ -95,87 +95,31 @@ ALTER TABLE entries ALTER COLUMN asset_id SET NOT NULL;
 ALTER TABLE holds ALTER COLUMN asset_id SET NOT NULL;
 ALTER TABLE hold_entries ALTER COLUMN asset_id SET NOT NULL;
 
--- Omitted asset_id from existing writers enters the BEFORE trigger as NULL.
-ALTER TABLE accounts ALTER COLUMN asset_id SET DEFAULT NULL;
-ALTER TABLE transactions ALTER COLUMN asset_id SET DEFAULT NULL;
-ALTER TABLE entries ALTER COLUMN asset_id SET DEFAULT NULL;
-ALTER TABLE holds ALTER COLUMN asset_id SET DEFAULT NULL;
-ALTER TABLE hold_entries ALTER COLUMN asset_id SET DEFAULT NULL;
-
 ALTER TABLE accounts ADD CONSTRAINT accounts_asset_fk FOREIGN KEY (tenant_id, asset_id) REFERENCES assets(tenant_id, id);
 ALTER TABLE transactions ADD CONSTRAINT transactions_asset_fk FOREIGN KEY (tenant_id, asset_id) REFERENCES assets(tenant_id, id);
 ALTER TABLE entries ADD CONSTRAINT entries_asset_fk FOREIGN KEY (tenant_id, asset_id) REFERENCES assets(tenant_id, id);
 ALTER TABLE holds ADD CONSTRAINT holds_asset_fk FOREIGN KEY (tenant_id, asset_id) REFERENCES assets(tenant_id, id);
 ALTER TABLE hold_entries ADD CONSTRAINT hold_entries_asset_fk FOREIGN KEY (tenant_id, asset_id) REFERENCES assets(tenant_id, id);
 
--- Keep the published currency field as an exact, immutable alias of the asset code.
-CREATE FUNCTION ledger_asset_guard() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE
-  resolved_id uuid;
-  parent_tenant uuid;
-  parent_ledger uuid;
-  parent_asset uuid;
-  account_tenant uuid;
-  account_ledger uuid;
-  account_asset uuid;
-  ledger_tenant uuid;
+CREATE FUNCTION ledger_asset_reference_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE resolved_id uuid;
 BEGIN
-  IF TG_OP = 'UPDATE' AND
-     (NEW.tenant_id <> OLD.tenant_id OR NEW.currency <> OLD.currency OR NEW.asset_id <> OLD.asset_id) THEN
-    RAISE EXCEPTION 'Ledger asset identity is immutable';
-  END IF;
   SELECT id INTO resolved_id FROM assets WHERE tenant_id = NEW.tenant_id AND code = NEW.currency;
   IF resolved_id IS NULL THEN
-    IF NEW.currency NOT IN ('CREDIT', 'EUR', 'USD', 'USDC') THEN
-      RAISE EXCEPTION 'Asset must be created with explicit scale before use: %', NEW.currency;
-    END IF;
-    INSERT INTO assets (tenant_id, code, scale) VALUES (
-      NEW.tenant_id, NEW.currency,
-      CASE NEW.currency WHEN 'CREDIT' THEN 0 WHEN 'USDC' THEN 6 ELSE 2 END
-    ) ON CONFLICT (tenant_id, code) DO NOTHING;
-    SELECT id INTO resolved_id FROM assets WHERE tenant_id = NEW.tenant_id AND code = NEW.currency;
+    RAISE EXCEPTION 'Asset must be created explicitly before use: %', NEW.currency;
   END IF;
   IF NEW.asset_id IS NOT NULL AND NEW.asset_id <> resolved_id THEN
-    RAISE EXCEPTION 'asset_id does not match tenant currency';
+    RAISE EXCEPTION 'asset_id does not match currency code';
   END IF;
   NEW.asset_id := resolved_id;
-  IF TG_TABLE_NAME IN ('accounts', 'transactions', 'holds') THEN
-    SELECT tenant_id INTO ledger_tenant FROM ledgers WHERE id = NEW.ledger_id;
-    IF ledger_tenant IS DISTINCT FROM NEW.tenant_id THEN
-      RAISE EXCEPTION 'Ledger tenant does not match row tenant';
-    END IF;
-  END IF;
-  IF TG_TABLE_NAME = 'entries' THEN
-    SELECT tenant_id, ledger_id, asset_id INTO parent_tenant, parent_ledger, parent_asset
-      FROM transactions WHERE id = NEW.transaction_id;
-    SELECT tenant_id, ledger_id, asset_id INTO account_tenant, account_ledger, account_asset
-      FROM accounts WHERE id = NEW.account_id;
-  ELSIF TG_TABLE_NAME = 'hold_entries' THEN
-    SELECT tenant_id, ledger_id, asset_id INTO parent_tenant, parent_ledger, parent_asset
-      FROM holds WHERE id = NEW.hold_id;
-    SELECT tenant_id, ledger_id, asset_id INTO account_tenant, account_ledger, account_asset
-      FROM accounts WHERE id = NEW.account_id;
-  ELSIF TG_TABLE_NAME = 'transactions' THEN
-    IF NEW.hold_id IS NULL THEN RETURN NEW; END IF;
-    SELECT tenant_id, ledger_id, asset_id INTO parent_tenant, parent_ledger, parent_asset
-      FROM holds WHERE id = NEW.hold_id;
-    account_tenant := NEW.tenant_id; account_ledger := NEW.ledger_id; account_asset := resolved_id;
-  ELSE
-    RETURN NEW;
-  END IF;
-  IF parent_tenant IS DISTINCT FROM NEW.tenant_id OR account_tenant IS DISTINCT FROM NEW.tenant_id
-    OR parent_asset IS DISTINCT FROM resolved_id OR account_asset IS DISTINCT FROM resolved_id
-    OR parent_ledger IS DISTINCT FROM account_ledger THEN
-    RAISE EXCEPTION 'Cross-asset, cross-ledger or cross-tenant ledger row';
-  END IF;
   RETURN NEW;
 END $$;
 
-CREATE TRIGGER accounts_asset_guard BEFORE INSERT OR UPDATE ON accounts FOR EACH ROW EXECUTE FUNCTION ledger_asset_guard();
-CREATE TRIGGER transactions_asset_guard BEFORE INSERT OR UPDATE ON transactions FOR EACH ROW EXECUTE FUNCTION ledger_asset_guard();
-CREATE TRIGGER entries_asset_guard BEFORE INSERT OR UPDATE ON entries FOR EACH ROW EXECUTE FUNCTION ledger_asset_guard();
-CREATE TRIGGER holds_asset_guard BEFORE INSERT OR UPDATE ON holds FOR EACH ROW EXECUTE FUNCTION ledger_asset_guard();
-CREATE TRIGGER hold_entries_asset_guard BEFORE INSERT OR UPDATE ON hold_entries FOR EACH ROW EXECUTE FUNCTION ledger_asset_guard();
+CREATE TRIGGER accounts_asset_reference_guard BEFORE INSERT OR UPDATE ON accounts FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
+CREATE TRIGGER transactions_asset_reference_guard BEFORE INSERT OR UPDATE ON transactions FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
+CREATE TRIGGER entries_asset_reference_guard BEFORE INSERT OR UPDATE ON entries FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
+CREATE TRIGGER holds_asset_reference_guard BEFORE INSERT OR UPDATE ON holds FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
+CREATE TRIGGER hold_entries_asset_reference_guard BEFORE INSERT OR UPDATE ON hold_entries FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
 
 CREATE FUNCTION asset_identity_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

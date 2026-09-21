@@ -26,6 +26,14 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
   public async create(input: CreateHoldInput): Promise<CreateHoldResult> {
     return this.client.runTenantTx(input.tenantId, 'create hold', async (tx) => {
       await validatePosting(tx, input);
+      const [asset] = await tx
+        .select({ id: schema.assets.id })
+        .from(schema.assets)
+        .where(
+          and(eq(schema.assets.tenantId, input.tenantId), eq(schema.assets.code, input.currency)),
+        )
+        .limit(1);
+      if (!asset) throw new InvariantViolationError('Asset must be created before hold');
 
       const amountMinor = totalDebit(input.entries);
       const [insertedHold] = await tx
@@ -35,6 +43,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           ledgerId: input.ledgerId,
           reference: input.reference,
           currency: input.currency,
+          assetId: asset.id,
           description: input.description ?? null,
           originalAmountMinor: amountMinor,
           remainingAmountMinor: amountMinor,
@@ -111,6 +120,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           direction: entry.direction,
           amountMinor: entry.amountMinor,
           currency: entry.currency,
+          assetId: asset.id,
         })),
       );
 
@@ -255,6 +265,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           holdId: hold.id,
           reference: input.reference,
           currency: hold.currency,
+          assetId: hold.assetId,
           description: hold.description,
         })
         .returning({ id: schema.transactions.id });
@@ -277,6 +288,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           direction: entry.direction,
           amountMinor,
           currency: entry.currency,
+          assetId: hold.assetId,
         };
       });
 

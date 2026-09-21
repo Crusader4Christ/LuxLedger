@@ -67,6 +67,10 @@ export const createTenant = async (db: RepositoryTestDatabase, name: string): Pr
     .insert(schema.tenants)
     .values({ name })
     .returning({ id: schema.tenants.id });
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.tenant_id', ${tenant.id}, true)`);
+    await tx.insert(schema.assets).values({ tenantId: tenant.id, code: 'USD', scale: 2 });
+  });
   return tenant.id;
 };
 
@@ -80,6 +84,24 @@ export const createLedger = async (
     .values({ tenantId, name })
     .returning({ id: schema.ledgers.id });
   return ledger.id;
+};
+
+const ensureTestAsset = async (
+  db: RepositoryTestDatabase,
+  tenantId: string,
+  code: string,
+): Promise<void> => {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+    await tx
+      .insert(schema.assets)
+      .values({
+        tenantId,
+        code,
+        scale: code === 'CREDIT' ? 0 : code === 'USDC' ? 6 : 2,
+      })
+      .onConflictDoNothing({ target: [schema.assets.tenantId, schema.assets.code] });
+  });
 };
 
 export const createAccount = async (
@@ -96,6 +118,7 @@ export const createAccount = async (
     createdAt?: Date;
   },
 ): Promise<string> => {
+  await ensureTestAsset(db, input.tenantId, input.currency);
   const [account] = await db
     .insert(schema.accounts)
     .values({
@@ -124,6 +147,7 @@ export const createTransaction = async (
     createdAt?: Date;
   },
 ): Promise<string> => {
+  await ensureTestAsset(db, input.tenantId, input.currency);
   const [transaction] = await db
     .insert(schema.transactions)
     .values({

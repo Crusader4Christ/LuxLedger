@@ -33,7 +33,7 @@ describe('tenant assets', () => {
       scale: 0,
     });
     expect(credit.id).not.toBe(otherCredit.id);
-    expect(await services.assets.list(tenantId)).toHaveLength(2);
+    expect(await services.assets.list(tenantId)).toHaveLength(3);
     expect((await services.assets.getById(tenantId, euro.id)).scale).toBe(2);
     await expect(services.assets.getById(otherTenantId, euro.id)).rejects.toThrow();
     await expect(

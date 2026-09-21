@@ -332,6 +332,14 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
     await validatePosting(tx, input);
+    const [asset] = await tx
+      .select({ id: schema.assets.id })
+      .from(schema.assets)
+      .where(
+        and(eq(schema.assets.tenantId, input.tenantId), eq(schema.assets.code, input.currency)),
+      )
+      .limit(1);
+    if (!asset) throw new InvariantViolationError('Asset must be created before transaction');
 
     const [inserted] = await tx
       .insert(schema.transactions)
@@ -340,6 +348,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         ledgerId: input.ledgerId,
         reference: input.reference,
         currency: input.currency,
+        assetId: asset.id,
         description: input.description,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
@@ -351,7 +360,12 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       .returning({ id: schema.transactions.id });
 
     if (inserted) {
-      await this.applyPostedTransaction(tx, input, inserted.id, effectiveAt);
+      await this.applyPostedTransaction(
+        tx,
+        { ...input, assetId: asset.id },
+        inserted.id,
+        effectiveAt,
+      );
       return { transactionId: inserted.id, created: true };
     }
 
@@ -496,6 +510,14 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   ): Promise<string> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
     await validatePosting(tx, input);
+    const [asset] = await tx
+      .select({ id: schema.assets.id })
+      .from(schema.assets)
+      .where(
+        and(eq(schema.assets.tenantId, input.tenantId), eq(schema.assets.code, input.currency)),
+      )
+      .limit(1);
+    if (!asset) throw new InvariantViolationError('Asset must be created before transaction');
     const [insertedTransaction] = await tx
       .insert(schema.transactions)
       .values({
@@ -503,6 +525,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         ledgerId: input.ledgerId,
         reference: input.reference,
         currency: input.currency,
+        assetId: asset.id,
         description: input.description,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
@@ -510,7 +533,12 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       })
       .returning({ id: schema.transactions.id });
 
-    await this.applyPostedTransaction(tx, input, insertedTransaction.id, effectiveAt);
+    await this.applyPostedTransaction(
+      tx,
+      { ...input, assetId: asset.id },
+      insertedTransaction.id,
+      effectiveAt,
+    );
     return insertedTransaction.id;
   }
 
@@ -520,6 +548,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       tenantId: string;
       ledgerId: string;
       currency: string;
+      assetId: string;
       entries: Array<{
         accountId: string;
         direction: EntryDirection;
@@ -538,6 +567,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         direction: entry.direction,
         amountMinor: entry.amountMinor,
         currency: entry.currency,
+        assetId: input.assetId,
       })),
     );
     const entriesForBalanceUpdate = aggregateAccountEntries(input.entries);

@@ -103,7 +103,7 @@ export const accounts = pgTable(
     side: accountSideEnum('side').notNull(),
     overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id').notNull().default(sql`null`),
+    assetId: uuid('asset_id'),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' })
       .notNull()
@@ -175,7 +175,7 @@ export const holds = pgTable(
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id').notNull().default(sql`null`),
+    assetId: uuid('asset_id'),
     description: text('description'),
     state: holdStateEnum('state').notNull().default('HELD'),
     originalAmountMinor: bigint('original_amount_minor', { mode: 'bigint' }).notNull(),
@@ -214,7 +214,7 @@ export const holdEntries = pgTable(
     direction: entryDirectionEnum('direction').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id').notNull().default(sql`null`),
+    assetId: uuid('asset_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -253,7 +253,7 @@ export const transactions = pgTable(
     relationType: transactionRelationTypeEnum('relation_type'),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id').notNull().default(sql`null`),
+    assetId: uuid('asset_id'),
     description: text('description'),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -303,7 +303,7 @@ export const entries = pgTable(
     direction: entryDirectionEnum('direction').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id').notNull().default(sql`null`),
+    assetId: uuid('asset_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
