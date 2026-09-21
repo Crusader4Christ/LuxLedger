@@ -211,6 +211,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           `Unable to commit hold: invalid hold state ${hold.state}`,
         );
       }
+      this.assertHeldAmount(hold, 'commit');
 
       const commitAmount = input.amountMinor ?? hold.remainingAmountMinor;
       if (commitAmount <= 0n) {
@@ -232,6 +233,9 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         .orderBy(asc(schema.holdEntries.createdAt), asc(schema.holdEntries.id));
       if (holdEntries.length < 2) {
         throw new InvariantViolationError('Unable to commit hold: hold entries are missing');
+      }
+      if (holdEntries.some((entry) => entry.currency !== hold.currency)) {
+        throw new InvariantViolationError('Unable to commit hold: entry currency mismatch');
       }
 
       const [insertedTransaction] = await tx
@@ -283,6 +287,8 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             and(
               eq(schema.accounts.id, entry.accountId),
               eq(schema.accounts.tenantId, input.tenantId),
+              eq(schema.accounts.ledgerId, hold.ledgerId),
+              eq(schema.accounts.currency, hold.currency),
               gte(schema.accounts.inflightDebitMinor, entry.debitMinor),
               gte(schema.accounts.inflightCreditMinor, entry.creditMinor),
             ),
@@ -354,6 +360,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
       if (hold.state !== 'HELD') {
         throw new InvariantViolationError(`Unable to void hold: invalid hold state ${hold.state}`);
       }
+      this.assertHeldAmount(hold, 'void');
 
       const holdEntries = await tx
         .select()
@@ -366,6 +373,9 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         );
       if (holdEntries.length < 2) {
         throw new InvariantViolationError('Unable to void hold: hold entries are missing');
+      }
+      if (holdEntries.some((entry) => entry.currency !== hold.currency)) {
+        throw new InvariantViolationError('Unable to void hold: entry currency mismatch');
       }
       const releases = aggregateAccountEntries(
         holdEntries.map((entry) => ({
@@ -392,6 +402,8 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             and(
               eq(schema.accounts.id, entry.accountId),
               eq(schema.accounts.tenantId, input.tenantId),
+              eq(schema.accounts.ledgerId, hold.ledgerId),
+              eq(schema.accounts.currency, hold.currency),
               gte(schema.accounts.inflightDebitMinor, entry.debitMinor),
               gte(schema.accounts.inflightCreditMinor, entry.creditMinor),
             ),
@@ -474,9 +486,6 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
   }
 
   private remainingEntryAmount(amountMinor: bigint, hold: HoldRow): bigint {
-    if (hold.originalAmountMinor <= 0n || hold.remainingAmountMinor <= 0n) {
-      throw new InvariantViolationError('Unable to void hold: invalid remaining reservation');
-    }
     const scaled = amountMinor * hold.remainingAmountMinor;
     if (scaled % hold.originalAmountMinor !== 0n) {
       throw new InvariantViolationError(
@@ -484,6 +493,18 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
       );
     }
     return scaled / hold.originalAmountMinor;
+  }
+
+  private assertHeldAmount(hold: HoldRow, operation: 'commit' | 'void'): void {
+    if (
+      hold.originalAmountMinor <= 0n ||
+      hold.remainingAmountMinor <= 0n ||
+      hold.remainingAmountMinor > hold.originalAmountMinor
+    ) {
+      throw new InvariantViolationError(
+        `Unable to ${operation} hold: invalid remaining reservation`,
+      );
+    }
   }
 
   private async lockHold(

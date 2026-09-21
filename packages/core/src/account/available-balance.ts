@@ -1,5 +1,6 @@
+import { AccountId } from '../base/id';
 import { EntryDirection } from '../entry/entity';
-import { validateEntryDirection } from '../entry/validators';
+import { validateEntryAmount, validateEntryDirection } from '../entry/validators';
 
 type BalanceEntry = {
   accountId: string;
@@ -13,7 +14,9 @@ export const aggregateAccountEntries = (entries: readonly BalanceEntry[]) => {
     { accountId: string; debitMinor: bigint; creditMinor: bigint }
   >();
   for (const entry of entries) {
+    new AccountId(entry.accountId);
     validateEntryDirection(entry.direction);
+    validateEntryAmount(entry.amountMinor);
     const total = byAccount.get(entry.accountId) ?? {
       accountId: entry.accountId,
       debitMinor: 0n,

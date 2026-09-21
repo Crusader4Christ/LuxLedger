@@ -4,6 +4,7 @@ import {
   BulkTransactionError,
   InvariantViolationError,
   OverdraftPolicyViolationError,
+  RepositoryError,
 } from '@luxledger/core/application';
 import { InvalidDirectionError } from '@luxledger/core/transaction';
 import { eq } from 'drizzle-orm';
@@ -250,6 +251,123 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect(await f.state()).toEqual({ posted: 100n, debit: 5n, credit: 3n, available: 98n });
     await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
     expect((await f.state()).available).toBe(100n);
+  });
+
+  it('rejects a fractional per-entry commit even when account totals divide exactly', async () => {
+    const f = await setup();
+    const request = {
+      ...f.request('split-hold', 2n),
+      entries: [
+        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 1n, currency: 'USD' },
+        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 1n, currency: 'USD' },
+        {
+          accountId: f.receiveId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+        {
+          accountId: f.receiveId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+      ],
+    };
+    const held = await holdRepository.create(request);
+    const before = await f.counts();
+    await expect(
+      holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'split-commit',
+        amountMinor: 1n,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    expect(await f.counts()).toEqual(before);
+    expect((await f.state()).debit).toBe(2n);
+    await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
+    expect((await f.state()).debit).toBe(0n);
+  });
+
+  it('rejects a corrupted hold remainder above its original amount', async () => {
+    const f = await setup();
+    const held = await holdRepository.create(f.request('hold', 2n));
+    await db.update(holds).set({ remainingAmountMinor: 3n }).where(eq(holds.id, held.holdId));
+    const before = await f.counts();
+    await expect(
+      holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'commit',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(
+      holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    expect(await f.counts()).toEqual(before);
+    expect(await f.state()).toEqual({ posted: 100n, debit: 2n, credit: 0n, available: 98n });
+  });
+
+  it('rejects cross-ledger hold entries during commit and void', async () => {
+    const f = await setup();
+    const held = await holdRepository.create(f.request('hold', 2n));
+    const otherLedgerId = await createLedger(db, f.tenantId, 'Other ledger');
+    const otherAccountId = await createAccount(db, {
+      tenantId: f.tenantId,
+      ledgerId: otherLedgerId,
+      name: 'Other account',
+      currency: 'USD',
+    });
+    await db
+      .update(holdEntries)
+      .set({ accountId: otherAccountId })
+      .where(eq(holdEntries.accountId, f.receiveId));
+    const before = await f.counts();
+    await expect(
+      holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'commit',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(
+      holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    expect(await f.counts()).toEqual(before);
+    const [otherAccount] = await db.select().from(accounts).where(eq(accounts.id, otherAccountId));
+    expect(otherAccount.balanceMinor).toBe(0n);
+    expect(otherAccount.inflightCreditMinor).toBe(0n);
+    expect((await f.state()).debit).toBe(2n);
+  });
+
+  it('rolls back an earlier account update and snapshots when a later hold account overflows', async () => {
+    const f = await setup('ALLOW');
+    const [firstId, secondId] = [f.spendId, f.receiveId].sort();
+    await db
+      .update(accounts)
+      .set({ inflightCreditMinor: 9223372036854775807n })
+      .where(eq(accounts.id, secondId));
+    const before = await f.counts();
+    await expect(
+      holdRepository.create({
+        ...f.request('overflow-hold', 1n),
+        entries: [
+          { accountId: firstId, direction: EntryDirection.DEBIT, amountMinor: 1n, currency: 'USD' },
+          {
+            accountId: secondId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(RepositoryError);
+    expect(await f.counts()).toEqual(before);
+    const [firstAccount] = await db.select().from(accounts).where(eq(accounts.id, firstId));
+    const [secondAccount] = await db.select().from(accounts).where(eq(accounts.id, secondId));
+    expect(firstAccount.inflightDebitMinor).toBe(0n);
+    expect(secondAccount.inflightCreditMinor).toBe(9223372036854775807n);
   });
 
   it('fails closed when a corrupted hold remainder cannot be released exactly', async () => {
