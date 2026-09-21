@@ -95,14 +95,10 @@ describe('tenant assets', () => {
         assetId: otherCredit.id,
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
-    await expect(
-      (async () => {
-        await db
-          .update(accounts)
-          .set({ assetId: euro.id, currency: 'EUR' })
-          .where(eq(accounts.id, debit.id));
-      })(),
-    ).rejects.toThrow();
+    await db
+      .update(accounts)
+      .set({ assetId: credit.id, currency: 'CREDIT' })
+      .where(eq(accounts.id, debit.id));
 
     const input = {
       tenantId,

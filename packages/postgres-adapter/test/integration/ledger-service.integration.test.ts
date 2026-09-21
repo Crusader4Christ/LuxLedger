@@ -14,6 +14,7 @@ import {
 } from '@luxledger/postgres-adapter';
 import {
   accounts,
+  assets,
   reconRuns,
   reconUploads,
   transactions,
@@ -63,6 +64,12 @@ const createAccount = async (input: {
   currency: string;
   balanceMinor?: bigint;
 }): Promise<string> => {
+  await client.runTenantTx(input.tenantId, 'seed test asset', async (tx) => {
+    await tx
+      .insert(assets)
+      .values({ tenantId: input.tenantId, code: input.currency, scale: 2 })
+      .onConflictDoNothing({ target: [assets.tenantId, assets.code] });
+  });
   const [account] = await db
     .insert(accounts)
     .values({
