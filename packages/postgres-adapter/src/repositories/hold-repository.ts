@@ -173,7 +173,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
       }
 
       const [existingTransaction] = await tx
-        .select({ id: schema.transactions.id })
+        .select({ id: schema.transactions.id, holdId: schema.transactions.holdId })
         .from(schema.transactions)
         .where(
           and(
@@ -183,20 +183,29 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         )
         .limit(1);
       if (existingTransaction) {
-        const [sameHold] = await tx
-          .select({ id: schema.transactions.id })
-          .from(schema.transactions)
-          .where(
-            and(
-              eq(schema.transactions.id, existingTransaction.id),
-              eq(schema.transactions.holdId, input.holdId),
-            ),
-          )
-          .limit(1);
-        if (!sameHold) {
+        if (existingTransaction.holdId !== input.holdId) {
           throw new InvariantViolationError(
             'Unable to commit hold: reference belongs to different transaction',
           );
+        }
+        if (input.amountMinor !== undefined) {
+          const committedDebits = await tx
+            .select({ amountMinor: schema.entries.amountMinor })
+            .from(schema.entries)
+            .where(
+              and(
+                eq(schema.entries.tenantId, input.tenantId),
+                eq(schema.entries.transactionId, existingTransaction.id),
+                eq(schema.entries.direction, 'DEBIT'),
+              ),
+            );
+          const committedAmount = committedDebits.reduce(
+            (sum, entry) => sum + entry.amountMinor,
+            0n,
+          );
+          if (committedAmount !== input.amountMinor) {
+            throw new InvariantViolationError('Unable to commit hold: reference amount mismatch');
+          }
         }
         return {
           holdId: hold.id,

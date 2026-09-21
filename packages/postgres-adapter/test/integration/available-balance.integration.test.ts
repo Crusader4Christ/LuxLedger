@@ -183,6 +183,41 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect((await transactionRepository.create(f.request('released', 70n))).created).toBeTrue();
   });
 
+  it('rejects a commit retry with the same reference and a different explicit amount', async () => {
+    const f = await setup();
+    const held = await holdRepository.create(f.request('hold', 80n));
+    const first = await holdRepository.commit({
+      tenantId: f.tenantId,
+      holdId: held.holdId,
+      reference: 'commit',
+      amountMinor: 30n,
+    });
+    const before = await f.counts();
+    const balanceBefore = await f.state();
+    await expect(
+      holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'commit',
+        amountMinor: 50n,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    expect(await f.counts()).toEqual(before);
+    expect(await f.state()).toEqual(balanceBefore);
+    expect((await db.select().from(holds).where(eq(holds.id, held.holdId)))[0]).toMatchObject({
+      state: 'HELD',
+      remainingAmountMinor: 50n,
+    });
+    expect(
+      await holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'commit',
+        amountMinor: 30n,
+      }),
+    ).toMatchObject({ created: false, transactionId: first.transactionId });
+  });
+
   it('releases exact mixed-direction reservations after a partial commit', async () => {
     const f = await setup();
     const held = await holdRepository.create({
