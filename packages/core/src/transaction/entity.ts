@@ -61,10 +61,7 @@ export class TransactionEntity {
       throw new InvalidTransactionRelationError();
     }
     validateEntryCurrencies(this.entries, this.currency);
-    if (
-      this.assetId !== null &&
-      this.entries.some((entry) => entry.assetId !== null && entry.assetId !== this.assetId)
-    ) {
+    if (this.entries.some((entry) => entry.assetId !== this.assetId)) {
       throw new AssetMismatchError();
     }
     validateEntryAmounts(this.entries);

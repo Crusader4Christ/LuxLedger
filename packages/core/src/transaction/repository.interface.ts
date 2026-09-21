@@ -4,6 +4,7 @@ export interface TransactionAccountSnapshot {
   id: AccountId;
   ledgerId: LedgerId;
   currency: string;
+  assetId?: string | null;
 }
 
 export interface TransactionRepository {

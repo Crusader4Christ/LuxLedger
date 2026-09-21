@@ -8,7 +8,8 @@ export class AssetService {
 
   public async create(input: CreateAssetInput): Promise<Asset> {
     assertNonEmpty(input.tenantId, 'tenantId is required');
-    if (!/^[A-Z][A-Z0-9_]{1,31}$/.test(input.code)) {
+    const code = input.code.trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{1,31}$/.test(code)) {
       throw new InvariantViolationError(
         'asset code must be 2-32 uppercase letters, digits or underscores',
       );
@@ -16,7 +17,7 @@ export class AssetService {
     if (!Number.isInteger(input.scale) || input.scale < 0 || input.scale > 18) {
       throw new InvariantViolationError('asset scale must be an integer from 0 to 18');
     }
-    return this.repository.create(input);
+    return this.repository.create({ ...input, code });
   }
 
   public async getById(tenantId: string, assetId: string): Promise<Asset> {

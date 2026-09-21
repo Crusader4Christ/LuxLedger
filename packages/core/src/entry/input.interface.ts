@@ -5,6 +5,7 @@ export interface TransactionEntryInput {
   direction: EntryDirection;
   amountMinor: bigint;
   currency: string;
+  assetId?: string | null;
 }
 
 export interface CreateEntryInput extends TransactionEntryInput {

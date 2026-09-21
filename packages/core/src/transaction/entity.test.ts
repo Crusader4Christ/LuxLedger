@@ -3,18 +3,25 @@ import { describe, expect, it } from 'bun:test';
 import { AccountId, LedgerId, Money, TransactionId } from '../base';
 import { EntryDirection, EntryEntity } from '../entry/entity';
 import { TransactionEntity } from './';
-import { MissingReferenceError, NotEnoughEntriesError, UnbalancedTransactionError } from './errors';
+import {
+  AssetMismatchError,
+  MissingReferenceError,
+  NotEnoughEntriesError,
+  UnbalancedTransactionError,
+} from './errors';
 
 const buildEntry = (input: {
   accountId: string;
   direction: EntryDirection;
   amountMinor: bigint;
   currency?: string;
+  assetId?: string | null;
 }): EntryEntity =>
   new EntryEntity({
     accountId: new AccountId(input.accountId),
     direction: input.direction,
     money: Money.of(input.amountMinor, input.currency ?? 'USD'),
+    assetId: input.assetId,
   });
 
 describe('TransactionEntity', () => {
@@ -98,5 +105,27 @@ describe('TransactionEntity', () => {
           ],
         }),
     ).toThrowError(UnbalancedTransactionError);
+  });
+
+  it('rejects null or stale entry assets when transaction asset is known', () => {
+    expect(
+      () =>
+        new TransactionEntity({
+          id: new TransactionId('tx-1'),
+          ledgerId: new LedgerId('ledger-1'),
+          reference: 'ref-1',
+          currency: 'USD',
+          assetId: 'asset-usd',
+          entries: [
+            buildEntry({ accountId: 'a-1', direction: EntryDirection.DEBIT, amountMinor: 100n }),
+            buildEntry({
+              accountId: 'a-2',
+              direction: EntryDirection.CREDIT,
+              amountMinor: 100n,
+              assetId: null,
+            }),
+          ],
+        }),
+    ).toThrowError(AssetMismatchError);
   });
 });

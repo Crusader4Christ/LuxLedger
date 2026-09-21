@@ -20,7 +20,7 @@ B avoids a later rewrite of financial identity. `CREDIT` is one asset; promotion
 
 `recon_records.currency` remains text because it describes an external uploaded record, not a posted ledger unit. Reconciliation still compares that code with the immutable transaction code.
 
-Known legacy codes can be created on first use at CREDIT=0, EUR/USD=2, USDC=6. Other codes require explicit `AssetService.create({ tenantId, code, scale })` first. Codes must match `^[A-Z][A-Z0-9_]{1,31}$`; code and scale are immutable, including before first posting. Use a new asset for a different scale or meaning. No automatic `PROMO_CREDIT` asset is created.
+Known legacy codes can be created on first use at CREDIT=0, EUR/USD=2, USDC=6 for compatibility with the published currency-only account API. New integrations should call `AssetService.create({ tenantId, code, scale })` first; that is the only way to register a new code or a non-default scale. Codes must match `^[A-Z][A-Z0-9_]{1,31}$`; the service normalizes surrounding whitespace and case, and code and scale are immutable after registration. Use a new asset for a different scale or meaning. No automatic `PROMO_CREDIT` asset is created.
 
 Idempotency remains keyed by `(tenant_id, reference)` and compares the existing currency and entry payload. Because each code maps to exactly one immutable asset ID inside its tenant, an identical retry resolves to the same asset; a conflicting code or entry fails. Reversal/correction use the original code and therefore the original asset. Existing balance snapshots reference immutable accounts and need no second asset column.
 

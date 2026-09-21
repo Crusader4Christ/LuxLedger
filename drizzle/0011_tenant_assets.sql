@@ -49,6 +49,7 @@ CREATE TABLE assets (
   CONSTRAINT assets_tenant_id_uq UNIQUE (tenant_id, id)
 );
 ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assets FORCE ROW LEVEL SECURITY;
 CREATE POLICY assets_tenant_rls ON assets
   USING (tenant_id::text = current_setting('app.tenant_id', true))
   WITH CHECK (tenant_id::text = current_setting('app.tenant_id', true));
