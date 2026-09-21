@@ -1,4 +1,4 @@
-import { EntryDirection } from '@luxledger/core';
+import type { EntryDirection } from '@luxledger/core';
 import {
   type CommitHoldInput,
   type CommitHoldResult,
@@ -6,7 +6,6 @@ import {
   type CreateHoldResult,
   type HoldApplicationRepository,
   InvariantViolationError,
-  OverdraftPolicyViolationError,
   RepositoryError,
   type VoidHoldInput,
   type VoidHoldResult,
@@ -15,6 +14,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import * as schema from '../schema';
+import { aggregateAccountEntries, assertAvailableBalance } from './available-balance';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { totalDebit, validatePosting } from './posting-validation';
 
@@ -114,20 +114,12 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         })),
       );
 
-      for (const entry of [...input.entries].sort((a, b) =>
-        a.accountId.localeCompare(b.accountId),
-      )) {
+      for (const entry of aggregateAccountEntries(input.entries)) {
         const [updatedAccount] = await tx
           .update(schema.accounts)
           .set({
-            inflightDebitMinor:
-              entry.direction === EntryDirection.DEBIT
-                ? sql`${schema.accounts.inflightDebitMinor} + ${entry.amountMinor}`
-                : schema.accounts.inflightDebitMinor,
-            inflightCreditMinor:
-              entry.direction === EntryDirection.CREDIT
-                ? sql`${schema.accounts.inflightCreditMinor} + ${entry.amountMinor}`
-                : schema.accounts.inflightCreditMinor,
+            inflightDebitMinor: sql`${schema.accounts.inflightDebitMinor} + ${entry.debitMinor}`,
+            inflightCreditMinor: sql`${schema.accounts.inflightCreditMinor} + ${entry.creditMinor}`,
             updatedAt: sql`now()`,
           })
           .where(
@@ -151,6 +143,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             'Unable to create hold: account ledger/currency mismatch',
           );
         }
+        assertAvailableBalance(updatedAccount);
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,
           eventType: 'HOLD_CREATED',
@@ -276,21 +269,14 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
 
       await tx.insert(schema.entries).values(committedEntries);
 
-      for (const entry of committedEntries.sort((a, b) => a.accountId.localeCompare(b.accountId))) {
-        const delta =
-          entry.direction === EntryDirection.DEBIT ? -entry.amountMinor : entry.amountMinor;
+      for (const entry of aggregateAccountEntries(committedEntries)) {
+        const delta = entry.creditMinor - entry.debitMinor;
         const [updatedAccount] = await tx
           .update(schema.accounts)
           .set({
             balanceMinor: sql`${schema.accounts.balanceMinor} + ${delta}`,
-            inflightDebitMinor:
-              entry.direction === EntryDirection.DEBIT
-                ? sql`${schema.accounts.inflightDebitMinor} - ${entry.amountMinor}`
-                : schema.accounts.inflightDebitMinor,
-            inflightCreditMinor:
-              entry.direction === EntryDirection.CREDIT
-                ? sql`${schema.accounts.inflightCreditMinor} - ${entry.amountMinor}`
-                : schema.accounts.inflightCreditMinor,
+            inflightDebitMinor: sql`${schema.accounts.inflightDebitMinor} - ${entry.debitMinor}`,
+            inflightCreditMinor: sql`${schema.accounts.inflightCreditMinor} - ${entry.creditMinor}`,
             updatedAt: sql`now()`,
           })
           .where(
@@ -310,9 +296,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         if (!updatedAccount) {
           throw new InvariantViolationError('Unable to commit hold: account not found');
         }
-        if (updatedAccount.overdraftPolicy === 'DISALLOW' && updatedAccount.balanceMinor < 0n) {
-          throw new OverdraftPolicyViolationError(updatedAccount.id, updatedAccount.balanceMinor);
-        }
+        assertAvailableBalance(updatedAccount);
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,
           eventType: 'HOLD_COMMITTED',
@@ -376,20 +360,19 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             eq(schema.holdEntries.holdId, input.holdId),
           ),
         );
-      for (const entry of holdEntries) {
-        const releaseAmount =
-          (entry.amountMinor * hold.remainingAmountMinor) / hold.originalAmountMinor;
+      const releases = aggregateAccountEntries(
+        holdEntries.map((entry) => ({
+          accountId: entry.accountId,
+          direction: entry.direction,
+          amountMinor: (entry.amountMinor * hold.remainingAmountMinor) / hold.originalAmountMinor,
+        })),
+      );
+      for (const entry of releases) {
         const [updated] = await tx
           .update(schema.accounts)
           .set({
-            inflightDebitMinor:
-              entry.direction === EntryDirection.DEBIT
-                ? sql`${schema.accounts.inflightDebitMinor} - ${releaseAmount}`
-                : schema.accounts.inflightDebitMinor,
-            inflightCreditMinor:
-              entry.direction === EntryDirection.CREDIT
-                ? sql`${schema.accounts.inflightCreditMinor} - ${releaseAmount}`
-                : schema.accounts.inflightCreditMinor,
+            inflightDebitMinor: sql`${schema.accounts.inflightDebitMinor} - ${entry.debitMinor}`,
+            inflightCreditMinor: sql`${schema.accounts.inflightCreditMinor} - ${entry.creditMinor}`,
             updatedAt: sql`now()`,
           })
           .where(
