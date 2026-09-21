@@ -1,10 +1,12 @@
 import {
+  aggregateAccountEntries,
   EntryDirection,
   type EntryEntity,
   isDomainError,
   type TransactionEntity,
 } from '@luxledger/core';
 import {
+  assertAvailableBalance,
   type BulkCreateTransactionInput,
   type BulkCreateTransactionResult,
   BulkTransactionError,
@@ -28,7 +30,6 @@ import { toEntryEntity } from '../mappers/entry-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
-import { aggregateAccountEntries, assertAvailableBalance } from './available-balance';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
 import { validatePosting, validatePostingEntries } from './posting-validation';

@@ -1,5 +1,6 @@
-import type { EntryDirection } from '@luxledger/core';
+import { aggregateAccountEntries, type EntryDirection } from '@luxledger/core';
 import {
+  assertAvailableBalance,
   type CommitHoldInput,
   type CommitHoldResult,
   type CreateHoldInput,
@@ -14,7 +15,6 @@ import { and, asc, eq, gte, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import * as schema from '../schema';
-import { aggregateAccountEntries, assertAvailableBalance } from './available-balance';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { totalDebit, validatePosting } from './posting-validation';
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { EntryDirection } from '@luxledger/core';
-import { aggregateAccountEntries } from './available-balance';
+import { EntryDirection } from '../entry/entity';
+import { InvalidDirectionError } from '../transaction/errors';
+import { aggregateAccountEntries, calculateAvailableMinor } from './available-balance';
 
 describe('aggregateAccountEntries', () => {
   it('sums mixed directions per account without changing the input', () => {
@@ -15,5 +16,23 @@ describe('aggregateAccountEntries', () => {
       { accountId: 'b', debitMinor: 0n, creditMinor: 3n },
     ]);
     expect(entries[0].accountId).toBe('b');
+  });
+
+  it('uses core direction validation for unsafe runtime input', () => {
+    expect(() =>
+      aggregateAccountEntries([
+        { accountId: 'a', direction: 'INVALID' as EntryDirection, amountMinor: 10n },
+      ]),
+    ).toThrow(InvalidDirectionError);
+  });
+
+  it('calculates signed availability from posted and in-flight amounts', () => {
+    expect(
+      calculateAvailableMinor({
+        balanceMinor: 100n,
+        inflightDebitMinor: 70n,
+        inflightCreditMinor: 20n,
+      }),
+    ).toBe(50n);
   });
 });
