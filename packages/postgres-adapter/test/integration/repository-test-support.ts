@@ -1,5 +1,5 @@
 import type { EntryDirection } from '@luxledger/core';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { createDbClient, type DbClient } from '../../src/client';
@@ -90,7 +90,7 @@ const ensureTestAsset = async (
   db: RepositoryTestDatabase,
   tenantId: string,
   code: string,
-): Promise<void> => {
+): Promise<string> => {
   await db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
     await tx
@@ -102,6 +102,12 @@ const ensureTestAsset = async (
       })
       .onConflictDoNothing({ target: [schema.assets.tenantId, schema.assets.code] });
   });
+  const [asset] = await db
+    .select({ id: schema.assets.id })
+    .from(schema.assets)
+    .where(and(eq(schema.assets.tenantId, tenantId), eq(schema.assets.code, code)));
+  if (!asset) throw new Error(`Test asset was not created: ${tenantId}/${code}`);
+  return asset.id;
 };
 
 export const createAccount = async (
@@ -118,7 +124,7 @@ export const createAccount = async (
     createdAt?: Date;
   },
 ): Promise<string> => {
-  await ensureTestAsset(db, input.tenantId, input.currency);
+  const assetId = await ensureTestAsset(db, input.tenantId, input.currency);
   const [account] = await db
     .insert(schema.accounts)
     .values({
@@ -129,6 +135,7 @@ export const createAccount = async (
       side: input.side ?? 'DEBIT',
       overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
       currency: input.currency,
+      assetId,
       balanceMinor: input.balanceMinor ?? 0n,
       createdAt: input.createdAt,
     })
@@ -147,7 +154,7 @@ export const createTransaction = async (
     createdAt?: Date;
   },
 ): Promise<string> => {
-  await ensureTestAsset(db, input.tenantId, input.currency);
+  const assetId = await ensureTestAsset(db, input.tenantId, input.currency);
   const [transaction] = await db
     .insert(schema.transactions)
     .values({
@@ -155,6 +162,7 @@ export const createTransaction = async (
       ledgerId: input.ledgerId,
       reference: input.reference,
       currency: input.currency,
+      assetId,
       description: input.description ?? null,
       createdAt: input.createdAt,
     })
@@ -174,9 +182,14 @@ export const createEntry = async (
     createdAt?: Date;
   },
 ): Promise<string> => {
+  const [asset] = await db
+    .select({ id: schema.assets.id })
+    .from(schema.assets)
+    .where(and(eq(schema.assets.tenantId, input.tenantId), eq(schema.assets.code, input.currency)));
+  if (!asset) throw new Error(`Test asset was not created: ${input.tenantId}/${input.currency}`);
   const [entry] = await db
     .insert(schema.entries)
-    .values(input)
+    .values({ ...input, assetId: asset.id })
     .returning({ id: schema.entries.id });
   return entry.id;
 };
