@@ -344,7 +344,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect(await f.state()).toEqual({ posted: 100n, debit: 2n, credit: 0n, available: 98n });
   });
 
-  it('rejects cross-ledger hold entries during commit and void', async () => {
+  it('rejects cross-ledger hold entry mutation at the database boundary', async () => {
     const f = await setup();
     const held = await holdRepository.create(f.request('hold', 2n));
     const otherLedgerId = await createLedger(db, f.tenantId, 'Other ledger');
@@ -354,26 +354,22 @@ describe('DISALLOW available balance across holds and postings', () => {
       name: 'Other account',
       currency: 'USD',
     });
-    await db
-      .update(holdEntries)
-      .set({ accountId: otherAccountId })
-      .where(eq(holdEntries.accountId, f.receiveId));
+    await expect(
+      (async () => {
+        await db
+          .update(holdEntries)
+          .set({ accountId: otherAccountId })
+          .where(eq(holdEntries.accountId, f.receiveId));
+      })(),
+    ).rejects.toThrow();
     const before = await f.counts();
-    await expect(
-      holdRepository.commit({
-        tenantId: f.tenantId,
-        holdId: held.holdId,
-        reference: 'commit',
-      }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
-    await expect(
-      holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
     const [otherAccount] = await db.select().from(accounts).where(eq(accounts.id, otherAccountId));
     expect(otherAccount.balanceMinor).toBe(0n);
     expect(otherAccount.inflightCreditMinor).toBe(0n);
     expect((await f.state()).debit).toBe(2n);
+    const result = await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
+    expect(result.voided).toBeTrue();
   });
 
   it('rolls back an earlier account update and snapshots when a later hold account overflows', async () => {

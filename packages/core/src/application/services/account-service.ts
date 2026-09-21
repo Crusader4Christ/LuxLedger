@@ -13,6 +13,7 @@ export class AccountService {
     assertNonEmpty(input.ledgerId, 'ledgerId is required');
     assertNonEmpty(input.name, 'name is required');
     assertNonEmpty(input.currency, 'currency is required');
+    if (input.assetId !== undefined) assertNonEmpty(input.assetId, 'assetId is required');
     if (!(Object.values(AccountSide) as string[]).includes(input.side)) {
       throw new InvariantViolationError('account side must be DEBIT or CREDIT');
     }

@@ -11,6 +11,7 @@ export const toTransactionEntity = (
     ledgerId: new LedgerId(row.ledgerId),
     reference: row.reference,
     currency: row.currency,
+    assetId: row.assetId,
     description: row.description,
     relatedTransactionId: row.relatedTransactionId,
     relationType: row.relationType,

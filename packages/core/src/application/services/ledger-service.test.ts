@@ -90,6 +90,7 @@ class InMemoryLedgerRepository {
       ledgerId: new LedgerId(input.ledgerId),
       reference: input.reference,
       currency: input.currency,
+      assetId: null,
       description: input.description ?? null,
       createdAt: new Date(),
       entries: input.entries.map(
@@ -208,6 +209,7 @@ class InMemoryLedgerRepository {
       side: input.side,
       overdraftPolicy: 'ALLOW',
       currency: input.currency,
+      assetId: null,
       balanceMinor: 0n,
       createdAt: new Date(),
     };

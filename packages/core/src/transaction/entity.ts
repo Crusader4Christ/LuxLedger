@@ -1,6 +1,6 @@
 import type { LedgerId, TransactionId } from '../base/id';
 import type { EntryEntity } from '../entry/entity';
-import { InvalidTransactionRelationError } from './errors';
+import { AssetMismatchError, InvalidTransactionRelationError } from './errors';
 import {
   validateDoubleEntry,
   validateEntryAmounts,
@@ -14,6 +14,7 @@ export class TransactionEntity {
   public readonly ledgerId: LedgerId;
   public readonly reference: string;
   public readonly currency: string;
+  public readonly assetId: string | null;
   public readonly description: string | null;
   public readonly relatedTransactionId: string | null;
   public readonly relationType: 'REVERSAL' | 'CORRECTION' | null;
@@ -27,6 +28,7 @@ export class TransactionEntity {
     ledgerId: LedgerId;
     reference: string;
     currency: string;
+    assetId?: string | null;
     description?: string | null;
     relatedTransactionId?: string | null;
     relationType?: 'REVERSAL' | 'CORRECTION' | null;
@@ -39,6 +41,7 @@ export class TransactionEntity {
     this.ledgerId = input.ledgerId;
     this.reference = input.reference;
     this.currency = input.currency;
+    this.assetId = input.assetId ?? null;
     this.description = input.description ?? null;
     this.relatedTransactionId = input.relatedTransactionId ?? null;
     this.relationType = input.relationType ?? null;
@@ -58,6 +61,12 @@ export class TransactionEntity {
       throw new InvalidTransactionRelationError();
     }
     validateEntryCurrencies(this.entries, this.currency);
+    if (
+      this.assetId !== null &&
+      this.entries.some((entry) => entry.assetId !== null && entry.assetId !== this.assetId)
+    ) {
+      throw new AssetMismatchError();
+    }
     validateEntryAmounts(this.entries);
     validateDoubleEntry(this.entries);
   }

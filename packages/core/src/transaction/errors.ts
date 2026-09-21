@@ -30,6 +30,12 @@ export class CurrencyMismatchError extends DomainError {
   }
 }
 
+export class AssetMismatchError extends DomainError {
+  public constructor() {
+    super('entry asset must match transaction asset', 'ASSET_MISMATCH');
+  }
+}
+
 export class MissingReferenceError extends DomainError {
   public constructor() {
     super('transaction reference is required', 'REFERENCE_REQUIRED');

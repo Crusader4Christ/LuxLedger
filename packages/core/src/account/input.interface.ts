@@ -8,4 +8,5 @@ export interface CreateAccountInput {
   side: AccountSide;
   overdraftPolicy?: OverdraftPolicy;
   currency: string;
+  assetId?: string;
 }

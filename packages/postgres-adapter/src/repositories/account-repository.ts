@@ -38,6 +38,7 @@ export class DrizzleAccountRepository implements AccountRepository {
           side: input.side,
           overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
           currency: input.currency,
+          assetId: input.assetId,
         })
         .returning();
       return toAccountEntity(created);

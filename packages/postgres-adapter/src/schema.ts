@@ -5,7 +5,9 @@ import {
   bigint,
   boolean,
   check,
+  foreignKey,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -20,6 +22,25 @@ export const tenants = pgTable('tenants', {
   name: text('name').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const assets = pgTable(
+  'assets',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    code: text('code').notNull(),
+    scale: integer('scale').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    assetsTenantCodeUq: uniqueIndex('assets_tenant_code_uq').on(table.tenantId, table.code),
+    assetsTenantIdUq: uniqueIndex('assets_tenant_id_uq').on(table.tenantId, table.id),
+    assetsCodeChk: check('assets_code_chk', sql`${table.code} ~ '^[A-Z][A-Z0-9_]{1,31}$'`),
+    assetsScaleChk: check('assets_scale_chk', sql`${table.scale} between 0 and 18`),
+  }),
+);
 
 export const accountSideEnum = pgEnum(
   'account_side',
@@ -82,6 +103,7 @@ export const accounts = pgTable(
     side: accountSideEnum('side').notNull(),
     overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
     currency: text('currency').notNull(),
+    assetId: uuid('asset_id').notNull().default(sql`null`),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' })
       .notNull()
@@ -93,6 +115,11 @@ export const accounts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    accountsAssetFk: foreignKey({
+      name: 'accounts_asset_fk',
+      columns: [table.tenantId, table.assetId],
+      foreignColumns: [assets.tenantId, assets.id],
+    }),
     accountsTenantIdIdx: index('accounts_tenant_id_idx').on(table.tenantId),
     accountsLedgerIdIdx: index('accounts_ledger_id_idx').on(table.ledgerId),
     accountsInflightDebitNonnegativeChk: check(
@@ -148,6 +175,7 @@ export const holds = pgTable(
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
+    assetId: uuid('asset_id').notNull().default(sql`null`),
     description: text('description'),
     state: holdStateEnum('state').notNull().default('HELD'),
     originalAmountMinor: bigint('original_amount_minor', { mode: 'bigint' }).notNull(),
@@ -157,6 +185,11 @@ export const holds = pgTable(
     voidedAt: timestamp('voided_at', { withTimezone: true }),
   },
   (table) => ({
+    holdsAssetFk: foreignKey({
+      name: 'holds_asset_fk',
+      columns: [table.tenantId, table.assetId],
+      foreignColumns: [assets.tenantId, assets.id],
+    }),
     holdsTenantReferenceUq: uniqueIndex('holds_tenant_reference_uq').on(
       table.tenantId,
       table.reference,
@@ -181,9 +214,15 @@ export const holdEntries = pgTable(
     direction: entryDirectionEnum('direction').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
+    assetId: uuid('asset_id').notNull().default(sql`null`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    holdEntriesAssetFk: foreignKey({
+      name: 'hold_entries_asset_fk',
+      columns: [table.tenantId, table.assetId],
+      foreignColumns: [assets.tenantId, assets.id],
+    }),
     holdEntriesTenantIdIdx: index('hold_entries_tenant_id_idx').on(table.tenantId),
     holdEntriesHoldIdIdx: index('hold_entries_hold_id_idx').on(table.holdId),
     holdEntriesAccountIdIdx: index('hold_entries_account_id_idx').on(table.accountId),
@@ -214,11 +253,17 @@ export const transactions = pgTable(
     relationType: transactionRelationTypeEnum('relation_type'),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
+    assetId: uuid('asset_id').notNull().default(sql`null`),
     description: text('description'),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    transactionsAssetFk: foreignKey({
+      name: 'transactions_asset_fk',
+      columns: [table.tenantId, table.assetId],
+      foreignColumns: [assets.tenantId, assets.id],
+    }),
     transactionsTenantReferenceUq: uniqueIndex('transactions_tenant_reference_uq').on(
       table.tenantId,
       table.reference,
@@ -258,9 +303,15 @@ export const entries = pgTable(
     direction: entryDirectionEnum('direction').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
+    assetId: uuid('asset_id').notNull().default(sql`null`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    entriesAssetFk: foreignKey({
+      name: 'entries_asset_fk',
+      columns: [table.tenantId, table.assetId],
+      foreignColumns: [assets.tenantId, assets.id],
+    }),
     entriesTenantIdIdx: index('entries_tenant_id_idx').on(table.tenantId),
     entriesTransactionIdIdx: index('entries_transaction_id_idx').on(table.transactionId),
     entriesAccountIdIdx: index('entries_account_id_idx').on(table.accountId),

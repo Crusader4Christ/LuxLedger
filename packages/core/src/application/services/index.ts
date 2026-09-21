@@ -1,6 +1,7 @@
 export * from './account-service';
 export * from './api-key-service';
 export * from './application-services.interface';
+export * from './asset-service';
 export * from './balance-service';
 export * from './hold-service';
 export * from './ledger-service';

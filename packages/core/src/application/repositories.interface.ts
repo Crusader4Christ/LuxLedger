@@ -7,6 +7,7 @@ import type { ReconRule } from '../reconciliation';
 import type { TransactionEntity } from '../transaction/entity';
 import type {
   AccountPaginationQuery,
+  Asset,
   BalanceAtQuery,
   BalanceHistoryQuery,
   BalanceSnapshotEvent,
@@ -19,6 +20,7 @@ import type {
   CorrectTransactionInput,
   CorrectTransactionResult,
   CreateAccountInput,
+  CreateAssetInput,
   CreateHoldInput,
   CreateHoldResult,
   CreateLedgerInput,
@@ -40,6 +42,12 @@ import type {
   VoidHoldInput,
   VoidHoldResult,
 } from './types';
+
+export interface AssetRepository {
+  create(input: CreateAssetInput): Promise<Asset>;
+  findById(tenantId: string, assetId: string): Promise<Asset | null>;
+  list(tenantId: string): Promise<Asset[]>;
+}
 
 export interface LedgerRepository {
   create(input: CreateLedgerInput): Promise<LedgerEntity>;

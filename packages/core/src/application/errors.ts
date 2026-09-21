@@ -9,6 +9,12 @@ export class LedgerNotFoundError extends DomainError {
   }
 }
 
+export class AssetNotFoundError extends DomainError {
+  public constructor(assetId: string) {
+    super(`Asset not found: ${assetId}`, 'ASSET_NOT_FOUND', 404);
+  }
+}
+
 export class AccountNotFoundError extends DomainError {
   public readonly accountId: string;
 

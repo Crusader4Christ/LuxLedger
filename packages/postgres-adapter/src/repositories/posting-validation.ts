@@ -9,6 +9,15 @@ export const validatePosting = async (
   tx: DrizzleDatabase,
   input: CreateTransactionInput,
 ): Promise<void> => {
+  const [asset] = await tx
+    .select({ id: schema.assets.id })
+    .from(schema.assets)
+    .where(and(eq(schema.assets.tenantId, input.tenantId), eq(schema.assets.code, input.currency)))
+    .limit(1);
+  if (!asset) {
+    throw new InvariantViolationError('Asset is not registered for tenant');
+  }
+  let assetMismatch = false;
   const useCase = new CreateTransactionUseCase({
     findAccounts: async (tenantId, accountIds) => {
       const uniqueIds = [...new Set(accountIds.map((accountId) => accountId.value))];
@@ -20,9 +29,11 @@ export const validatePosting = async (
           id: schema.accounts.id,
           ledgerId: schema.accounts.ledgerId,
           currency: schema.accounts.currency,
+          assetId: schema.accounts.assetId,
         })
         .from(schema.accounts)
         .where(and(eq(schema.accounts.tenantId, tenantId), inArray(schema.accounts.id, uniqueIds)));
+      assetMismatch = rows.some((row) => row.assetId !== asset.id);
       return rows.map((row) => ({
         id: new AccountId(row.id),
         ledgerId: new LedgerId(row.ledgerId),
@@ -40,6 +51,9 @@ export const validatePosting = async (
     description: input.description ?? null,
     entries: input.entries,
   });
+  if (assetMismatch) {
+    throw new InvariantViolationError('Posting account asset must match transaction asset');
+  }
 };
 
 export const validatePostingEntries = (
