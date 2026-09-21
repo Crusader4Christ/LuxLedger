@@ -95,6 +95,14 @@ export const accounts = pgTable(
   (table) => ({
     accountsTenantIdIdx: index('accounts_tenant_id_idx').on(table.tenantId),
     accountsLedgerIdIdx: index('accounts_ledger_id_idx').on(table.ledgerId),
+    accountsInflightDebitNonnegativeChk: check(
+      'accounts_inflight_debit_nonnegative_chk',
+      sql`${table.inflightDebitMinor} >= 0`,
+    ),
+    accountsInflightCreditNonnegativeChk: check(
+      'accounts_inflight_credit_nonnegative_chk',
+      sql`${table.inflightCreditMinor} >= 0`,
+    ),
     accountsLedgerCodeUq: uniqueIndex('accounts_ledger_code_uq')
       .on(table.tenantId, table.ledgerId, table.code)
       .where(sql`${table.code} is not null`),

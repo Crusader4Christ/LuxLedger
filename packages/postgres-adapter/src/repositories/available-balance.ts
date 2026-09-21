@@ -1,5 +1,8 @@
 import { EntryDirection } from '@luxledger/core';
-import { OverdraftPolicyViolationError } from '@luxledger/core/application';
+import {
+  InvariantViolationError,
+  OverdraftPolicyViolationError,
+} from '@luxledger/core/application';
 
 type BalanceEntry = {
   accountId: string;
@@ -20,8 +23,10 @@ export const aggregateAccountEntries = (entries: BalanceEntry[]) => {
     };
     if (entry.direction === EntryDirection.DEBIT) {
       total.debitMinor += entry.amountMinor;
-    } else {
+    } else if (entry.direction === EntryDirection.CREDIT) {
       total.creditMinor += entry.amountMinor;
+    } else {
+      throw new InvariantViolationError(`Unsupported entry direction: ${entry.direction}`);
     }
     byAccount.set(entry.accountId, total);
   }

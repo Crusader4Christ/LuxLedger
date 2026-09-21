@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { EntryDirection } from '@luxledger/core';
-import { BulkTransactionError, OverdraftPolicyViolationError } from '@luxledger/core/application';
+import {
+  BulkTransactionError,
+  InvariantViolationError,
+  OverdraftPolicyViolationError,
+} from '@luxledger/core/application';
 import { eq } from 'drizzle-orm';
 import { DrizzleHoldRepository } from '../../src/repositories/hold-repository';
 import { DrizzleTransactionRepository } from '../../src/repositories/transaction-repository';
@@ -152,6 +156,150 @@ describe('DISALLOW available balance across holds and postings', () => {
     ).toBeFalse();
     expect(await f.state()).toEqual({ posted: 70n, debit: 0n, credit: 0n, available: 70n });
     expect((await transactionRepository.create(f.request('released', 70n))).created).toBeTrue();
+  });
+
+  it('releases exact mixed-direction reservations after a partial commit', async () => {
+    const f = await setup();
+    const held = await holdRepository.create({
+      ...f.request('mixed-hold', 6n),
+      entries: [
+        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 6n, currency: 'USD' },
+        {
+          accountId: f.spendId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 3n,
+          currency: 'USD',
+        },
+        {
+          accountId: f.receiveId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 3n,
+          currency: 'USD',
+        },
+      ],
+    });
+    await holdRepository.commit({
+      tenantId: f.tenantId,
+      holdId: held.holdId,
+      reference: 'partial',
+      amountMinor: 2n,
+    });
+    expect(await f.state()).toEqual({ posted: 99n, debit: 4n, credit: 2n, available: 97n });
+    await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
+    expect(await f.state()).toEqual({ posted: 99n, debit: 0n, credit: 0n, available: 99n });
+    const [other] = await db.select().from(accounts).where(eq(accounts.id, f.receiveId));
+    expect(other.inflightDebitMinor).toBe(0n);
+    expect(other.inflightCreditMinor).toBe(0n);
+    expect(await f.counts()).toMatchObject({ holds: 1, transactions: 1, entries: 3, snapshots: 6 });
+  });
+
+  it('rejects a nonrepresentable partial commit and preserves the full reservation', async () => {
+    const f = await setup();
+    const held = await holdRepository.create({
+      ...f.request('odd-hold', 5n),
+      entries: [
+        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 5n, currency: 'USD' },
+        {
+          accountId: f.spendId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 3n,
+          currency: 'USD',
+        },
+        {
+          accountId: f.receiveId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 2n,
+          currency: 'USD',
+        },
+      ],
+    });
+    const before = await f.counts();
+    await expect(
+      holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'fractional',
+        amountMinor: 2n,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    expect(await f.counts()).toEqual(before);
+    expect(await f.state()).toEqual({ posted: 100n, debit: 5n, credit: 3n, available: 98n });
+    await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
+    expect((await f.state()).available).toBe(100n);
+  });
+
+  it('fails closed when a corrupted hold remainder cannot be released exactly', async () => {
+    const f = await setup();
+    const held = await holdRepository.create({
+      ...f.request('odd-hold', 5n),
+      entries: [
+        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 5n, currency: 'USD' },
+        {
+          accountId: f.spendId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 3n,
+          currency: 'USD',
+        },
+        {
+          accountId: f.receiveId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 2n,
+          currency: 'USD',
+        },
+      ],
+    });
+    await db.update(holds).set({ remainingAmountMinor: 2n }).where(eq(holds.id, held.holdId));
+    const before = await f.counts();
+    await expect(
+      holdRepository.void({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    expect(await f.counts()).toEqual(before);
+    expect((await f.state()).debit).toBe(5n);
+  });
+
+  it('rejects commit or void when the persisted reservation is insufficient', async () => {
+    const f = await setup();
+    const held = await holdRepository.create(f.request('hold', 6n));
+    await db.update(accounts).set({ inflightDebitMinor: 1n }).where(eq(accounts.id, f.spendId));
+    const before = await f.counts();
+    await expect(
+      holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'commit',
+        amountMinor: 2n,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(
+      holdRepository.void({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    expect(await f.counts()).toEqual(before);
+    expect((await db.select().from(holds).where(eq(holds.id, held.holdId)))[0]).toMatchObject({
+      state: 'HELD',
+      remainingAmountMinor: 6n,
+    });
+    expect((await f.state()).debit).toBe(1n);
+  });
+
+  it('rejects negative in-flight columns at the database boundary', async () => {
+    const f = await setup('ALLOW');
+    await expect(
+      Promise.resolve(
+        db.update(accounts).set({ inflightDebitMinor: -1n }).where(eq(accounts.id, f.spendId)),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      Promise.resolve(
+        db.update(accounts).set({ inflightCreditMinor: -1n }).where(eq(accounts.id, f.spendId)),
+      ),
+    ).rejects.toThrow();
+    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 0n, available: 100n });
   });
 
   it('serializes competing holds using separate PostgreSQL clients', async () => {

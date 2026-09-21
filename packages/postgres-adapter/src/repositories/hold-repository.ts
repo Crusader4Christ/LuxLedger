@@ -10,7 +10,7 @@ import {
   type VoidHoldInput,
   type VoidHoldResult,
 } from '@luxledger/core/application';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import * as schema from '../schema';
@@ -283,6 +283,8 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             and(
               eq(schema.accounts.id, entry.accountId),
               eq(schema.accounts.tenantId, input.tenantId),
+              gte(schema.accounts.inflightDebitMinor, entry.debitMinor),
+              gte(schema.accounts.inflightCreditMinor, entry.creditMinor),
             ),
           )
           .returning({
@@ -294,7 +296,12 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             inflightCreditMinor: schema.accounts.inflightCreditMinor,
           });
         if (!updatedAccount) {
-          throw new InvariantViolationError('Unable to commit hold: account not found');
+          throw new InvariantViolationError(
+            'Unable to commit hold: account reservation is missing',
+          );
+        }
+        if (updatedAccount.inflightDebitMinor < 0n || updatedAccount.inflightCreditMinor < 0n) {
+          throw new InvariantViolationError('Unable to commit hold: negative in-flight balance');
         }
         assertAvailableBalance(updatedAccount);
         await insertBalanceSnapshot(tx, {
@@ -360,13 +367,22 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             eq(schema.holdEntries.holdId, input.holdId),
           ),
         );
+      if (holdEntries.length < 2) {
+        throw new InvariantViolationError('Unable to void hold: hold entries are missing');
+      }
       const releases = aggregateAccountEntries(
         holdEntries.map((entry) => ({
           accountId: entry.accountId,
           direction: entry.direction,
-          amountMinor: (entry.amountMinor * hold.remainingAmountMinor) / hold.originalAmountMinor,
+          amountMinor: this.remainingEntryAmount(entry.amountMinor, hold),
         })),
       );
+      if (
+        releases.reduce((sum, entry) => sum + entry.debitMinor, 0n) !== hold.remainingAmountMinor ||
+        releases.reduce((sum, entry) => sum + entry.creditMinor, 0n) !== hold.remainingAmountMinor
+      ) {
+        throw new InvariantViolationError('Unable to void hold: reservation totals do not match');
+      }
       for (const entry of releases) {
         const [updated] = await tx
           .update(schema.accounts)
@@ -379,6 +395,8 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             and(
               eq(schema.accounts.id, entry.accountId),
               eq(schema.accounts.tenantId, input.tenantId),
+              gte(schema.accounts.inflightDebitMinor, entry.debitMinor),
+              gte(schema.accounts.inflightCreditMinor, entry.creditMinor),
             ),
           )
           .returning({
@@ -389,7 +407,10 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             inflightCreditMinor: schema.accounts.inflightCreditMinor,
           });
         if (!updated) {
-          throw new InvariantViolationError('Unable to void hold: account not found');
+          throw new InvariantViolationError('Unable to void hold: account reservation is missing');
+        }
+        if (updated.inflightDebitMinor < 0n || updated.inflightCreditMinor < 0n) {
+          throw new InvariantViolationError('Unable to void hold: negative in-flight balance');
         }
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,
@@ -456,6 +477,19 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
     const existing = normalize(existingEntries);
     const input = normalize(inputEntries);
     return existing.every((value, index) => value === input[index]);
+  }
+
+  private remainingEntryAmount(amountMinor: bigint, hold: HoldRow): bigint {
+    if (hold.originalAmountMinor <= 0n || hold.remainingAmountMinor <= 0n) {
+      throw new InvariantViolationError('Unable to void hold: invalid remaining reservation');
+    }
+    const scaled = amountMinor * hold.remainingAmountMinor;
+    if (scaled % hold.originalAmountMinor !== 0n) {
+      throw new InvariantViolationError(
+        'Unable to void hold: reservation cannot be released exactly',
+      );
+    }
+    return scaled / hold.originalAmountMinor;
   }
 
   private async lockHold(
