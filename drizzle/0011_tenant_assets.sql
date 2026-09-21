@@ -106,7 +106,10 @@ CREATE TRIGGER assets_identity_guard BEFORE UPDATE ON assets FOR EACH ROW EXECUT
 
 CREATE FUNCTION account_asset_history_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.asset_id <> OLD.asset_id AND EXISTS (SELECT 1 FROM entries WHERE account_id = OLD.id) THEN
+  IF NEW.asset_id <> OLD.asset_id AND (
+    EXISTS (SELECT 1 FROM entries WHERE account_id = OLD.id)
+    OR EXISTS (SELECT 1 FROM hold_entries WHERE account_id = OLD.id)
+  ) THEN
     RAISE EXCEPTION 'Account asset cannot change after ledger history exists';
   END IF;
   RETURN NEW;
