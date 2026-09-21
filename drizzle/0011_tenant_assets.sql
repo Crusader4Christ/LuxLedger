@@ -48,12 +48,6 @@ CREATE TABLE assets (
   CONSTRAINT assets_tenant_code_uq UNIQUE (tenant_id, code),
   CONSTRAINT assets_tenant_id_uq UNIQUE (tenant_id, id)
 );
-ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE assets FORCE ROW LEVEL SECURITY;
-CREATE POLICY assets_tenant_rls ON assets
-  USING (tenant_id::text = current_setting('app.tenant_id', true))
-  WITH CHECK (tenant_id::text = current_setting('app.tenant_id', true));
-
 INSERT INTO assets (tenant_id, code, scale)
 SELECT tenant_id, currency,
   CASE currency WHEN 'CREDIT' THEN 0 WHEN 'USDC' THEN 6 ELSE 2 END
@@ -101,26 +95,6 @@ ALTER TABLE entries ADD CONSTRAINT entries_asset_fk FOREIGN KEY (tenant_id, asse
 ALTER TABLE holds ADD CONSTRAINT holds_asset_fk FOREIGN KEY (tenant_id, asset_id) REFERENCES assets(tenant_id, id);
 ALTER TABLE hold_entries ADD CONSTRAINT hold_entries_asset_fk FOREIGN KEY (tenant_id, asset_id) REFERENCES assets(tenant_id, id);
 
-CREATE FUNCTION ledger_asset_reference_guard() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE resolved_id uuid;
-BEGIN
-  SELECT id INTO resolved_id FROM assets WHERE tenant_id = NEW.tenant_id AND code = NEW.currency;
-  IF resolved_id IS NULL THEN
-    RAISE EXCEPTION 'Asset must be created explicitly before use: %', NEW.currency;
-  END IF;
-  IF NEW.asset_id IS NOT NULL AND NEW.asset_id <> resolved_id THEN
-    RAISE EXCEPTION 'asset_id does not match currency code';
-  END IF;
-  NEW.asset_id := resolved_id;
-  RETURN NEW;
-END $$;
-
-CREATE TRIGGER accounts_asset_reference_guard BEFORE INSERT OR UPDATE ON accounts FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
-CREATE TRIGGER transactions_asset_reference_guard BEFORE INSERT OR UPDATE ON transactions FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
-CREATE TRIGGER entries_asset_reference_guard BEFORE INSERT OR UPDATE ON entries FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
-CREATE TRIGGER holds_asset_reference_guard BEFORE INSERT OR UPDATE ON holds FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
-CREATE TRIGGER hold_entries_asset_reference_guard BEFORE INSERT OR UPDATE ON hold_entries FOR EACH ROW EXECUTE FUNCTION ledger_asset_reference_guard();
-
 CREATE FUNCTION asset_identity_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF NEW.tenant_id <> OLD.tenant_id OR NEW.code <> OLD.code OR NEW.scale <> OLD.scale THEN
@@ -129,3 +103,20 @@ BEGIN
   RETURN NEW;
 END $$;
 CREATE TRIGGER assets_identity_guard BEFORE UPDATE ON assets FOR EACH ROW EXECUTE FUNCTION asset_identity_guard();
+
+CREATE FUNCTION account_asset_history_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.asset_id <> OLD.asset_id AND EXISTS (SELECT 1 FROM entries WHERE account_id = OLD.id) THEN
+    RAISE EXCEPTION 'Account asset cannot change after ledger history exists';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER accounts_asset_history_guard BEFORE UPDATE ON accounts FOR EACH ROW EXECUTE FUNCTION account_asset_history_guard();
+
+-- Enable tenant isolation only after the migration has completed its backfill.
+-- Runtime connections must set app.tenant_id before accessing assets.
+ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assets FORCE ROW LEVEL SECURITY;
+CREATE POLICY assets_tenant_rls ON assets
+  USING (tenant_id::text = current_setting('app.tenant_id', true))
+  WITH CHECK (tenant_id::text = current_setting('app.tenant_id', true));

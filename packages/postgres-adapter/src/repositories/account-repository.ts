@@ -4,6 +4,7 @@ import {
   type AccountRepository,
   type CreateAccountInput,
   InvariantViolationError,
+  InvariantViolationError,
   LedgerNotFoundError,
   type PaginatedResult,
 } from '@luxledger/core/application';
@@ -35,7 +36,11 @@ export class DrizzleAccountRepository implements AccountRepository {
           and(eq(schema.assets.tenantId, input.tenantId), eq(schema.assets.code, input.currency)),
         )
         .limit(1);
-      if (!asset) throw new Error(`Asset must be created before account: ${input.currency}`);
+      if (!asset) {
+        throw new InvariantViolationError(
+          `Asset must be created before account: ${input.currency}`,
+        );
+      }
       if (input.assetId !== undefined && input.assetId !== asset.id) {
         throw new InvariantViolationError('Account asset must match tenant currency asset');
       }
