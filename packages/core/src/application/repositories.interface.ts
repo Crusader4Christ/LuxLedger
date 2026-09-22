@@ -50,6 +50,7 @@ import type {
 
 export interface CreditGrantRepository {
   create(input: CreateCreditGrantInput): Promise<CreditGrantResult>;
+  /** Reverses only the specified grant when its own remaining capacity equals its original amount. */
   reverse(input: ReverseCreditGrantInput): Promise<CreditGrantResult>;
   findById(tenantId: string, grantId: string): Promise<CreditGrant | null>;
   getBalance(tenantId: string, accountId: string): Promise<CreditBalance>;

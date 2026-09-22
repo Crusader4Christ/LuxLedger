@@ -101,6 +101,39 @@ export const creditBucketResponseSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
+    'grant_id',
+    'reference',
+    'external_reference',
+    'policy',
+    'created_at',
+    'origin',
+    'granted_minor',
+    'allocated_minor',
+    'consumed_minor',
+    'expired_minor',
+    'reversed_minor',
+    'remaining_minor',
+  ],
+  properties: {
+    grant_id: uuid,
+    reference: { type: 'string' },
+    external_reference: { type: 'string', nullable: true },
+    policy,
+    created_at: { type: 'string', format: 'date-time' },
+    origin,
+    granted_minor: amount,
+    allocated_minor: amount,
+    consumed_minor: amount,
+    expired_minor: amount,
+    reversed_minor: amount,
+    remaining_minor: amount,
+  },
+} as const;
+
+export const creditOriginTotalResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
     'origin',
     'granted_minor',
     'allocated_minor',
@@ -123,13 +156,21 @@ export const creditBucketResponseSchema = {
 export const creditBalanceResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['account_id', 'asset_id', 'ledger_balance_minor', 'remaining_minor', 'buckets'],
+  required: [
+    'account_id',
+    'asset_id',
+    'ledger_balance_minor',
+    'remaining_minor',
+    'buckets',
+    'origin_totals',
+  ],
   properties: {
     account_id: uuid,
     asset_id: uuid,
     ledger_balance_minor: amount,
     remaining_minor: amount,
     buckets: { type: 'array', items: creditBucketResponseSchema },
+    origin_totals: { type: 'array', items: creditOriginTotalResponseSchema },
   },
 } as const;
 

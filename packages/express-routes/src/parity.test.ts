@@ -201,6 +201,27 @@ describe('express adapter parity with fastify adapter', () => {
           remainingMinor: 100n,
           buckets: [
             {
+              grantId: '00000000-0000-4000-8000-000000000901',
+              reference: 'parity-grant',
+              externalReference: null,
+              policy: {
+                refundable: true,
+                transferable: false,
+                consumptionPriority: 2,
+                eligibility: null,
+              },
+              createdAt: new Date('2026-01-01T00:00:00.000Z'),
+              origin: 'PURCHASED',
+              grantedMinor: 100n,
+              allocatedMinor: 0n,
+              consumedMinor: 0n,
+              expiredMinor: 0n,
+              reversedMinor: 0n,
+              remainingMinor: 100n,
+            },
+          ],
+          originTotals: [
+            {
               origin: 'PURCHASED',
               grantedMinor: 100n,
               allocatedMinor: 0n,

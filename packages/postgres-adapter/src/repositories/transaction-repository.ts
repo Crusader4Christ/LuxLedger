@@ -46,13 +46,27 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     );
   }
 
-  public createInTx(
+  public postCreditGrantInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput,
+  ): Promise<CreateTransactionResult> {
+    return this.createInTx(tx, input, 'CREDIT_GRANT');
+  }
+
+  public postCreditGrantReversalInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput & { relatedTransactionId: string; relationType: 'REVERSAL' },
+  ): Promise<CreateTransactionResult> {
+    return this.createInTx(tx, input, 'CREDIT_GRANT_REVERSAL');
+  }
+
+  private createInTx(
     tx: PostgresJsDatabase<typeof schema>,
     input: CreateTransactionInput & {
       relatedTransactionId?: string;
       relationType?: 'REVERSAL' | 'CORRECTION';
     },
-    allowCreditGrantAccounts = false,
+    postingContext: 'GENERAL' | 'CREDIT_GRANT' | 'CREDIT_GRANT_REVERSAL' = 'GENERAL',
   ): Promise<CreateTransactionResult> {
     return this.createOrResolvePostedTransaction(tx, {
       ...input,
@@ -60,7 +74,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       effectiveAt: input.effectiveAt ?? undefined,
       compareDescriptionOnRetry: true,
       payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
-      allowCreditGrantAccounts,
+      postingContext,
     });
   }
 
@@ -340,7 +354,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       }>;
       compareDescriptionOnRetry?: boolean;
       payloadMismatchMessage: string;
-      allowCreditGrantAccounts?: boolean;
+      postingContext?: 'GENERAL' | 'CREDIT_GRANT' | 'CREDIT_GRANT_REVERSAL';
     },
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
@@ -378,7 +392,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         { ...input, assetId: asset.id },
         inserted.id,
         effectiveAt,
-        input.allowCreditGrantAccounts ?? false,
+        input.postingContext ?? 'GENERAL',
       );
       return { transactionId: inserted.id, created: true };
     }
@@ -572,7 +586,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     },
     transactionId: string,
     effectiveAt: Date,
-    allowCreditGrantAccounts = false,
+    postingContext: 'GENERAL' | 'CREDIT_GRANT' | 'CREDIT_GRANT_REVERSAL' = 'GENERAL',
   ): Promise<void> {
     await tx.insert(schema.entries).values(
       input.entries.map((entry) => ({
@@ -615,7 +629,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           'Unable to create transaction: account ledger/currency mismatch',
         );
       }
-      if (!allowCreditGrantAccounts) {
+      if (postingContext === 'GENERAL') {
         const [grant] = await tx
           .select({ id: schema.creditGrants.id })
           .from(schema.creditGrants)

@@ -996,6 +996,24 @@ components:
     CreditBucket:
       type: object
       additionalProperties: false
+      required: [grant_id, reference, external_reference, policy, created_at, origin, granted_minor, allocated_minor, consumed_minor, expired_minor, reversed_minor, remaining_minor]
+      properties:
+        grant_id: { type: string, format: uuid }
+        reference: { type: string }
+        external_reference: { type: string, nullable: true }
+        policy:
+          $ref: '#/components/schemas/CreditGrantPolicy'
+        created_at: { type: string, format: date-time }
+        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
+        granted_minor: { type: string }
+        allocated_minor: { type: string }
+        consumed_minor: { type: string }
+        expired_minor: { type: string }
+        reversed_minor: { type: string }
+        remaining_minor: { type: string }
+    CreditOriginTotal:
+      type: object
+      additionalProperties: false
       required: [origin, granted_minor, allocated_minor, consumed_minor, expired_minor, reversed_minor, remaining_minor]
       properties:
         origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
@@ -1008,7 +1026,7 @@ components:
     CreditBalance:
       type: object
       additionalProperties: false
-      required: [account_id, asset_id, ledger_balance_minor, remaining_minor, buckets]
+      required: [account_id, asset_id, ledger_balance_minor, remaining_minor, buckets, origin_totals]
       properties:
         account_id: { type: string, format: uuid }
         asset_id: { type: string, format: uuid }
@@ -1018,6 +1036,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreditBucket'
+        origin_totals:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditOriginTotal'
     ErrorResponse:
       type: object
       required: [error, message]

@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { AccountSide, EntryDirection, InvalidCreditGrantError } from '@luxledger/core';
 import { CreditGrantConflictError, CreditGrantNotFoundError } from '@luxledger/core/application';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
 import { createDbClient } from '../../src/client';
-import { creditGrants, entries } from '../../src/schema';
+import { accounts as accountRows, creditGrants, entries, transactions } from '../../src/schema';
 import {
   createLedger,
   createRepositoryTestClient,
@@ -82,6 +82,10 @@ describe('credit grants', () => {
     expect(balance.ledgerBalanceMinor).toBe(200n);
     expect(balance.remainingMinor).toBe(200n);
     expect(balance.buckets.map((bucket) => [bucket.origin, bucket.remainingMinor])).toEqual([
+      ['PURCHASED', 100n],
+      ['PROMOTIONAL', 100n],
+    ]);
+    expect(balance.originTotals.map((bucket) => [bucket.origin, bucket.remainingMinor])).toEqual([
       ['PROMOTIONAL', 100n],
       ['PURCHASED', 100n],
     ]);
@@ -122,6 +126,21 @@ describe('credit grants', () => {
     ).rejects.toBeInstanceOf(CreditGrantNotFoundError);
     await expect(
       services.creditGrants.create({ ...input, reference: 'foreign', accountId: other.accountId }),
+    ).rejects.toThrow();
+    await expect(
+      services.creditGrants.create({
+        ...input,
+        reference: 'foreign-funding',
+        fundingAccountId: other.fundingAccountId,
+      }),
+    ).rejects.toThrow();
+    const anotherLedger = await setup(tenantId);
+    await expect(
+      services.creditGrants.create({
+        ...input,
+        reference: 'another-ledger-funding',
+        fundingAccountId: anotherLedger.fundingAccountId,
+      }),
     ).rejects.toThrow();
     await expect(
       services.creditGrants.create({ ...input, reference: 'wrong-asset', assetId: other.assetId }),
@@ -246,6 +265,12 @@ describe('credit grants', () => {
     await expect(
       services.creditGrants.create({ ...purchased, amountMinor: -1n }),
     ).rejects.toBeInstanceOf(InvalidCreditGrantError);
+    await expect(
+      services.creditGrants.create({
+        ...purchased,
+        policy: { ...purchased.policy, eligibility: 'region=EU' },
+      }),
+    ).rejects.toBeInstanceOf(InvalidCreditGrantError);
     const result = await services.creditGrants.create(purchased);
     await expect(
       (async () => {
@@ -259,4 +284,184 @@ describe('credit grants', () => {
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(100n);
   });
+
+  it('retains one bucket per grant across origins and policy differences', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const origins = ['PURCHASED', 'PROMOTIONAL', 'TRIAL', 'COMPENSATION'] as const;
+    for (const [index, origin] of origins.entries()) {
+      await services.creditGrants.create({
+        ...grantInput(
+          tenantId,
+          accounts,
+          origin === 'PROMOTIONAL' ? origin : 'PURCHASED',
+          `origin-${index}`,
+        ),
+        origin,
+        policy: {
+          refundable: origin === 'PURCHASED',
+          transferable: false,
+          consumptionPriority: index,
+          eligibility: null,
+        },
+      });
+    }
+    await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'PURCHASED', 'another-purchased'),
+      policy: { refundable: true, transferable: true, consumptionPriority: 99, eligibility: null },
+    });
+    const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+    expect(balance.buckets).toHaveLength(5);
+    expect(balance.buckets.map((bucket) => bucket.grantId)).toEqual([
+      ...new Set(balance.buckets.map((bucket) => bucket.grantId)),
+    ]);
+    expect(
+      balance.buckets
+        .filter((bucket) => bucket.origin === 'PURCHASED')
+        .map((bucket) => bucket.policy.consumptionPriority),
+    ).toEqual([0, 99]);
+    expect(balance.originTotals.find((total) => total.origin === 'PURCHASED')?.remainingMinor).toBe(
+      200n,
+    );
+    expect(balance.remainingMinor).toBe(balance.ledgerBalanceMinor);
+  });
+
+  it('allows only one of two concurrent reversal references', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
+    );
+    const secondClient = createDbClient({
+      databaseUrl:
+        process.env.DATABASE_URL_TEST ??
+        'postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test',
+      max: 2,
+    });
+    try {
+      const other = createApplicationServices(secondClient);
+      const results = await Promise.allSettled([
+        services.creditGrants.reverse({ tenantId, grantId: grant.grant.id, reference: 'refund-a' }),
+        other.creditGrants.reverse({ tenantId, grantId: grant.grant.id, reference: 'refund-b' }),
+      ]);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.find((result) => result.status === 'rejected')?.reason).toBeInstanceOf(
+        CreditGrantConflictError,
+      );
+      expect(
+        (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+      ).toBe(0n);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('detects tampered posting metadata during reconciliation', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
+    );
+    await db
+      .update(transactions)
+      .set({ reference: 'tampered' })
+      .where(eq(transactions.id, grant.grant.transactionId));
+    await expect(
+      services.creditGrants.getBalance(tenantId, accounts.accountId),
+    ).rejects.toBeInstanceOf(CreditGrantConflictError);
+  });
+
+  it('enforces tenant and ledger scope in PostgreSQL foreign keys', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const otherTenantId = await createTenant(db, 'B');
+    const accounts = await setup(tenantId);
+    const anotherLedger = await setup(tenantId);
+    const otherTenant = await setup(otherTenantId);
+    const posting = await services.transactions.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'unclassified-before-grants',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: accounts.fundingAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+        {
+          accountId: accounts.accountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+      ],
+    });
+    const row = {
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      accountId: accounts.accountId,
+      fundingAccountId: accounts.fundingAccountId,
+      assetId: accounts.assetId,
+      reference: 'direct-invalid',
+      origin: 'PURCHASED' as const,
+      amountMinor: 1n,
+      refundable: true,
+      transferable: false,
+      consumptionPriority: 0,
+      eligibility: null,
+      transactionId: posting.transactionId,
+    };
+    for (const [suffix, override] of [
+      ['other-ledger-account', { fundingAccountId: anotherLedger.fundingAccountId }],
+      ['other-tenant-account', { fundingAccountId: otherTenant.fundingAccountId }],
+      ['other-ledger', { ledgerId: anotherLedger.ledgerId }],
+    ] as const) {
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+          await tx.insert(creditGrants).values({ ...row, ...override, reference: suffix });
+        }),
+      ).rejects.toThrow();
+    }
+  });
+
+  it('rejects a funding account with a different asset despite the same legacy currency', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const otherAsset = await services.assets.create({ tenantId, code: 'USDC', scale: 6 });
+    const [funding] = await db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+      return tx
+        .insert(accountRows)
+        .values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          name: 'Legacy currency mismatch',
+          side: 'DEBIT',
+          currency: 'USD',
+          assetId: otherAsset.id,
+        })
+        .returning({ id: accountRows.id });
+    });
+    await expect(
+      services.creditGrants.create({
+        ...grantInput(tenantId, accounts, 'PURCHASED', 'wrong-funding-asset'),
+        fundingAccountId: funding.id,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('reconciles a wallet with more than one batch of grants', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const input = grantInput(tenantId, accounts, 'PURCHASED', 'batch-0');
+    for (let index = 0; index < 1001; index++) {
+      await services.creditGrants.create({ ...input, reference: `batch-${index}` });
+    }
+    const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+    expect(balance.buckets).toHaveLength(1001);
+    expect(balance.remainingMinor).toBe(100100n);
+    expect(balance.ledgerBalanceMinor).toBe(balance.remainingMinor);
+  }, 30000);
 });

@@ -40,10 +40,11 @@ export const validateCreditGrant = (input: {
     !Number.isSafeInteger(policy.consumptionPriority) ||
     policy.consumptionPriority < 0 ||
     policy.consumptionPriority > 2147483647 ||
-    (policy.eligibility !== null &&
-      (typeof policy.eligibility !== 'string' || policy.eligibility.trim().length === 0))
+    policy.eligibility !== null
   ) {
-    throw new InvalidCreditGrantError('Invalid credit grant policy');
+    throw new InvalidCreditGrantError(
+      'Only unrestricted eligibility is supported in policy version 1',
+    );
   }
   if (input.origin === CreditGrantOrigin.PURCHASED && !policy.refundable) {
     throw new InvalidCreditGrantError('Purchased credits must be refundable');

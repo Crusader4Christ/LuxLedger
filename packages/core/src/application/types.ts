@@ -75,6 +75,11 @@ export interface ReverseCreditGrantInput {
   reference: string;
 }
 export interface CreditBucketBalance {
+  grantId: string;
+  reference: string;
+  externalReference: string | null;
+  policy: CreditGrantPolicy;
+  createdAt: Date;
   origin: CreditGrantOrigin;
   grantedMinor: bigint;
   allocatedMinor: bigint;
@@ -83,12 +88,17 @@ export interface CreditBucketBalance {
   reversedMinor: bigint;
   remainingMinor: bigint;
 }
+export type CreditOriginBalance = Omit<
+  CreditBucketBalance,
+  'grantId' | 'reference' | 'externalReference' | 'policy' | 'createdAt'
+>;
 export interface CreditBalance {
   accountId: string;
   assetId: string;
   ledgerBalanceMinor: bigint;
   remainingMinor: bigint;
   buckets: CreditBucketBalance[];
+  originTotals: CreditOriginBalance[];
 }
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = LedgerEntity;

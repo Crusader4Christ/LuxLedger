@@ -2,6 +2,7 @@ CREATE TYPE "public"."credit_grant_origin" AS ENUM('PURCHASED', 'PROMOTIONAL', '
 CREATE TABLE "credit_grant_reversals" (
 	"id" uuid PRIMARY KEY DEFAULT uuid_v7() NOT NULL,
 	"tenant_id" uuid NOT NULL,
+	"ledger_id" uuid NOT NULL,
 	"grant_id" uuid NOT NULL,
 	"reference" text NOT NULL,
 	"transaction_id" uuid NOT NULL,
@@ -28,18 +29,23 @@ CREATE TABLE "credit_grants" (
 	CONSTRAINT "credit_grants_amount_chk" CHECK ("credit_grants"."amount_minor" > 0),
 	CONSTRAINT "credit_grants_accounts_chk" CHECK ("credit_grants"."account_id" <> "credit_grants"."funding_account_id"),
 	CONSTRAINT "credit_grants_priority_chk" CHECK ("credit_grants"."consumption_priority" >= 0),
-	CONSTRAINT "credit_grants_policy_chk" CHECK (("credit_grants"."origin" <> 'PURCHASED' or "credit_grants"."refundable") and ("credit_grants"."origin" <> 'PROMOTIONAL' or (not "credit_grants"."refundable" and not "credit_grants"."transferable")))
+	CONSTRAINT "credit_grants_policy_chk" CHECK (("credit_grants"."origin" <> 'PURCHASED' or "credit_grants"."refundable") and ("credit_grants"."origin" <> 'PROMOTIONAL' or (not "credit_grants"."refundable" and not "credit_grants"."transferable"))),
+	CONSTRAINT "credit_grants_eligibility_v1_chk" CHECK ("credit_grants"."eligibility" is null)
 );
 --> statement-breakpoint
 ALTER TABLE "credit_grant_reversals" ADD CONSTRAINT "credit_grant_reversals_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "credit_grant_reversals" ADD CONSTRAINT "credit_grant_reversals_transaction_id_transactions_id_fk" FOREIGN KEY ("transaction_id") REFERENCES "public"."transactions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "credit_grants_tenant_id_uq" ON "credit_grants" USING btree ("tenant_id","id");--> statement-breakpoint
-ALTER TABLE "credit_grant_reversals" ADD CONSTRAINT "credit_grant_reversals_grant_fk" FOREIGN KEY ("tenant_id","grant_id") REFERENCES "public"."credit_grants"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_ledger_id_ledgers_id_fk" FOREIGN KEY ("ledger_id") REFERENCES "public"."ledgers"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_funding_account_id_accounts_id_fk" FOREIGN KEY ("funding_account_id") REFERENCES "public"."accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_transaction_id_transactions_id_fk" FOREIGN KEY ("transaction_id") REFERENCES "public"."transactions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "ledgers_tenant_id_uq" ON "ledgers" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "accounts_tenant_ledger_id_uq" ON "accounts" USING btree ("tenant_id","ledger_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "transactions_tenant_ledger_id_uq" ON "transactions" USING btree ("tenant_id","ledger_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "credit_grants_tenant_id_uq" ON "credit_grants" USING btree ("tenant_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "credit_grants_tenant_ledger_id_uq" ON "credit_grants" USING btree ("tenant_id","ledger_id","id");--> statement-breakpoint
+ALTER TABLE "credit_grant_reversals" ADD CONSTRAINT "credit_grant_reversals_grant_fk" FOREIGN KEY ("tenant_id","ledger_id","grant_id") REFERENCES "public"."credit_grants"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "credit_grant_reversals" ADD CONSTRAINT "credit_grant_reversals_transaction_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","transaction_id") REFERENCES "public"."transactions"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_tenant_ledger_fk" FOREIGN KEY ("tenant_id","ledger_id") REFERENCES "public"."ledgers"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_account_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","account_id") REFERENCES "public"."accounts"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_funding_account_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","funding_account_id") REFERENCES "public"."accounts"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_transaction_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","transaction_id") REFERENCES "public"."transactions"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_asset_fk" FOREIGN KEY ("tenant_id","asset_id") REFERENCES "public"."assets"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grant_reversals_grant_uq" ON "credit_grant_reversals" USING btree ("grant_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grant_reversals_tenant_reference_uq" ON "credit_grant_reversals" USING btree ("tenant_id","reference");--> statement-breakpoint
