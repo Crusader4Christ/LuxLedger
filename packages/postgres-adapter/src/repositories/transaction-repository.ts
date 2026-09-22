@@ -618,6 +618,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         )
         .returning({
           id: schema.accounts.id,
+          kind: schema.accounts.kind,
           ledgerId: schema.accounts.ledgerId,
           overdraftPolicy: schema.accounts.overdraftPolicy,
           balanceMinor: schema.accounts.balanceMinor,
@@ -629,20 +630,8 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           'Unable to create transaction: account ledger/currency mismatch',
         );
       }
-      if (postingContext === 'GENERAL') {
-        const [grant] = await tx
-          .select({ id: schema.creditGrants.id })
-          .from(schema.creditGrants)
-          .where(
-            and(
-              eq(schema.creditGrants.tenantId, input.tenantId),
-              eq(schema.creditGrants.accountId, entry.accountId),
-            ),
-          )
-          .limit(1);
-        if (grant) {
-          throw new InvariantViolationError('Credit account postings require grant allocation');
-        }
+      if (postingContext === 'GENERAL' && updatedAccount.kind === 'CREDIT_WALLET') {
+        throw new InvariantViolationError('Credit account postings require grant allocation');
       }
       assertAvailableBalance(updatedAccount);
       const [previousSnapshot] = await tx

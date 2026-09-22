@@ -4,7 +4,13 @@ import { CreditGrantConflictError, CreditGrantNotFoundError } from '@luxledger/c
 import { eq, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
 import { createDbClient } from '../../src/client';
-import { accounts as accountRows, creditGrants, entries, transactions } from '../../src/schema';
+import {
+  accounts as accountRows,
+  creditGrantEntries,
+  creditGrants,
+  entries,
+  transactions,
+} from '../../src/schema';
 import {
   createLedger,
   createRepositoryTestClient,
@@ -276,7 +282,7 @@ describe('credit grants', () => {
       (async () => {
         await db
           .update(creditGrants)
-          .set({ amountMinor: 999n })
+          .set({ origin: 'TRIAL' })
           .where(eq(creditGrants.id, result.grant.id));
       })(),
     ).rejects.toThrow();
@@ -356,16 +362,32 @@ describe('credit grants', () => {
     }
   });
 
-  it('detects tampered posting metadata during reconciliation', async () => {
+  it('detects a tampered ledger amount during aggregate reconciliation', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const grant = await services.creditGrants.create(
       grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
     );
+    await expect(
+      (async () => {
+        await db
+          .update(entries)
+          .set({ amountMinor: 101n })
+          .where(eq(entries.transactionId, grant.grant.transactionId));
+      })(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await db
+          .update(transactions)
+          .set({ reference: 'tampered' })
+          .where(eq(transactions.id, grant.grant.transactionId));
+      })(),
+    ).rejects.toThrow();
     await db
-      .update(transactions)
-      .set({ reference: 'tampered' })
-      .where(eq(transactions.id, grant.grant.transactionId));
+      .update(accountRows)
+      .set({ balanceMinor: 101n })
+      .where(eq(accountRows.id, accounts.accountId));
     await expect(
       services.creditGrants.getBalance(tenantId, accounts.accountId),
     ).rejects.toBeInstanceOf(CreditGrantConflictError);
@@ -405,7 +427,6 @@ describe('credit grants', () => {
       assetId: accounts.assetId,
       reference: 'direct-invalid',
       origin: 'PURCHASED' as const,
-      amountMinor: 1n,
       refundable: true,
       transferable: false,
       consumptionPriority: 0,
@@ -464,4 +485,88 @@ describe('credit grants', () => {
     expect(balance.remainingMinor).toBe(20000n);
     expect(balance.ledgerBalanceMinor).toBe(balance.remainingMinor);
   }, 30000);
+
+  it('enforces wallet adoption and entry attribution at the PostgreSQL boundary', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
+    );
+    const [wallet] = await db
+      .select({ kind: accountRows.kind })
+      .from(accountRows)
+      .where(eq(accountRows.id, accounts.accountId));
+    expect(wallet.kind).toBe('CREDIT_WALLET');
+    await expect(
+      (async () => {
+        await db
+          .update(accountRows)
+          .set({ kind: 'STANDARD' })
+          .where(eq(accountRows.id, accounts.accountId));
+      })(),
+    ).rejects.toThrow();
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        await tx.insert(entries).values({
+          tenantId,
+          transactionId: grant.grant.transactionId,
+          accountId: accounts.accountId,
+          direction: 'CREDIT',
+          amountMinor: 1n,
+          currency: 'USD',
+          assetId: accounts.assetId,
+        });
+      }),
+    ).rejects.toThrow();
+    const [link] = await db
+      .select()
+      .from(creditGrantEntries)
+      .where(eq(creditGrantEntries.grantId, grant.grant.id));
+    expect(link).toBeDefined();
+    await expect(
+      (async () => {
+        await db
+          .update(creditGrantEntries)
+          .set({ entryId: link.entryId })
+          .where(eq(creditGrantEntries.entryId, link.entryId));
+      })(),
+    ).rejects.toThrow();
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(100n);
+  });
+
+  it('does not adopt a zero-balance account with prior ledger history', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const posted = await services.transactions.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'old-posting',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: accounts.fundingAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+        {
+          accountId: accounts.accountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+      ],
+    });
+    await services.transactions.reverse({
+      tenantId,
+      transactionId: posted.transactionId,
+      reference: 'old-posting-reversal',
+    });
+    await expect(
+      services.creditGrants.create(grantInput(tenantId, accounts, 'PURCHASED', 'late-adoption')),
+    ).rejects.toBeInstanceOf(CreditGrantConflictError);
+  });
 });

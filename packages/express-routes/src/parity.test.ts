@@ -39,6 +39,7 @@ class FakeLedgerService {
       name: input.name,
       side: input.side,
       overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
+      kind: 'STANDARD',
       currency: input.currency,
       balanceMinor: 0n,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),

@@ -89,6 +89,8 @@ export const ledgers = pgTable(
   }),
 );
 
+export const accountKindEnum = pgEnum('account_kind', ['STANDARD', 'CREDIT_WALLET']);
+
 export const accounts = pgTable(
   'accounts',
   {
@@ -103,6 +105,7 @@ export const accounts = pgTable(
     name: text('name').notNull(),
     side: accountSideEnum('side').notNull(),
     overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
+    kind: accountKindEnum('kind').notNull().default('STANDARD'),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
@@ -326,6 +329,11 @@ export const entries = pgTable(
     entriesTenantIdIdx: index('entries_tenant_id_idx').on(table.tenantId),
     entriesTransactionIdIdx: index('entries_transaction_id_idx').on(table.transactionId),
     entriesAccountIdIdx: index('entries_account_id_idx').on(table.accountId),
+    entriesTenantAccountIdUq: uniqueIndex('entries_tenant_account_id_uq').on(
+      table.tenantId,
+      table.accountId,
+      table.id,
+    ),
   }),
 );
 
@@ -348,7 +356,6 @@ export const creditGrants = pgTable(
     reference: text('reference').notNull(),
     externalReference: text('external_reference'),
     origin: creditGrantOriginEnum('origin').notNull(),
-    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     refundable: boolean('refundable').notNull(),
     transferable: boolean('transferable').notNull(),
     consumptionPriority: integer('consumption_priority').notNull(),
@@ -365,6 +372,12 @@ export const creditGrants = pgTable(
     tenantLedgerIdUq: uniqueIndex('credit_grants_tenant_ledger_id_uq').on(
       table.tenantId,
       table.ledgerId,
+      table.id,
+    ),
+    tenantLedgerAccountIdUq: uniqueIndex('credit_grants_tenant_ledger_account_id_uq').on(
+      table.tenantId,
+      table.ledgerId,
+      table.accountId,
       table.id,
     ),
     transactionUq: uniqueIndex('credit_grants_transaction_uq').on(table.transactionId),
@@ -393,7 +406,6 @@ export const creditGrants = pgTable(
       columns: [table.tenantId, table.assetId],
       foreignColumns: [assets.tenantId, assets.id],
     }),
-    amountChk: check('credit_grants_amount_chk', sql`${table.amountMinor} > 0`),
     accountsChk: check(
       'credit_grants_accounts_chk',
       sql`${table.accountId} <> ${table.fundingAccountId}`,
@@ -407,36 +419,38 @@ export const creditGrants = pgTable(
   }),
 );
 
-export const creditGrantReversals = pgTable(
-  'credit_grant_reversals',
+export const creditGrantEntries = pgTable(
+  'credit_grant_entries',
   {
-    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'restrict' }),
     ledgerId: uuid('ledger_id').notNull(),
+    accountId: uuid('account_id').notNull(),
     grantId: uuid('grant_id').notNull(),
-    reference: text('reference').notNull(),
-    transactionId: uuid('transaction_id').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    entryId: uuid('entry_id').primaryKey(),
   },
   (table) => ({
     grantFk: foreignKey({
-      name: 'credit_grant_reversals_grant_fk',
-      columns: [table.tenantId, table.ledgerId, table.grantId],
-      foreignColumns: [creditGrants.tenantId, creditGrants.ledgerId, creditGrants.id],
+      name: 'credit_grant_entries_grant_fk',
+      columns: [table.tenantId, table.ledgerId, table.accountId, table.grantId],
+      foreignColumns: [
+        creditGrants.tenantId,
+        creditGrants.ledgerId,
+        creditGrants.accountId,
+        creditGrants.id,
+      ],
     }),
-    transactionFk: foreignKey({
-      name: 'credit_grant_reversals_transaction_scope_fk',
-      columns: [table.tenantId, table.ledgerId, table.transactionId],
-      foreignColumns: [transactions.tenantId, transactions.ledgerId, transactions.id],
+    entryFk: foreignKey({
+      name: 'credit_grant_entries_entry_fk',
+      columns: [table.tenantId, table.accountId, table.entryId],
+      foreignColumns: [entries.tenantId, entries.accountId, entries.id],
     }),
-    grantUq: uniqueIndex('credit_grant_reversals_grant_uq').on(table.grantId),
-    tenantReferenceUq: uniqueIndex('credit_grant_reversals_tenant_reference_uq').on(
+    grantIdx: index('credit_grant_entries_tenant_grant_idx').on(table.tenantId, table.grantId),
+    accountIdx: index('credit_grant_entries_tenant_account_idx').on(
       table.tenantId,
-      table.reference,
+      table.accountId,
     ),
-    transactionUq: uniqueIndex('credit_grant_reversals_transaction_uq').on(table.transactionId),
   }),
 );
 

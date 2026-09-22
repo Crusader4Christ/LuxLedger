@@ -15,6 +15,13 @@ export const OverdraftPolicy = {
 
 export type OverdraftPolicy = (typeof OverdraftPolicy)[keyof typeof OverdraftPolicy];
 
+export const AccountKind = {
+  STANDARD: 'STANDARD',
+  CREDIT_WALLET: 'CREDIT_WALLET',
+} as const;
+
+export type AccountKind = (typeof AccountKind)[keyof typeof AccountKind];
+
 export class AccountEntity {
   public readonly id: string;
   public readonly tenantId: string;
@@ -23,6 +30,7 @@ export class AccountEntity {
   public readonly name: string;
   public readonly side: AccountSide;
   public readonly overdraftPolicy: OverdraftPolicy;
+  public readonly kind: AccountKind;
   public readonly currency: string;
   public readonly assetId: string | null;
   public readonly balanceMinor: bigint;
@@ -36,6 +44,7 @@ export class AccountEntity {
     name: string;
     side: AccountSide;
     overdraftPolicy?: OverdraftPolicy;
+    kind?: AccountKind;
     currency: string;
     assetId?: string | null;
     balanceMinor: bigint;
@@ -54,6 +63,7 @@ export class AccountEntity {
     this.name = input.name;
     this.side = input.side;
     this.overdraftPolicy = input.overdraftPolicy ?? OverdraftPolicy.ALLOW;
+    this.kind = input.kind ?? AccountKind.STANDARD;
     this.currency = input.currency;
     this.assetId = input.assetId ?? null;
     this.balanceMinor = input.balanceMinor;

@@ -36,6 +36,7 @@ export const accountResponseSchema = {
     'name',
     'side',
     'overdraft_policy',
+    'kind',
     'currency',
     'balance_minor',
     'created_at',
@@ -67,6 +68,10 @@ export const accountResponseSchema = {
     overdraft_policy: {
       type: 'string',
       enum: ['ALLOW', 'DISALLOW'],
+    },
+    kind: {
+      type: 'string',
+      enum: ['STANDARD', 'CREDIT_WALLET'],
     },
     currency: {
       type: 'string',

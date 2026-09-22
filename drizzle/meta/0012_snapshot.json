@@ -1,5 +1,5 @@
 {
-  "id": "8edb93e5-519e-4629-b1a4-e08f78274797",
+  "id": "70ae6e6e-bb4c-4929-ad17-6ac4c879d32b",
   "prevId": "9da424bc-d103-42fb-97bf-560e360c2e54",
   "version": "7",
   "dialect": "postgresql",
@@ -53,6 +53,14 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'ALLOW'"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "account_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'STANDARD'"
         },
         "currency": {
           "name": "currency",
@@ -676,17 +684,10 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.credit_grant_reversals": {
-      "name": "credit_grant_reversals",
+    "public.credit_grant_entries": {
+      "name": "credit_grant_entries",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_v7()"
-        },
         "tenant_id": {
           "name": "tenant_id",
           "type": "uuid",
@@ -699,50 +700,28 @@
           "primaryKey": false,
           "notNull": true
         },
+        "account_id": {
+          "name": "account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "grant_id": {
           "name": "grant_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "reference": {
-          "name": "reference",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "transaction_id": {
-          "name": "transaction_id",
+        "entry_id": {
+          "name": "entry_id",
           "type": "uuid",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
         }
       },
       "indexes": {
-        "credit_grant_reversals_grant_uq": {
-          "name": "credit_grant_reversals_grant_uq",
-          "columns": [
-            {
-              "expression": "grant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credit_grant_reversals_tenant_reference_uq": {
-          "name": "credit_grant_reversals_tenant_reference_uq",
+        "credit_grant_entries_tenant_grant_idx": {
+          "name": "credit_grant_entries_tenant_grant_idx",
           "columns": [
             {
               "expression": "tenant_id",
@@ -751,37 +730,43 @@
               "nulls": "last"
             },
             {
-              "expression": "reference",
+              "expression": "grant_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "credit_grant_reversals_transaction_uq": {
-          "name": "credit_grant_reversals_transaction_uq",
+        "credit_grant_entries_tenant_account_idx": {
+          "name": "credit_grant_entries_tenant_account_idx",
           "columns": [
             {
-              "expression": "transaction_id",
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "account_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "credit_grant_reversals_tenant_id_tenants_id_fk": {
-          "name": "credit_grant_reversals_tenant_id_tenants_id_fk",
-          "tableFrom": "credit_grant_reversals",
+        "credit_grant_entries_tenant_id_tenants_id_fk": {
+          "name": "credit_grant_entries_tenant_id_tenants_id_fk",
+          "tableFrom": "credit_grant_entries",
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
@@ -792,35 +777,37 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "credit_grant_reversals_grant_fk": {
-          "name": "credit_grant_reversals_grant_fk",
-          "tableFrom": "credit_grant_reversals",
+        "credit_grant_entries_grant_fk": {
+          "name": "credit_grant_entries_grant_fk",
+          "tableFrom": "credit_grant_entries",
           "tableTo": "credit_grants",
           "columnsFrom": [
             "tenant_id",
             "ledger_id",
+            "account_id",
             "grant_id"
           ],
           "columnsTo": [
             "tenant_id",
             "ledger_id",
+            "account_id",
             "id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "credit_grant_reversals_transaction_scope_fk": {
-          "name": "credit_grant_reversals_transaction_scope_fk",
-          "tableFrom": "credit_grant_reversals",
-          "tableTo": "transactions",
+        "credit_grant_entries_entry_fk": {
+          "name": "credit_grant_entries_entry_fk",
+          "tableFrom": "credit_grant_entries",
+          "tableTo": "entries",
           "columnsFrom": [
             "tenant_id",
-            "ledger_id",
-            "transaction_id"
+            "account_id",
+            "entry_id"
           ],
           "columnsTo": [
             "tenant_id",
-            "ledger_id",
+            "account_id",
             "id"
           ],
           "onDelete": "no action",
@@ -890,12 +877,6 @@
           "name": "origin",
           "type": "credit_grant_origin",
           "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "amount_minor": {
-          "name": "amount_minor",
-          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
@@ -991,6 +972,39 @@
             },
             {
               "expression": "ledger_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_grants_tenant_ledger_account_id_uq": {
+          "name": "credit_grants_tenant_ledger_account_id_uq",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ledger_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "account_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1123,10 +1137,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "credit_grants_amount_chk": {
-          "name": "credit_grants_amount_chk",
-          "value": "\"credit_grants\".\"amount_minor\" > 0"
-        },
         "credit_grants_accounts_chk": {
           "name": "credit_grants_accounts_chk",
           "value": "\"credit_grants\".\"account_id\" <> \"credit_grants\".\"funding_account_id\""
@@ -1250,6 +1260,33 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "entries_tenant_account_id_uq": {
+          "name": "entries_tenant_account_id_uq",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2809,6 +2846,14 @@
     }
   },
   "enums": {
+    "public.account_kind": {
+      "name": "account_kind",
+      "schema": "public",
+      "values": [
+        "STANDARD",
+        "CREDIT_WALLET"
+      ]
+    },
     "public.account_side": {
       "name": "account_side",
       "schema": "public",

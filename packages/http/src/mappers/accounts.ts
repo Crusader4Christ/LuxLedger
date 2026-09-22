@@ -9,6 +9,7 @@ export const toAccountResponse = (account: AccountEntity): AccountResponse => ({
   name: account.name,
   side: account.side,
   overdraft_policy: account.overdraftPolicy,
+  kind: account.kind,
   currency: account.currency,
   balance_minor: account.balanceMinor.toString(),
   created_at: account.createdAt.toISOString(),
