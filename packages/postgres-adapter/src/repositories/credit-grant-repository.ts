@@ -231,48 +231,62 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   }
 
   private async assertIssuanceAccountInTx(tx: Tx, input: CreateCreditGrantInput) {
-    const account = await this.lockCreditAccount(tx, input.tenantId, input.accountId);
+    const account = await this.findCreditAccount(tx, input.tenantId, input.accountId);
     if (account.ledgerId !== input.ledgerId) {
       throw new CreditGrantConflictError('Grant account ledger mismatch');
     }
+    if (await this.hasGrantInTx(tx, input.tenantId, input.accountId)) {
+      return account;
+    }
+
+    const lockedAccount = await this.lockCreditAccount(tx, input.tenantId, input.accountId);
+    if (lockedAccount.ledgerId !== input.ledgerId) {
+      throw new CreditGrantConflictError('Grant account ledger mismatch');
+    }
+    if (await this.hasGrantInTx(tx, input.tenantId, input.accountId)) {
+      return lockedAccount;
+    }
+
+    const [priorEntry] = await tx
+      .select({ id: schema.entries.id })
+      .from(schema.entries)
+      .where(
+        and(
+          eq(schema.entries.tenantId, input.tenantId),
+          eq(schema.entries.accountId, input.accountId),
+        ),
+      )
+      .limit(1);
+    const [priorHold] = await tx
+      .select({ id: schema.holdEntries.id })
+      .from(schema.holdEntries)
+      .where(
+        and(
+          eq(schema.holdEntries.tenantId, input.tenantId),
+          eq(schema.holdEntries.accountId, input.accountId),
+        ),
+      )
+      .limit(1);
+    if (priorEntry || priorHold) {
+      throw new CreditGrantConflictError(
+        'Grant-enabled account must have no prior ledger or hold history',
+      );
+    }
+    return lockedAccount;
+  }
+
+  private async hasGrantInTx(tx: Tx, tenantId: string, accountId: string): Promise<boolean> {
     const [existingGrant] = await tx
       .select({ id: schema.creditGrants.id })
       .from(schema.creditGrants)
       .where(
         and(
-          eq(schema.creditGrants.tenantId, input.tenantId),
-          eq(schema.creditGrants.accountId, input.accountId),
+          eq(schema.creditGrants.tenantId, tenantId),
+          eq(schema.creditGrants.accountId, accountId),
         ),
       )
       .limit(1);
-    if (!existingGrant) {
-      const [priorEntry] = await tx
-        .select({ id: schema.entries.id })
-        .from(schema.entries)
-        .where(
-          and(
-            eq(schema.entries.tenantId, input.tenantId),
-            eq(schema.entries.accountId, input.accountId),
-          ),
-        )
-        .limit(1);
-      const [priorHold] = await tx
-        .select({ id: schema.holdEntries.id })
-        .from(schema.holdEntries)
-        .where(
-          and(
-            eq(schema.holdEntries.tenantId, input.tenantId),
-            eq(schema.holdEntries.accountId, input.accountId),
-          ),
-        )
-        .limit(1);
-      if (priorEntry || priorHold) {
-        throw new CreditGrantConflictError(
-          'Grant-enabled account must have no prior ledger or hold history',
-        );
-      }
-    }
-    return account;
+    return existingGrant !== undefined;
   }
 
   private async balanceInTx(tx: Tx, tenantId: string, accountId: string): Promise<CreditBalance> {

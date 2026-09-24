@@ -187,7 +187,7 @@ describe('credit grants', () => {
     ).rejects.toThrow();
   });
 
-  it('serializes concurrent duplicate grants and records one full compensation', async () => {
+  it('serializes concurrent adoption and duplicate grants and records one compensation', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const input = grantInput(tenantId, accounts, 'concurrent');
@@ -199,6 +199,11 @@ describe('credit grants', () => {
     });
     try {
       const other = createApplicationServices(secondClient);
+      const firstAdoption = await Promise.all([
+        services.creditGrants.create({ ...input, reference: 'first-adoption-a' }),
+        other.creditGrants.create({ ...input, reference: 'first-adoption-b' }),
+      ]);
+      expect(firstAdoption.every((item) => item.created)).toBeTrue();
       const [a, b] = await Promise.all([
         services.creditGrants.create(input),
         other.creditGrants.create(input),
@@ -245,7 +250,7 @@ describe('credit grants', () => {
         services.creditGrants.reverse({ tenantId, grantId: a.grant.id, reference: 'reverse-2' }),
       ).rejects.toBeInstanceOf(CreditGrantConflictError);
       const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
-      expect(balance.ledgerBalanceMinor).toBe(200n + accepted.value.grant.amountMinor);
+      expect(balance.ledgerBalanceMinor).toBe(400n + accepted.value.grant.amountMinor);
       expect(balance.lots.find((lot) => lot.grantId === a.grant.id)?.reversedMinor).toBe(100n);
     } finally {
       await secondClient.sql.end({ timeout: 5 });
