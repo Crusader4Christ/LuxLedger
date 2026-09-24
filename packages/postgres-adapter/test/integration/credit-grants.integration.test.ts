@@ -393,6 +393,12 @@ describe('credit grants', () => {
         },
       ],
     });
+    const [updatedPosting] = await db
+      .update(transactions)
+      .set({ description: 'unrelated update remains effective' })
+      .where(eq(transactions.id, posting.transactionId))
+      .returning({ description: transactions.description });
+    expect(updatedPosting?.description).toBe('unrelated update remains effective');
     const row = {
       tenantId,
       ledgerId: accounts.ledgerId,

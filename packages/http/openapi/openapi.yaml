@@ -973,7 +973,7 @@ components:
         asset_id: { type: string, format: uuid }
         reference: { type: string }
         external_reference: { type: string, nullable: true }
-        amount_minor: { type: string }
+        amount_minor: { type: string, pattern: '^[0-9]+$' }
         transaction_id: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
         reversed_by_transaction_id: { type: string, format: uuid, nullable: true }
@@ -986,9 +986,9 @@ components:
         reference: { type: string }
         external_reference: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
-        granted_minor: { type: string }
-        reversed_minor: { type: string }
-        remaining_minor: { type: string }
+        granted_minor: { type: string, pattern: '^[0-9]+$' }
+        reversed_minor: { type: string, pattern: '^[0-9]+$' }
+        remaining_minor: { type: string, pattern: '^[0-9]+$' }
     CreditBalance:
       type: object
       additionalProperties: false
@@ -996,8 +996,8 @@ components:
       properties:
         account_id: { type: string, format: uuid }
         asset_id: { type: string, format: uuid }
-        ledger_balance_minor: { type: string }
-        remaining_minor: { type: string }
+        ledger_balance_minor: { type: string, pattern: '^[0-9]+$' }
+        remaining_minor: { type: string, pattern: '^[0-9]+$' }
         lots:
           type: array
           items:

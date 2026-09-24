@@ -3,7 +3,7 @@ import { NonEmptyTrimmedStringSchema } from './common';
 
 const uuid = { type: 'string', format: 'uuid' } as const;
 const minor = { type: 'string', pattern: '^[1-9][0-9]*$' } as const;
-const amount = { type: 'string' } as const;
+const amount = { type: 'string', pattern: '^[0-9]+$' } as const;
 
 export const createCreditGrantBodySchema = {
   type: 'object',

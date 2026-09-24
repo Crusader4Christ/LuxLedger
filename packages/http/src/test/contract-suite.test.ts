@@ -9,6 +9,8 @@ import {
   createLedgerBodySchema,
   createTransactionRequestSchema,
   creditBalanceResponseSchema,
+  creditGrantLotResponseSchema,
+  creditGrantResponseSchema,
   entriesPageResponseSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
@@ -91,6 +93,15 @@ describe('framework-agnostic contract suite', () => {
               type: 'string',
               pattern: '^[1-9][0-9]*$',
             });
+            const responseAmount = { type: 'string', pattern: '^[0-9]+$' } as const;
+            expect(creditGrantResponseSchema.properties.amount_minor).toEqual(responseAmount);
+            expect(creditGrantLotResponseSchema.properties.granted_minor).toEqual(responseAmount);
+            expect(creditGrantLotResponseSchema.properties.reversed_minor).toEqual(responseAmount);
+            expect(creditGrantLotResponseSchema.properties.remaining_minor).toEqual(responseAmount);
+            expect(creditBalanceResponseSchema.properties.ledger_balance_minor).toEqual(
+              responseAmount,
+            );
+            expect(creditBalanceResponseSchema.properties.remaining_minor).toEqual(responseAmount);
             expect(creditBalanceResponseSchema.required).toContain('ledger_balance_minor');
           },
         },

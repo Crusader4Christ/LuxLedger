@@ -24,11 +24,6 @@ CREATE TABLE "credit_grants" (
 	CONSTRAINT "credit_grants_accounts_chk" CHECK ("credit_grants"."account_id" <> "credit_grants"."funding_account_id")
 );
 --> statement-breakpoint
-ALTER TABLE "accounts" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
-ALTER TABLE "entries" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
-ALTER TABLE "hold_entries" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
-ALTER TABLE "holds" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
-ALTER TABLE "transactions" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_reference_uq" ON "credit_grants" USING btree ("tenant_id","reference");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_id_uq" ON "credit_grants" USING btree ("tenant_id","id");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_ledger_id_uq" ON "credit_grants" USING btree ("tenant_id","ledger_id","id");--> statement-breakpoint
@@ -139,6 +134,9 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'credit grant transactions are immutable';
     END IF;
+  END IF;
+  IF TG_OP = 'UPDATE' THEN
+    RETURN NEW;
   END IF;
   RETURN OLD;
 END $$;--> statement-breakpoint
