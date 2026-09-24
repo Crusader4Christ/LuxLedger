@@ -39,7 +39,6 @@ class FakeLedgerService {
       name: input.name,
       side: input.side,
       overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
-      kind: 'STANDARD',
       currency: input.currency,
       balanceMinor: 0n,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -153,10 +152,10 @@ describe('express adapter parity with fastify adapter', () => {
           ledgerId: string;
           accountId: string;
           fundingAccountId: string;
-          assetId: string;
           reference: string;
           externalReference?: string | null;
-          origin: 'PURCHASED';
+          provenance: string;
+          expiresAt?: Date | null;
           amountMinor: bigint;
           policy: {
             refundable: boolean;
@@ -171,10 +170,11 @@ describe('express adapter parity with fastify adapter', () => {
             ledgerId: input.ledgerId,
             accountId: input.accountId,
             fundingAccountId: input.fundingAccountId,
-            assetId: input.assetId,
+            assetId: '00000000-0000-4000-8000-000000000903',
             reference: input.reference,
             externalReference: input.externalReference ?? null,
-            origin: input.origin,
+            provenance: input.provenance,
+            expiresAt: input.expiresAt ?? null,
             amountMinor: input.amountMinor,
             policy: input.policy,
             transactionId: '00000000-0000-4000-8000-000000000902',
@@ -200,7 +200,7 @@ describe('express adapter parity with fastify adapter', () => {
           assetId: '00000000-0000-4000-8000-000000000903',
           ledgerBalanceMinor: 100n,
           remainingMinor: 100n,
-          buckets: [
+          lots: [
             {
               grantId: '00000000-0000-4000-8000-000000000901',
               reference: 'parity-grant',
@@ -212,18 +212,8 @@ describe('express adapter parity with fastify adapter', () => {
                 eligibility: null,
               },
               createdAt: new Date('2026-01-01T00:00:00.000Z'),
-              origin: 'PURCHASED',
-              grantedMinor: 100n,
-              allocatedMinor: 0n,
-              consumedMinor: 0n,
-              expiredMinor: 0n,
-              reversedMinor: 0n,
-              remainingMinor: 100n,
-            },
-          ],
-          originTotals: [
-            {
-              origin: 'PURCHASED',
+              provenance: 'purchase',
+              expiresAt: null,
               grantedMinor: 100n,
               allocatedMinor: 0n,
               consumedMinor: 0n,
@@ -668,14 +658,14 @@ describe('express adapter parity with fastify adapter', () => {
     }
   });
 
-  it('keeps credit grant creation and bucket response identical across adapters', async () => {
+  it('keeps credit grant creation and lot response identical across adapters', async () => {
     const payload = {
       ledger_id: '00000000-0000-4000-8000-000000000910',
       account_id: '00000000-0000-4000-8000-000000000911',
       funding_account_id: '00000000-0000-4000-8000-000000000912',
-      asset_id: '00000000-0000-4000-8000-000000000903',
       reference: 'parity-grant',
-      origin: 'PURCHASED',
+      provenance: 'purchase',
+      expires_at: '2027-01-01T00:00:00.000Z',
       amount_minor: '100',
       policy: { refundable: true, transferable: false, consumption_priority: 2, eligibility: null },
     };

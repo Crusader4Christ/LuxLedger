@@ -1,4 +1,4 @@
-import { AccountSide, CreditGrantOrigin, EntryDirection } from '@luxledger/core';
+import { AccountSide, EntryDirection } from '@luxledger/core';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -11,6 +11,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -89,8 +90,6 @@ export const ledgers = pgTable(
   }),
 );
 
-export const accountKindEnum = pgEnum('account_kind', ['STANDARD', 'CREDIT_WALLET']);
-
 export const accounts = pgTable(
   'accounts',
   {
@@ -105,7 +104,6 @@ export const accounts = pgTable(
     name: text('name').notNull(),
     side: accountSideEnum('side').notNull(),
     overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
-    kind: accountKindEnum('kind').notNull().default('STANDARD'),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
@@ -337,11 +335,6 @@ export const entries = pgTable(
   }),
 );
 
-export const creditGrantOriginEnum = pgEnum(
-  'credit_grant_origin',
-  Object.values(CreditGrantOrigin) as [CreditGrantOrigin, ...CreditGrantOrigin[]],
-);
-
 export const creditGrants = pgTable(
   'credit_grants',
   {
@@ -352,10 +345,10 @@ export const creditGrants = pgTable(
     ledgerId: uuid('ledger_id').notNull(),
     accountId: uuid('account_id').notNull(),
     fundingAccountId: uuid('funding_account_id').notNull(),
-    assetId: uuid('asset_id').notNull(),
     reference: text('reference').notNull(),
     externalReference: text('external_reference'),
-    origin: creditGrantOriginEnum('origin').notNull(),
+    provenance: text('provenance').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
     refundable: boolean('refundable').notNull(),
     transferable: boolean('transferable').notNull(),
     consumptionPriority: integer('consumption_priority').notNull(),
@@ -401,23 +394,25 @@ export const creditGrants = pgTable(
       columns: [table.tenantId, table.ledgerId, table.transactionId],
       foreignColumns: [transactions.tenantId, transactions.ledgerId, transactions.id],
     }),
-    assetFk: foreignKey({
-      name: 'credit_grants_asset_fk',
-      columns: [table.tenantId, table.assetId],
-      foreignColumns: [assets.tenantId, assets.id],
-    }),
     accountsChk: check(
       'credit_grants_accounts_chk',
       sql`${table.accountId} <> ${table.fundingAccountId}`,
     ),
     priorityChk: check('credit_grants_priority_chk', sql`${table.consumptionPriority} >= 0`),
-    policyChk: check(
-      'credit_grants_policy_chk',
-      sql`(${table.origin} <> 'PURCHASED' or ${table.refundable}) and (${table.origin} <> 'PROMOTIONAL' or (not ${table.refundable} and not ${table.transferable}))`,
+    provenanceChk: check(
+      'credit_grants_provenance_chk',
+      sql`length(btrim(${table.provenance})) between 1 and 64`,
     ),
     eligibilityChk: check('credit_grants_eligibility_v1_chk', sql`${table.eligibility} is null`),
   }),
 );
+
+export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', [
+  'ISSUANCE',
+  'REVERSAL',
+  'ALLOCATION',
+  'EXPIRATION',
+]);
 
 export const creditGrantEntries = pgTable(
   'credit_grant_entries',
@@ -428,9 +423,15 @@ export const creditGrantEntries = pgTable(
     ledgerId: uuid('ledger_id').notNull(),
     accountId: uuid('account_id').notNull(),
     grantId: uuid('grant_id').notNull(),
-    entryId: uuid('entry_id').primaryKey(),
+    entryId: uuid('entry_id').notNull(),
+    kind: creditGrantEntryKindEnum('kind').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
   },
   (table) => ({
+    pk: primaryKey({
+      name: 'credit_grant_entries_pk',
+      columns: [table.grantId, table.entryId],
+    }),
     grantFk: foreignKey({
       name: 'credit_grant_entries_grant_fk',
       columns: [table.tenantId, table.ledgerId, table.accountId, table.grantId],
@@ -450,6 +451,10 @@ export const creditGrantEntries = pgTable(
     accountIdx: index('credit_grant_entries_tenant_account_idx').on(
       table.tenantId,
       table.accountId,
+    ),
+    amountPositiveChk: check(
+      'credit_grant_entries_amount_positive_chk',
+      sql`${table.amountMinor} > 0`,
     ),
   }),
 );

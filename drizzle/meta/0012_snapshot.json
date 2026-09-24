@@ -1,5 +1,5 @@
 {
-  "id": "70ae6e6e-bb4c-4929-ad17-6ac4c879d32b",
+  "id": "100d4973-0dd5-4ba8-a8aa-533493c875e7",
   "prevId": "9da424bc-d103-42fb-97bf-560e360c2e54",
   "version": "7",
   "dialect": "postgresql",
@@ -53,14 +53,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'ALLOW'"
-        },
-        "kind": {
-          "name": "kind",
-          "type": "account_kind",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'STANDARD'"
         },
         "currency": {
           "name": "currency",
@@ -715,7 +707,20 @@
         "entry_id": {
           "name": "entry_id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "credit_grant_entry_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
           "notNull": true
         }
       },
@@ -814,10 +819,23 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "credit_grant_entries_pk": {
+          "name": "credit_grant_entries_pk",
+          "columns": [
+            "grant_id",
+            "entry_id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "credit_grant_entries_amount_positive_chk": {
+          "name": "credit_grant_entries_amount_positive_chk",
+          "value": "\"credit_grant_entries\".\"amount_minor\" > 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.credit_grants": {
@@ -855,12 +873,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "asset_id": {
-          "name": "asset_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "reference": {
           "name": "reference",
           "type": "text",
@@ -873,12 +885,17 @@
           "primaryKey": false,
           "notNull": false
         },
-        "origin": {
-          "name": "origin",
-          "type": "credit_grant_origin",
-          "typeSchema": "public",
+        "provenance": {
+          "name": "provenance",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "refundable": {
           "name": "refundable",
@@ -1116,21 +1133,6 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "credit_grants_asset_fk": {
-          "name": "credit_grants_asset_fk",
-          "tableFrom": "credit_grants",
-          "tableTo": "assets",
-          "columnsFrom": [
-            "tenant_id",
-            "asset_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1145,9 +1147,9 @@
           "name": "credit_grants_priority_chk",
           "value": "\"credit_grants\".\"consumption_priority\" >= 0"
         },
-        "credit_grants_policy_chk": {
-          "name": "credit_grants_policy_chk",
-          "value": "(\"credit_grants\".\"origin\" <> 'PURCHASED' or \"credit_grants\".\"refundable\") and (\"credit_grants\".\"origin\" <> 'PROMOTIONAL' or (not \"credit_grants\".\"refundable\" and not \"credit_grants\".\"transferable\"))"
+        "credit_grants_provenance_chk": {
+          "name": "credit_grants_provenance_chk",
+          "value": "length(btrim(\"credit_grants\".\"provenance\")) between 1 and 64"
         },
         "credit_grants_eligibility_v1_chk": {
           "name": "credit_grants_eligibility_v1_chk",
@@ -2846,14 +2848,6 @@
     }
   },
   "enums": {
-    "public.account_kind": {
-      "name": "account_kind",
-      "schema": "public",
-      "values": [
-        "STANDARD",
-        "CREDIT_WALLET"
-      ]
-    },
     "public.account_side": {
       "name": "account_side",
       "schema": "public",
@@ -2873,14 +2867,14 @@
         "ADJUSTMENT"
       ]
     },
-    "public.credit_grant_origin": {
-      "name": "credit_grant_origin",
+    "public.credit_grant_entry_kind": {
+      "name": "credit_grant_entry_kind",
       "schema": "public",
       "values": [
-        "PURCHASED",
-        "PROMOTIONAL",
-        "TRIAL",
-        "COMPENSATION"
+        "ISSUANCE",
+        "REVERSAL",
+        "ALLOCATION",
+        "EXPIRATION"
       ]
     },
     "public.entry_direction": {

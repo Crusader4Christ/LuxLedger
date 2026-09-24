@@ -50,14 +50,14 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     tx: PostgresJsDatabase<typeof schema>,
     input: CreateTransactionInput,
   ): Promise<CreateTransactionResult> {
-    return this.createInTx(tx, input, 'CREDIT_GRANT');
+    return this.createInTx(tx, input);
   }
 
   public postCreditGrantReversalInTx(
     tx: PostgresJsDatabase<typeof schema>,
     input: CreateTransactionInput & { relatedTransactionId: string; relationType: 'REVERSAL' },
   ): Promise<CreateTransactionResult> {
-    return this.createInTx(tx, input, 'CREDIT_GRANT_REVERSAL');
+    return this.createInTx(tx, input);
   }
 
   private createInTx(
@@ -66,7 +66,6 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       relatedTransactionId?: string;
       relationType?: 'REVERSAL' | 'CORRECTION';
     },
-    postingContext: 'GENERAL' | 'CREDIT_GRANT' | 'CREDIT_GRANT_REVERSAL' = 'GENERAL',
   ): Promise<CreateTransactionResult> {
     return this.createOrResolvePostedTransaction(tx, {
       ...input,
@@ -74,7 +73,6 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       effectiveAt: input.effectiveAt ?? undefined,
       compareDescriptionOnRetry: true,
       payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
-      postingContext,
     });
   }
 
@@ -354,7 +352,6 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       }>;
       compareDescriptionOnRetry?: boolean;
       payloadMismatchMessage: string;
-      postingContext?: 'GENERAL' | 'CREDIT_GRANT' | 'CREDIT_GRANT_REVERSAL';
     },
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
@@ -392,7 +389,6 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         { ...input, assetId: asset.id },
         inserted.id,
         effectiveAt,
-        input.postingContext ?? 'GENERAL',
       );
       return { transactionId: inserted.id, created: true };
     }
@@ -586,7 +582,6 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     },
     transactionId: string,
     effectiveAt: Date,
-    postingContext: 'GENERAL' | 'CREDIT_GRANT' | 'CREDIT_GRANT_REVERSAL' = 'GENERAL',
   ): Promise<void> {
     await tx.insert(schema.entries).values(
       input.entries.map((entry) => ({
@@ -618,7 +613,6 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         )
         .returning({
           id: schema.accounts.id,
-          kind: schema.accounts.kind,
           ledgerId: schema.accounts.ledgerId,
           overdraftPolicy: schema.accounts.overdraftPolicy,
           balanceMinor: schema.accounts.balanceMinor,
@@ -629,9 +623,6 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         throw new InvariantViolationError(
           'Unable to create transaction: account ledger/currency mismatch',
         );
-      }
-      if (postingContext === 'GENERAL' && updatedAccount.kind === 'CREDIT_WALLET') {
-        throw new InvariantViolationError('Credit account postings require grant allocation');
       }
       assertAvailableBalance(updatedAccount);
       const [previousSnapshot] = await tx

@@ -142,7 +142,6 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           )
           .returning({
             id: schema.accounts.id,
-            kind: schema.accounts.kind,
             ledgerId: schema.accounts.ledgerId,
             overdraftPolicy: schema.accounts.overdraftPolicy,
             balanceMinor: schema.accounts.balanceMinor,
@@ -153,9 +152,6 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           throw new InvariantViolationError(
             'Unable to create hold: account ledger/currency mismatch',
           );
-        }
-        if (updatedAccount.kind === 'CREDIT_WALLET') {
-          throw new InvariantViolationError('Credit account holds require grant allocation');
         }
         assertAvailableBalance(updatedAccount);
         await insertBalanceSnapshot(tx, {

@@ -35,10 +35,10 @@ export class CreditGrantRoutes extends BaseRoute {
             ledgerId: body.ledger_id,
             accountId: body.account_id,
             fundingAccountId: body.funding_account_id,
-            assetId: body.asset_id,
             reference: body.reference,
             externalReference: body.external_reference,
-            origin: body.origin,
+            provenance: body.provenance,
+            expiresAt: body.expires_at == null ? null : new Date(body.expires_at),
             amountMinor: BigInt(body.amount_minor),
             policy: {
               refundable: body.policy.refundable,

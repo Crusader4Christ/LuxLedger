@@ -79,10 +79,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           ledgerId: input.ledgerId,
           accountId: input.accountId,
           fundingAccountId: input.fundingAccountId,
-          assetId: input.assetId,
           reference: input.reference,
           externalReference: input.externalReference ?? null,
-          origin: input.origin,
+          provenance: input.provenance.trim(),
+          expiresAt: input.expiresAt ?? null,
           refundable: input.policy.refundable,
           transferable: input.policy.transferable,
           consumptionPriority: input.policy.consumptionPriority,
@@ -91,7 +91,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         })
         .returning();
       if (!row) throw new CreditGrantConflictError('Grant insert failed');
-      await this.linkWalletEntry(tx, row, posted.transactionId);
+      await this.linkWalletEntry(tx, row, posted.transactionId, 'ISSUANCE');
       return { grant: await this.toGrant(tx, row), created: true };
     });
   }
@@ -134,7 +134,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         return { grant: await this.toGrant(tx, row), created: false };
       }
       const balance = await this.balanceInTx(tx, input.tenantId, row.accountId);
-      const target = balance.buckets.find((bucket) => bucket.grantId === row.id);
+      const target = balance.lots.find((lot) => lot.grantId === row.id);
       const grant = await this.toGrant(tx, row);
       if (
         !target ||
@@ -175,7 +175,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           },
         ],
       });
-      await this.linkWalletEntry(tx, row, posted.transactionId);
+      await this.linkWalletEntry(tx, row, posted.transactionId, 'REVERSAL');
       return { grant: await this.toGrant(tx, row), created: true };
     });
   }
@@ -228,13 +228,23 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   private async assertIssuanceAccountInTx(tx: Tx, input: CreateCreditGrantInput) {
     const account = await this.lockCreditAccount(tx, input.tenantId, input.accountId);
-    if (account.assetId !== input.assetId || account.ledgerId !== input.ledgerId) {
-      throw new CreditGrantConflictError('Grant account asset or ledger mismatch');
+    if (account.ledgerId !== input.ledgerId) {
+      throw new CreditGrantConflictError('Grant account ledger mismatch');
     }
-    if (account.kind === 'STANDARD' && account.balanceMinor !== 0n) {
-      throw new CreditGrantConflictError('Credit wallet must start with zero balance');
-    }
-    if (account.kind === 'STANDARD') {
+    const [existingGrant] = await tx
+      .select({ id: schema.creditGrants.id })
+      .from(schema.creditGrants)
+      .where(
+        and(
+          eq(schema.creditGrants.tenantId, input.tenantId),
+          eq(schema.creditGrants.accountId, input.accountId),
+        ),
+      )
+      .limit(1);
+    if (!existingGrant) {
+      if (account.balanceMinor !== 0n) {
+        throw new CreditGrantConflictError('Grant-enabled account must start with zero balance');
+      }
       const [priorEntry] = await tx
         .select({ id: schema.entries.id })
         .from(schema.entries)
@@ -257,15 +267,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         .limit(1);
       if (priorEntry || priorHold) {
         throw new CreditGrantConflictError(
-          'Credit wallet must have no prior ledger or hold history',
+          'Grant-enabled account must have no prior ledger or hold history',
         );
       }
-    }
-    if (account.kind === 'STANDARD') {
-      await tx
-        .update(schema.accounts)
-        .set({ kind: 'CREDIT_WALLET' })
-        .where(eq(schema.accounts.id, account.id));
     }
     return account;
   }
@@ -285,6 +289,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     const linked = await tx
       .select({
         grantId: schema.creditGrantEntries.grantId,
+        linkKind: schema.creditGrantEntries.kind,
+        linkedAmountMinor: schema.creditGrantEntries.amountMinor,
         entry: schema.entries,
         transaction: schema.transactions,
       })
@@ -303,29 +309,33 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       list.push(movement);
       byGrant.set(movement.grantId, list);
     }
-    const buckets: CreditBalance['buckets'] = [];
-    const originTotals = new Map<string, CreditBalance['originTotals'][number]>();
+    const lots: CreditBalance['lots'] = [];
     let total = 0n;
     for (const row of rows) {
-      if (row.assetId !== account.assetId || row.ledgerId !== account.ledgerId) {
-        throw new CreditGrantConflictError('Grant account asset or ledger mismatch');
+      if (row.ledgerId !== account.ledgerId) {
+        throw new CreditGrantConflictError('Grant account ledger mismatch');
       }
       let grantedMinor = 0n;
       let reversedMinor = 0n;
       let issuanceCount = 0;
-      for (const { entry, transaction } of byGrant.get(row.id) ?? []) {
-        if (entry.assetId !== row.assetId || transaction.ledgerId !== row.ledgerId) {
+      for (const { entry, transaction, linkKind, linkedAmountMinor } of byGrant.get(row.id) ?? []) {
+        if (entry.assetId !== account.assetId || transaction.ledgerId !== row.ledgerId) {
           throw new CreditGrantConflictError('Credit entry scope mismatch');
         }
-        if (entry.transactionId === row.transactionId && entry.direction === 'CREDIT') {
-          grantedMinor += entry.amountMinor;
+        if (
+          linkKind === 'ISSUANCE' &&
+          entry.transactionId === row.transactionId &&
+          entry.direction === 'CREDIT'
+        ) {
+          grantedMinor += linkedAmountMinor;
           issuanceCount++;
         } else if (
+          linkKind === 'REVERSAL' &&
           transaction.relatedTransactionId === row.transactionId &&
           transaction.relationType === 'REVERSAL' &&
           entry.direction === 'DEBIT'
         ) {
-          reversedMinor += entry.amountMinor;
+          reversedMinor += linkedAmountMinor;
         } else {
           throw new CreditGrantConflictError('Unsupported credit lot movement');
         }
@@ -333,7 +343,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       if (issuanceCount !== 1 || grantedMinor <= 0n) {
         throw new CreditGrantConflictError('Grant issuance entry is missing');
       }
-      const bucket: CreditBalance['buckets'][number] = {
+      const lot: CreditBalance['lots'][number] = {
         grantId: row.id,
         reference: row.reference,
         externalReference: row.externalReference,
@@ -344,7 +354,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           eligibility: row.eligibility,
         },
         createdAt: row.createdAt,
-        origin: row.origin,
+        provenance: row.provenance,
+        expiresAt: row.expiresAt,
         grantedMinor,
         allocatedMinor: 0n,
         consumedMinor: 0n,
@@ -352,29 +363,16 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         reversedMinor,
         remainingMinor: 0n,
       };
-      bucket.remainingMinor = creditGrantRemaining(bucket);
-      buckets.push(bucket);
-      const aggregate = originTotals.get(row.origin) ?? {
-        origin: row.origin,
-        grantedMinor: 0n,
-        allocatedMinor: 0n,
-        consumedMinor: 0n,
-        expiredMinor: 0n,
-        reversedMinor: 0n,
-        remainingMinor: 0n,
-      };
-      aggregate.grantedMinor += grantedMinor;
-      aggregate.reversedMinor += reversedMinor;
-      aggregate.remainingMinor += bucket.remainingMinor;
-      originTotals.set(row.origin, aggregate);
-      total += bucket.remainingMinor;
+      lot.remainingMinor = creditGrantRemaining(lot);
+      lots.push(lot);
+      total += lot.remainingMinor;
     }
     if (
       total !== account.balanceMinor ||
       total !== (await this.ledgerTotalInTx(tx, tenantId, accountId))
     ) {
       throw new CreditGrantConflictError(
-        'Credit bucket totals do not reconcile with ledger balance',
+        'Credit grant lot totals do not reconcile with ledger balance',
       );
     }
     return {
@@ -382,14 +380,18 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       assetId: account.assetId,
       ledgerBalanceMinor: account.balanceMinor,
       remainingMinor: total,
-      buckets,
-      originTotals: [...originTotals.values()].sort((a, b) => a.origin.localeCompare(b.origin)),
+      lots,
     };
   }
 
-  private async linkWalletEntry(tx: Tx, row: GrantRow, transactionId: string): Promise<void> {
+  private async linkWalletEntry(
+    tx: Tx,
+    row: GrantRow,
+    transactionId: string,
+    kind: 'ISSUANCE' | 'REVERSAL',
+  ): Promise<void> {
     const walletEntries = await tx
-      .select({ id: schema.entries.id })
+      .select({ id: schema.entries.id, amountMinor: schema.entries.amountMinor })
       .from(schema.entries)
       .where(
         and(
@@ -407,6 +409,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       accountId: row.accountId,
       grantId: row.id,
       entryId: walletEntries[0].id,
+      kind,
+      amountMinor: walletEntries[0].amountMinor,
     });
   }
 
@@ -427,7 +431,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   private async toGrant(tx: Tx, row: GrantRow): Promise<CreditGrant> {
     const [issuance] = await tx
-      .select({ amountMinor: schema.entries.amountMinor })
+      .select({ amountMinor: schema.entries.amountMinor, assetId: schema.entries.assetId })
       .from(schema.creditGrantEntries)
       .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
       .where(
@@ -435,6 +439,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           eq(schema.creditGrantEntries.tenantId, row.tenantId),
           eq(schema.creditGrantEntries.grantId, row.id),
           eq(schema.entries.transactionId, row.transactionId),
+          eq(schema.creditGrantEntries.kind, 'ISSUANCE'),
         ),
       )
       .limit(1);
@@ -446,10 +451,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       ledgerId: row.ledgerId,
       accountId: row.accountId,
       fundingAccountId: row.fundingAccountId,
-      assetId: row.assetId,
+      assetId: issuance.assetId,
       reference: row.reference,
       externalReference: row.externalReference,
-      origin: row.origin,
+      provenance: row.provenance,
+      expiresAt: row.expiresAt,
       amountMinor: issuance.amountMinor,
       policy: {
         refundable: row.refundable,
@@ -468,8 +474,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       grant.ledgerId === input.ledgerId &&
       grant.accountId === input.accountId &&
       grant.fundingAccountId === input.fundingAccountId &&
-      grant.assetId === input.assetId &&
-      grant.origin === input.origin &&
+      grant.provenance === input.provenance.trim() &&
+      grant.expiresAt?.getTime() === input.expiresAt?.getTime() &&
       grant.amountMinor === input.amountMinor &&
       grant.externalReference === (input.externalReference ?? null) &&
       grant.policy.refundable === input.policy.refundable &&

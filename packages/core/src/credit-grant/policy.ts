@@ -1,13 +1,5 @@
 import { DomainError } from '../base/domain-error';
 
-export const CreditGrantOrigin = {
-  PURCHASED: 'PURCHASED',
-  PROMOTIONAL: 'PROMOTIONAL',
-  TRIAL: 'TRIAL',
-  COMPENSATION: 'COMPENSATION',
-} as const;
-export type CreditGrantOrigin = (typeof CreditGrantOrigin)[keyof typeof CreditGrantOrigin];
-
 export interface CreditGrantPolicy {
   refundable: boolean;
   transferable: boolean;
@@ -22,12 +14,20 @@ export class InvalidCreditGrantError extends DomainError {
 }
 
 export const validateCreditGrant = (input: {
-  origin: CreditGrantOrigin;
+  provenance: string;
+  expiresAt?: Date | null;
   amountMinor: bigint;
   policy: CreditGrantPolicy;
 }): void => {
-  if (!Object.values(CreditGrantOrigin).includes(input.origin)) {
-    throw new InvalidCreditGrantError('Unknown credit grant origin');
+  if (
+    typeof input.provenance !== 'string' ||
+    input.provenance.trim().length === 0 ||
+    input.provenance.trim().length > 64
+  ) {
+    throw new InvalidCreditGrantError('Grant provenance must contain 1 to 64 characters');
+  }
+  if (input.expiresAt != null && Number.isNaN(input.expiresAt.getTime())) {
+    throw new InvalidCreditGrantError('Grant expiration must be a valid date');
   }
   if (input.amountMinor <= 0n || input.amountMinor > 9223372036854775807n) {
     throw new InvalidCreditGrantError('Grant amount must be a positive int64 minor-unit value');
@@ -45,15 +45,6 @@ export const validateCreditGrant = (input: {
     throw new InvalidCreditGrantError(
       'Only unrestricted eligibility is supported in policy version 1',
     );
-  }
-  if (input.origin === CreditGrantOrigin.PURCHASED && !policy.refundable) {
-    throw new InvalidCreditGrantError('Purchased credits must be refundable');
-  }
-  if (
-    input.origin === CreditGrantOrigin.PROMOTIONAL &&
-    (policy.refundable || policy.transferable)
-  ) {
-    throw new InvalidCreditGrantError('Promotional credits cannot be refundable or transferable');
   }
 };
 

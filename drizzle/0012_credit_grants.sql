@@ -1,22 +1,26 @@
-CREATE TYPE "public"."account_kind" AS ENUM('STANDARD', 'CREDIT_WALLET');--> statement-breakpoint
-CREATE TYPE "public"."credit_grant_origin" AS ENUM('PURCHASED', 'PROMOTIONAL', 'TRIAL', 'COMPENSATION');--> statement-breakpoint
+CREATE TYPE "public"."credit_grant_entry_kind" AS ENUM('ISSUANCE', 'REVERSAL', 'ALLOCATION', 'EXPIRATION');--> statement-breakpoint
 CREATE TABLE "credit_grant_entries" (
 	"tenant_id" uuid NOT NULL,
 	"ledger_id" uuid NOT NULL,
 	"account_id" uuid NOT NULL,
 	"grant_id" uuid NOT NULL,
-	"entry_id" uuid PRIMARY KEY NOT NULL
-);--> statement-breakpoint
+	"entry_id" uuid NOT NULL,
+	"kind" "credit_grant_entry_kind" NOT NULL,
+	"amount_minor" bigint NOT NULL,
+	CONSTRAINT "credit_grant_entries_pk" PRIMARY KEY("grant_id","entry_id"),
+	CONSTRAINT "credit_grant_entries_amount_positive_chk" CHECK ("credit_grant_entries"."amount_minor" > 0)
+);
+--> statement-breakpoint
 CREATE TABLE "credit_grants" (
 	"id" uuid PRIMARY KEY DEFAULT uuid_v7() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"ledger_id" uuid NOT NULL,
 	"account_id" uuid NOT NULL,
 	"funding_account_id" uuid NOT NULL,
-	"asset_id" uuid NOT NULL,
 	"reference" text NOT NULL,
 	"external_reference" text,
-	"origin" "credit_grant_origin" NOT NULL,
+	"provenance" text NOT NULL,
+	"expires_at" timestamp with time zone,
 	"refundable" boolean NOT NULL,
 	"transferable" boolean NOT NULL,
 	"consumption_priority" integer NOT NULL,
@@ -25,12 +29,15 @@ CREATE TABLE "credit_grants" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "credit_grants_accounts_chk" CHECK ("credit_grants"."account_id" <> "credit_grants"."funding_account_id"),
 	CONSTRAINT "credit_grants_priority_chk" CHECK ("credit_grants"."consumption_priority" >= 0),
-	CONSTRAINT "credit_grants_policy_chk" CHECK (("credit_grants"."origin" <> 'PURCHASED' or "credit_grants"."refundable") and ("credit_grants"."origin" <> 'PROMOTIONAL' or (not "credit_grants"."refundable" and not "credit_grants"."transferable"))),
+	CONSTRAINT "credit_grants_provenance_chk" CHECK (length(btrim("credit_grants"."provenance")) between 1 and 64),
 	CONSTRAINT "credit_grants_eligibility_v1_chk" CHECK ("credit_grants"."eligibility" is null)
-);--> statement-breakpoint
-ALTER TABLE "accounts" ADD COLUMN "kind" "account_kind" DEFAULT 'STANDARD' NOT NULL;--> statement-breakpoint
-CREATE INDEX "credit_grant_entries_tenant_grant_idx" ON "credit_grant_entries" USING btree ("tenant_id","grant_id");--> statement-breakpoint
-CREATE INDEX "credit_grant_entries_tenant_account_idx" ON "credit_grant_entries" USING btree ("tenant_id","account_id");--> statement-breakpoint
+);
+--> statement-breakpoint
+ALTER TABLE "accounts" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "entries" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "hold_entries" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "holds" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "transactions" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_reference_uq" ON "credit_grants" USING btree ("tenant_id","reference");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_id_uq" ON "credit_grants" USING btree ("tenant_id","id");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_ledger_id_uq" ON "credit_grants" USING btree ("tenant_id","ledger_id","id");--> statement-breakpoint
@@ -48,7 +55,8 @@ ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_tenant_ledger_fk" FORE
 ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_account_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","account_id") REFERENCES "public"."accounts"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_funding_account_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","funding_account_id") REFERENCES "public"."accounts"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_transaction_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","transaction_id") REFERENCES "public"."transactions"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_asset_fk" FOREIGN KEY ("tenant_id","asset_id") REFERENCES "public"."assets"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "credit_grant_entries_tenant_grant_idx" ON "credit_grant_entries" USING btree ("tenant_id","grant_id");--> statement-breakpoint
+CREATE INDEX "credit_grant_entries_tenant_account_idx" ON "credit_grant_entries" USING btree ("tenant_id","account_id");--> statement-breakpoint
 ALTER TABLE credit_grants ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE credit_grants FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY credit_grants_tenant_rls ON credit_grants USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);--> statement-breakpoint
@@ -58,74 +66,94 @@ CREATE POLICY credit_grant_entries_tenant_rls ON credit_grant_entries USING (ten
 CREATE FUNCTION reject_credit_grant_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'credit grant history is immutable'; END $$;--> statement-breakpoint
 CREATE TRIGGER credit_grants_immutable BEFORE UPDATE OR DELETE ON credit_grants FOR EACH ROW EXECUTE FUNCTION reject_credit_grant_mutation();--> statement-breakpoint
 CREATE TRIGGER credit_grant_entries_immutable BEFORE UPDATE OR DELETE ON credit_grant_entries FOR EACH ROW EXECUTE FUNCTION reject_credit_grant_mutation();--> statement-breakpoint
-CREATE FUNCTION credit_wallet_kind_guard() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF OLD.kind = 'CREDIT_WALLET' AND NEW.kind <> OLD.kind THEN
-    RAISE EXCEPTION 'credit wallet kind is immutable';
-  END IF;
-  IF OLD.kind = 'STANDARD' AND NEW.kind = 'CREDIT_WALLET' AND
-    (OLD.balance_minor <> 0 OR OLD.inflight_debit_minor <> 0 OR OLD.inflight_credit_minor <> 0
-      OR EXISTS (SELECT 1 FROM entries WHERE account_id = OLD.id)
-      OR EXISTS (SELECT 1 FROM hold_entries WHERE account_id = OLD.id)) THEN
-    RAISE EXCEPTION 'credit wallet must have no balance or history before adoption';
-  END IF;
-  RETURN NEW;
-END $$;--> statement-breakpoint
-CREATE TRIGGER accounts_credit_wallet_kind_guard BEFORE UPDATE OF kind ON accounts FOR EACH ROW EXECUTE FUNCTION credit_wallet_kind_guard();--> statement-breakpoint
 CREATE FUNCTION validate_credit_grant_entry() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE source_transaction uuid;
 DECLARE linked_transaction uuid;
 DECLARE linked_direction entry_direction;
 DECLARE linked_relation transaction_relation_type;
 DECLARE related_transaction uuid;
+DECLARE entry_amount bigint;
+DECLARE entry_asset uuid;
+DECLARE account_asset uuid;
 BEGIN
   SELECT transaction_id INTO source_transaction FROM credit_grants
     WHERE id = NEW.grant_id AND tenant_id = NEW.tenant_id AND ledger_id = NEW.ledger_id
       AND account_id = NEW.account_id;
-  SELECT e.transaction_id, e.direction, t.relation_type, t.related_transaction_id
-    INTO linked_transaction, linked_direction, linked_relation, related_transaction
-    FROM entries e JOIN transactions t ON t.id = e.transaction_id
+  SELECT e.transaction_id, e.direction, t.relation_type, t.related_transaction_id,
+         e.amount_minor, e.asset_id, a.asset_id
+    INTO linked_transaction, linked_direction, linked_relation, related_transaction,
+         entry_amount, entry_asset, account_asset
+    FROM entries e
+    JOIN transactions t ON t.id = e.transaction_id
+    JOIN accounts a ON a.id = e.account_id
     WHERE e.id = NEW.entry_id AND e.tenant_id = NEW.tenant_id
       AND e.account_id = NEW.account_id AND t.ledger_id = NEW.ledger_id;
-  IF source_transaction IS NULL OR linked_transaction IS NULL OR NOT (
-    (linked_transaction = source_transaction AND linked_direction = 'CREDIT')
-    OR (linked_relation = 'REVERSAL' AND related_transaction = source_transaction
-      AND linked_direction = 'DEBIT')
+  IF source_transaction IS NULL OR linked_transaction IS NULL OR entry_asset <> account_asset
+    OR NEW.amount_minor > entry_amount THEN
+    RAISE EXCEPTION 'credit grant entry scope or amount mismatch';
+  END IF;
+  IF NEW.kind = 'ISSUANCE' AND NOT (
+    linked_transaction = source_transaction AND linked_direction = 'CREDIT'
+    AND NEW.amount_minor = entry_amount
   ) THEN
-    RAISE EXCEPTION 'credit grant entry must be an issuance or its reversal';
+    RAISE EXCEPTION 'credit grant issuance link is invalid';
+  ELSIF NEW.kind = 'REVERSAL' AND NOT (
+    linked_relation = 'REVERSAL' AND related_transaction = source_transaction
+    AND linked_direction = 'DEBIT' AND NEW.amount_minor = entry_amount
+  ) THEN
+    RAISE EXCEPTION 'credit grant reversal link is invalid';
+  ELSIF NEW.kind IN ('ALLOCATION', 'EXPIRATION') AND linked_direction <> 'DEBIT' THEN
+    RAISE EXCEPTION 'credit grant deduction link must reference a debit entry';
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
 CREATE TRIGGER credit_grant_entries_validate BEFORE INSERT ON credit_grant_entries
   FOR EACH ROW EXECUTE FUNCTION validate_credit_grant_entry();--> statement-breakpoint
-CREATE FUNCTION assert_credit_wallet_entry_attributed() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION assert_grant_entry_attributed() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM accounts WHERE id = NEW.account_id AND kind = 'CREDIT_WALLET')
-    AND NOT EXISTS (SELECT 1 FROM credit_grant_entries WHERE entry_id = NEW.id) THEN
-    RAISE EXCEPTION 'credit wallet entry requires grant attribution';
+  IF EXISTS (
+    SELECT 1 FROM credit_grants
+      WHERE tenant_id = NEW.tenant_id AND account_id = NEW.account_id
+  ) AND NOT EXISTS (
+    SELECT 1 FROM credit_grant_entries
+      WHERE tenant_id = NEW.tenant_id AND entry_id = NEW.id
+  ) THEN
+    RAISE EXCEPTION 'grant-enabled account entry requires grant attribution';
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
-CREATE CONSTRAINT TRIGGER credit_wallet_entries_attributed AFTER INSERT ON entries
+CREATE CONSTRAINT TRIGGER grant_entries_attributed AFTER INSERT ON entries
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-  EXECUTE FUNCTION assert_credit_wallet_entry_attributed();--> statement-breakpoint
-CREATE FUNCTION protect_credit_wallet_history() RETURNS trigger LANGUAGE plpgsql AS $$
+  EXECUTE FUNCTION assert_grant_entry_attributed();--> statement-breakpoint
+CREATE FUNCTION reject_grant_account_hold() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM credit_grants
+      WHERE tenant_id = NEW.tenant_id AND account_id = NEW.account_id
+  ) THEN
+    RAISE EXCEPTION 'grant-enabled account holds require grant allocation';
+  END IF;
+  RETURN NEW;
+END $$;--> statement-breakpoint
+CREATE TRIGGER grant_account_holds_rejected BEFORE INSERT ON hold_entries
+  FOR EACH ROW EXECUTE FUNCTION reject_grant_account_hold();--> statement-breakpoint
+CREATE FUNCTION protect_credit_grant_history() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_TABLE_NAME = 'entries' THEN
-    IF EXISTS (SELECT 1 FROM accounts WHERE id = OLD.account_id AND kind = 'CREDIT_WALLET') THEN
-      RAISE EXCEPTION 'credit wallet ledger entries are immutable';
+    IF EXISTS (SELECT 1 FROM credit_grant_entries WHERE entry_id = OLD.id) THEN
+      RAISE EXCEPTION 'credit grant ledger entries are immutable';
     END IF;
   ELSIF TG_TABLE_NAME = 'transactions' THEN
     IF EXISTS (
-      SELECT 1 FROM entries e JOIN accounts a ON a.id = e.account_id
-        WHERE e.transaction_id = OLD.id AND a.kind = 'CREDIT_WALLET'
+      SELECT 1 FROM entries e JOIN credit_grant_entries l ON l.entry_id = e.id
+        WHERE e.transaction_id = OLD.id
     ) THEN
-      RAISE EXCEPTION 'credit wallet transactions are immutable';
+      RAISE EXCEPTION 'credit grant transactions are immutable';
     END IF;
   END IF;
   RETURN OLD;
 END $$;--> statement-breakpoint
-CREATE TRIGGER credit_wallet_entries_immutable BEFORE UPDATE OR DELETE ON entries
-  FOR EACH ROW EXECUTE FUNCTION protect_credit_wallet_history();--> statement-breakpoint
-CREATE TRIGGER credit_wallet_transactions_immutable BEFORE UPDATE OR DELETE ON transactions
-  FOR EACH ROW EXECUTE FUNCTION protect_credit_wallet_history();
+CREATE TRIGGER credit_grant_entries_history_immutable BEFORE UPDATE OR DELETE ON entries
+  FOR EACH ROW EXECUTE FUNCTION protect_credit_grant_history();--> statement-breakpoint
+CREATE TRIGGER credit_grant_transactions_immutable BEFORE UPDATE OR DELETE ON transactions
+  FOR EACH ROW EXECUTE FUNCTION protect_credit_grant_history();

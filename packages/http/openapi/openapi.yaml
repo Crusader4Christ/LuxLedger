@@ -843,7 +843,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
   /v1/accounts/{id}/credit-balance:
     get:
-      summary: Read reconciled credit buckets for an account
+      summary: Read reconciled credit grant lots for an account
       parameters:
         - name: id
           in: path
@@ -851,7 +851,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200':
-          description: Bucket balances reconciled with the ledger
+          description: Grant lots reconciled with the ledger
           content:
             application/json:
               schema:
@@ -946,15 +946,15 @@ components:
     CreateCreditGrantRequest:
       type: object
       additionalProperties: false
-      required: [ledger_id, account_id, funding_account_id, asset_id, reference, origin, amount_minor, policy]
+      required: [ledger_id, account_id, funding_account_id, reference, provenance, amount_minor, policy]
       properties:
         ledger_id: { type: string, format: uuid }
         account_id: { type: string, format: uuid }
         funding_account_id: { type: string, format: uuid }
-        asset_id: { type: string, format: uuid }
         reference: { type: string, minLength: 1 }
         external_reference: { type: string, minLength: 1 }
-        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
+        provenance: { type: string, minLength: 1, maxLength: 64 }
+        expires_at: { type: string, format: date-time, nullable: true }
         amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
         policy:
           $ref: '#/components/schemas/CreditGrantPolicy'
@@ -976,7 +976,7 @@ components:
     CreditGrant:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, account_id, funding_account_id, asset_id, reference, external_reference, origin, amount_minor, policy, transaction_id, created_at, reversed_by_transaction_id]
+      required: [id, tenant_id, ledger_id, account_id, funding_account_id, asset_id, reference, external_reference, provenance, expires_at, amount_minor, policy, transaction_id, created_at, reversed_by_transaction_id]
       properties:
         id: { type: string, format: uuid }
         tenant_id: { type: string, format: uuid }
@@ -986,17 +986,18 @@ components:
         asset_id: { type: string, format: uuid }
         reference: { type: string }
         external_reference: { type: string, nullable: true }
-        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
+        provenance: { type: string }
+        expires_at: { type: string, format: date-time, nullable: true }
         amount_minor: { type: string }
         policy:
           $ref: '#/components/schemas/CreditGrantPolicy'
         transaction_id: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
         reversed_by_transaction_id: { type: string, format: uuid, nullable: true }
-    CreditBucket:
+    CreditGrantLot:
       type: object
       additionalProperties: false
-      required: [grant_id, reference, external_reference, policy, created_at, origin, granted_minor, allocated_minor, consumed_minor, expired_minor, reversed_minor, remaining_minor]
+      required: [grant_id, reference, external_reference, policy, created_at, provenance, expires_at, granted_minor, allocated_minor, consumed_minor, expired_minor, reversed_minor, remaining_minor]
       properties:
         grant_id: { type: string, format: uuid }
         reference: { type: string }
@@ -1004,19 +1005,8 @@ components:
         policy:
           $ref: '#/components/schemas/CreditGrantPolicy'
         created_at: { type: string, format: date-time }
-        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
-        granted_minor: { type: string }
-        allocated_minor: { type: string }
-        consumed_minor: { type: string }
-        expired_minor: { type: string }
-        reversed_minor: { type: string }
-        remaining_minor: { type: string }
-    CreditOriginTotal:
-      type: object
-      additionalProperties: false
-      required: [origin, granted_minor, allocated_minor, consumed_minor, expired_minor, reversed_minor, remaining_minor]
-      properties:
-        origin: { type: string, enum: [PURCHASED, PROMOTIONAL, TRIAL, COMPENSATION] }
+        provenance: { type: string }
+        expires_at: { type: string, format: date-time, nullable: true }
         granted_minor: { type: string }
         allocated_minor: { type: string }
         consumed_minor: { type: string }
@@ -1026,20 +1016,16 @@ components:
     CreditBalance:
       type: object
       additionalProperties: false
-      required: [account_id, asset_id, ledger_balance_minor, remaining_minor, buckets, origin_totals]
+      required: [account_id, asset_id, ledger_balance_minor, remaining_minor, lots]
       properties:
         account_id: { type: string, format: uuid }
         asset_id: { type: string, format: uuid }
         ledger_balance_minor: { type: string }
         remaining_minor: { type: string }
-        buckets:
+        lots:
           type: array
           items:
-            $ref: '#/components/schemas/CreditBucket'
-        origin_totals:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreditOriginTotal'
+            $ref: '#/components/schemas/CreditGrantLot'
     ErrorResponse:
       type: object
       required: [error, message]
@@ -1274,7 +1260,7 @@ components:
     Account:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, code, name, side, overdraft_policy, kind, currency, balance_minor, created_at]
+      required: [id, tenant_id, ledger_id, code, name, side, overdraft_policy, currency, balance_minor, created_at]
       properties:
         id:
           type: string
@@ -1296,9 +1282,6 @@ components:
         overdraft_policy:
           type: string
           enum: [ALLOW, DISALLOW]
-        kind:
-          type: string
-          enum: [STANDARD, CREDIT_WALLET]
         currency:
           type: string
         balance_minor:
@@ -1314,7 +1297,6 @@ components:
         name: Cash
         side: DEBIT
         overdraft_policy: ALLOW
-        kind: STANDARD
         currency: USD
         balance_minor: '100'
         created_at: '2026-01-01T00:00:00.000Z'

@@ -4,10 +4,7 @@ import { NonEmptyTrimmedStringSchema } from './common';
 const uuid = { type: 'string', format: 'uuid' } as const;
 const minor = { type: 'string', pattern: '^[1-9][0-9]*$' } as const;
 const amount = { type: 'string' } as const;
-const origin = {
-  type: 'string',
-  enum: ['PURCHASED', 'PROMOTIONAL', 'TRIAL', 'COMPENSATION'],
-} as const;
+const provenance = { type: 'string', minLength: 1, maxLength: 64 } as const;
 const policy = {
   type: 'object',
   additionalProperties: false,
@@ -27,9 +24,8 @@ export const createCreditGrantBodySchema = {
     'ledger_id',
     'account_id',
     'funding_account_id',
-    'asset_id',
     'reference',
-    'origin',
+    'provenance',
     'amount_minor',
     'policy',
   ],
@@ -37,10 +33,10 @@ export const createCreditGrantBodySchema = {
     ledger_id: uuid,
     account_id: uuid,
     funding_account_id: uuid,
-    asset_id: uuid,
     reference: NonEmptyTrimmedStringSchema,
     external_reference: NonEmptyTrimmedStringSchema,
-    origin,
+    provenance,
+    expires_at: { type: 'string', format: 'date-time', nullable: true },
     amount_minor: minor,
     policy,
   },
@@ -58,7 +54,8 @@ export const creditGrantResponseSchema = {
     'asset_id',
     'reference',
     'external_reference',
-    'origin',
+    'provenance',
+    'expires_at',
     'amount_minor',
     'policy',
     'transaction_id',
@@ -74,7 +71,8 @@ export const creditGrantResponseSchema = {
     asset_id: uuid,
     reference: { type: 'string' },
     external_reference: { type: 'string', nullable: true },
-    origin,
+    provenance,
+    expires_at: { type: 'string', format: 'date-time', nullable: true },
     amount_minor: amount,
     policy,
     transaction_id: uuid,
@@ -97,7 +95,7 @@ export const reverseCreditGrantBodySchema = {
   properties: { reference: NonEmptyTrimmedStringSchema },
 } as const;
 
-export const creditBucketResponseSchema = {
+export const creditGrantLotResponseSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -106,7 +104,8 @@ export const creditBucketResponseSchema = {
     'external_reference',
     'policy',
     'created_at',
-    'origin',
+    'provenance',
+    'expires_at',
     'granted_minor',
     'allocated_minor',
     'consumed_minor',
@@ -120,30 +119,8 @@ export const creditBucketResponseSchema = {
     external_reference: { type: 'string', nullable: true },
     policy,
     created_at: { type: 'string', format: 'date-time' },
-    origin,
-    granted_minor: amount,
-    allocated_minor: amount,
-    consumed_minor: amount,
-    expired_minor: amount,
-    reversed_minor: amount,
-    remaining_minor: amount,
-  },
-} as const;
-
-export const creditOriginTotalResponseSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'origin',
-    'granted_minor',
-    'allocated_minor',
-    'consumed_minor',
-    'expired_minor',
-    'reversed_minor',
-    'remaining_minor',
-  ],
-  properties: {
-    origin,
+    provenance,
+    expires_at: { type: 'string', format: 'date-time', nullable: true },
     granted_minor: amount,
     allocated_minor: amount,
     consumed_minor: amount,
@@ -156,21 +133,13 @@ export const creditOriginTotalResponseSchema = {
 export const creditBalanceResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: [
-    'account_id',
-    'asset_id',
-    'ledger_balance_minor',
-    'remaining_minor',
-    'buckets',
-    'origin_totals',
-  ],
+  required: ['account_id', 'asset_id', 'ledger_balance_minor', 'remaining_minor', 'lots'],
   properties: {
     account_id: uuid,
     asset_id: uuid,
     ledger_balance_minor: amount,
     remaining_minor: amount,
-    buckets: { type: 'array', items: creditBucketResponseSchema },
-    origin_totals: { type: 'array', items: creditOriginTotalResponseSchema },
+    lots: { type: 'array', items: creditGrantLotResponseSchema },
   },
 } as const;
 

@@ -51,19 +51,21 @@ const setup = async (tenantId: string) => {
 const grantInput = (
   tenantId: string,
   setupResult: Awaited<ReturnType<typeof setup>>,
-  origin: 'PURCHASED' | 'PROMOTIONAL',
+  provenance: string,
   reference: string,
 ) => ({
   tenantId,
-  ...setupResult,
+  ledgerId: setupResult.ledgerId,
+  accountId: setupResult.accountId,
+  fundingAccountId: setupResult.fundingAccountId,
   reference,
-  origin,
+  provenance,
   amountMinor: 100n,
   externalReference: 'business-order-1',
   policy: {
-    refundable: origin === 'PURCHASED',
+    refundable: provenance === 'purchase',
     transferable: false,
-    consumptionPriority: origin === 'PROMOTIONAL' ? 1 : 2,
+    consumptionPriority: provenance === 'promotion' ? 1 : 2,
     eligibility: null,
   },
 });
@@ -73,27 +75,23 @@ describe('credit grants', () => {
   beforeEach(() => truncateTestDatabase(db));
   afterAll(() => client.sql.end({ timeout: 5 }));
 
-  it('posts purchased and promotional grants and reconciles exact bucket and ledger entries', async () => {
+  it('posts grants with opaque provenance and reconciles exact lot and ledger entries', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const purchased = await services.creditGrants.create(
-      grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
+      grantInput(tenantId, accounts, 'purchase', 'buy-1'),
     );
     const promotional = await services.creditGrants.create(
-      grantInput(tenantId, accounts, 'PROMOTIONAL', 'promo-1'),
+      grantInput(tenantId, accounts, 'campaign:launch', 'promo-1'),
     );
     expect(purchased.created).toBeTrue();
     expect(promotional.created).toBeTrue();
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.ledgerBalanceMinor).toBe(200n);
     expect(balance.remainingMinor).toBe(200n);
-    expect(balance.buckets.map((bucket) => [bucket.origin, bucket.remainingMinor])).toEqual([
-      ['PURCHASED', 100n],
-      ['PROMOTIONAL', 100n],
-    ]);
-    expect(balance.originTotals.map((bucket) => [bucket.origin, bucket.remainingMinor])).toEqual([
-      ['PROMOTIONAL', 100n],
-      ['PURCHASED', 100n],
+    expect(balance.lots.map((lot) => [lot.provenance, lot.remainingMinor])).toEqual([
+      ['purchase', 100n],
+      ['campaign:launch', 100n],
     ]);
     const posted = await db
       .select()
@@ -111,12 +109,58 @@ describe('credit grants', () => {
     ).toBeTrue();
   });
 
+  it('supports multiple grant-enabled accounts with different assets', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const usd = await setup(tenantId);
+    const bonusAsset = await services.assets.create({ tenantId, code: 'BONUS', scale: 0 });
+    const bonusAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: usd.ledgerId,
+      name: 'Bonus lots',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'BONUS',
+      assetId: bonusAsset.id,
+    });
+    const bonusFunding = await services.accounts.create({
+      tenantId,
+      ledgerId: usd.ledgerId,
+      name: 'Bonus funding',
+      side: AccountSide.DEBIT,
+      currency: 'BONUS',
+      assetId: bonusAsset.id,
+    });
+
+    await services.creditGrants.create(grantInput(tenantId, usd, 'purchase', 'usd-lot'));
+    await services.creditGrants.create({
+      ...grantInput(
+        tenantId,
+        {
+          ledgerId: usd.ledgerId,
+          assetId: bonusAsset.id,
+          accountId: bonusAccount.id,
+          fundingAccountId: bonusFunding.id,
+        },
+        'campaign:bonus',
+        'bonus-lot',
+      ),
+      expiresAt: new Date('2027-06-01T00:00:00.000Z'),
+    });
+
+    expect((await services.creditGrants.getBalance(tenantId, usd.accountId)).assetId).toBe(
+      usd.assetId,
+    );
+    const bonusBalance = await services.creditGrants.getBalance(tenantId, bonusAccount.id);
+    expect(bonusBalance.assetId).toBe(bonusAsset.id);
+    expect(bonusBalance.lots[0]?.provenance).toBe('campaign:bonus');
+  });
+
   it('accepts identical retry, rejects conflicts and foreign tenant or asset access', async () => {
     const tenantId = await createTenant(db, 'A');
     const otherTenantId = await createTenant(db, 'B');
     const accounts = await setup(tenantId);
     const other = await setup(otherTenantId);
-    const input = grantInput(tenantId, accounts, 'PURCHASED', 'buy-1');
+    const input = grantInput(tenantId, accounts, 'purchase', 'buy-1');
     const first = await services.creditGrants.create(input);
     const retry = await services.creditGrants.create(input);
     expect(retry.created).toBeFalse();
@@ -148,15 +192,12 @@ describe('credit grants', () => {
         fundingAccountId: anotherLedger.fundingAccountId,
       }),
     ).rejects.toThrow();
-    await expect(
-      services.creditGrants.create({ ...input, reference: 'wrong-asset', assetId: other.assetId }),
-    ).rejects.toThrow();
   });
 
   it('serializes concurrent duplicate grants and records one full compensation', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
-    const input = grantInput(tenantId, accounts, 'PURCHASED', 'concurrent');
+    const input = grantInput(tenantId, accounts, 'purchase', 'concurrent');
     const secondClient = createDbClient({
       databaseUrl:
         process.env.DATABASE_URL_TEST ??
@@ -212,9 +253,7 @@ describe('credit grants', () => {
       ).rejects.toBeInstanceOf(CreditGrantConflictError);
       const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
       expect(balance.ledgerBalanceMinor).toBe(200n + accepted.value.grant.amountMinor);
-      expect(balance.buckets.find((bucket) => bucket.origin === 'PURCHASED')?.reversedMinor).toBe(
-        100n,
-      );
+      expect(balance.lots.find((lot) => lot.grantId === a.grant.id)?.reversedMinor).toBe(100n);
     } finally {
       await secondClient.sql.end({ timeout: 5 });
     }
@@ -223,7 +262,7 @@ describe('credit grants', () => {
   it('rejects an untracked ledger posting and preserves the reconciled balance', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
-    await services.creditGrants.create(grantInput(tenantId, accounts, 'PROMOTIONAL', 'promo-1'));
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'promotion', 'promo-1'));
     await expect(
       services.transactions.create({
         tenantId,
@@ -251,23 +290,10 @@ describe('credit grants', () => {
     ).toBe(100n);
   });
 
-  it('enforces purchased and promotional policy and immutable grant history', async () => {
+  it('validates policy shape and preserves immutable grant history', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
-    const purchased = grantInput(tenantId, accounts, 'PURCHASED', 'buy-1');
-    await expect(
-      services.creditGrants.create({
-        ...purchased,
-        policy: { ...purchased.policy, refundable: false },
-      }),
-    ).rejects.toBeInstanceOf(InvalidCreditGrantError);
-    const promotional = grantInput(tenantId, accounts, 'PROMOTIONAL', 'promo-1');
-    await expect(
-      services.creditGrants.create({
-        ...promotional,
-        policy: { ...promotional.policy, transferable: true },
-      }),
-    ).rejects.toBeInstanceOf(InvalidCreditGrantError);
+    const purchased = grantInput(tenantId, accounts, 'purchase', 'buy-1');
     await expect(
       services.creditGrants.create({ ...purchased, amountMinor: -1n }),
     ).rejects.toBeInstanceOf(InvalidCreditGrantError);
@@ -282,7 +308,7 @@ describe('credit grants', () => {
       (async () => {
         await db
           .update(creditGrants)
-          .set({ origin: 'TRIAL' })
+          .set({ provenance: 'tampered' })
           .where(eq(creditGrants.id, result.grant.id));
       })(),
     ).rejects.toThrow();
@@ -291,21 +317,17 @@ describe('credit grants', () => {
     ).toBe(100n);
   });
 
-  it('retains one bucket per grant across origins and policy differences', async () => {
+  it('retains one lot per grant across provenance and policy differences', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
-    const origins = ['PURCHASED', 'PROMOTIONAL', 'TRIAL', 'COMPENSATION'] as const;
-    for (const [index, origin] of origins.entries()) {
+    const provenanceValues = ['purchase', 'campaign:a', 'trial-import', 'support'] as const;
+    for (const [index, provenance] of provenanceValues.entries()) {
       await services.creditGrants.create({
-        ...grantInput(
-          tenantId,
-          accounts,
-          origin === 'PROMOTIONAL' ? origin : 'PURCHASED',
-          `origin-${index}`,
-        ),
-        origin,
+        ...grantInput(tenantId, accounts, provenance, `provenance-${index}`),
+        provenance,
+        expiresAt: index === 1 ? new Date('2027-01-01T00:00:00.000Z') : null,
         policy: {
-          refundable: origin === 'PURCHASED',
+          refundable: index === 0,
           transferable: false,
           consumptionPriority: index,
           eligibility: null,
@@ -313,21 +335,21 @@ describe('credit grants', () => {
       });
     }
     await services.creditGrants.create({
-      ...grantInput(tenantId, accounts, 'PURCHASED', 'another-purchased'),
+      ...grantInput(tenantId, accounts, 'purchase', 'another-purchase'),
       policy: { refundable: true, transferable: true, consumptionPriority: 99, eligibility: null },
     });
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
-    expect(balance.buckets).toHaveLength(5);
-    expect(balance.buckets.map((bucket) => bucket.grantId)).toEqual([
-      ...new Set(balance.buckets.map((bucket) => bucket.grantId)),
+    expect(balance.lots).toHaveLength(5);
+    expect(balance.lots.map((lot) => lot.grantId)).toEqual([
+      ...new Set(balance.lots.map((lot) => lot.grantId)),
     ]);
     expect(
-      balance.buckets
-        .filter((bucket) => bucket.origin === 'PURCHASED')
-        .map((bucket) => bucket.policy.consumptionPriority),
+      balance.lots
+        .filter((lot) => lot.provenance === 'purchase')
+        .map((lot) => lot.policy.consumptionPriority),
     ).toEqual([0, 99]);
-    expect(balance.originTotals.find((total) => total.origin === 'PURCHASED')?.remainingMinor).toBe(
-      200n,
+    expect(balance.lots.find((lot) => lot.provenance === 'campaign:a')?.expiresAt).toEqual(
+      new Date('2027-01-01T00:00:00.000Z'),
     );
     expect(balance.remainingMinor).toBe(balance.ledgerBalanceMinor);
   });
@@ -336,7 +358,7 @@ describe('credit grants', () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const grant = await services.creditGrants.create(
-      grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
+      grantInput(tenantId, accounts, 'purchase', 'buy-1'),
     );
     const secondClient = createDbClient({
       databaseUrl:
@@ -366,7 +388,7 @@ describe('credit grants', () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const grant = await services.creditGrants.create(
-      grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
+      grantInput(tenantId, accounts, 'purchase', 'buy-1'),
     );
     await expect(
       (async () => {
@@ -424,9 +446,9 @@ describe('credit grants', () => {
       ledgerId: accounts.ledgerId,
       accountId: accounts.accountId,
       fundingAccountId: accounts.fundingAccountId,
-      assetId: accounts.assetId,
       reference: 'direct-invalid',
-      origin: 'PURCHASED' as const,
+      provenance: 'migration',
+      expiresAt: null,
       refundable: true,
       transferable: false,
       consumptionPriority: 0,
@@ -467,7 +489,7 @@ describe('credit grants', () => {
     });
     await expect(
       services.creditGrants.create({
-        ...grantInput(tenantId, accounts, 'PURCHASED', 'wrong-funding-asset'),
+        ...grantInput(tenantId, accounts, 'purchase', 'wrong-funding-asset'),
         fundingAccountId: funding.id,
       }),
     ).rejects.toThrow();
@@ -476,35 +498,22 @@ describe('credit grants', () => {
   it('reconciles a wallet with many grants', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
-    const input = grantInput(tenantId, accounts, 'PURCHASED', 'batch-0');
+    const input = grantInput(tenantId, accounts, 'purchase', 'batch-0');
     for (let index = 0; index < 200; index++) {
       await services.creditGrants.create({ ...input, reference: `batch-${index}` });
     }
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
-    expect(balance.buckets).toHaveLength(200);
+    expect(balance.lots).toHaveLength(200);
     expect(balance.remainingMinor).toBe(20000n);
     expect(balance.ledgerBalanceMinor).toBe(balance.remainingMinor);
   }, 30000);
 
-  it('enforces wallet adoption and entry attribution at the PostgreSQL boundary', async () => {
+  it('enforces entry attribution at the PostgreSQL boundary without changing account kind', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const grant = await services.creditGrants.create(
-      grantInput(tenantId, accounts, 'PURCHASED', 'buy-1'),
+      grantInput(tenantId, accounts, 'purchase', 'buy-1'),
     );
-    const [wallet] = await db
-      .select({ kind: accountRows.kind })
-      .from(accountRows)
-      .where(eq(accountRows.id, accounts.accountId));
-    expect(wallet.kind).toBe('CREDIT_WALLET');
-    await expect(
-      (async () => {
-        await db
-          .update(accountRows)
-          .set({ kind: 'STANDARD' })
-          .where(eq(accountRows.id, accounts.accountId));
-      })(),
-    ).rejects.toThrow();
     await expect(
       db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
@@ -528,7 +537,7 @@ describe('credit grants', () => {
       (async () => {
         await db
           .update(creditGrantEntries)
-          .set({ entryId: link.entryId })
+          .set({ amountMinor: link.amountMinor })
           .where(eq(creditGrantEntries.entryId, link.entryId));
       })(),
     ).rejects.toThrow();
@@ -566,7 +575,7 @@ describe('credit grants', () => {
       reference: 'old-posting-reversal',
     });
     await expect(
-      services.creditGrants.create(grantInput(tenantId, accounts, 'PURCHASED', 'late-adoption')),
+      services.creditGrants.create(grantInput(tenantId, accounts, 'purchase', 'late-adoption')),
     ).rejects.toBeInstanceOf(CreditGrantConflictError);
   });
 });

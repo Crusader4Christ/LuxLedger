@@ -2,7 +2,7 @@ import type { AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
-import type { CreditGrantOrigin, CreditGrantPolicy } from '../credit-grant';
+import type { CreditGrantPolicy } from '../credit-grant';
 import type { EntryDirection } from '../entry/entity';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
@@ -33,17 +33,15 @@ export interface CreateAssetInput {
 }
 
 export type { CreditGrantPolicy } from '../credit-grant';
-export { CreditGrantOrigin } from '../credit-grant';
-
 export interface CreateCreditGrantInput {
   tenantId: string;
   ledgerId: string;
   accountId: string;
   fundingAccountId: string;
-  assetId: string;
   reference: string;
   externalReference?: string | null;
-  origin: CreditGrantOrigin;
+  provenance: string;
+  expiresAt?: Date | null;
   amountMinor: bigint;
   policy: CreditGrantPolicy;
 }
@@ -57,7 +55,8 @@ export interface CreditGrant {
   assetId: string;
   reference: string;
   externalReference: string | null;
-  origin: CreditGrantOrigin;
+  provenance: string;
+  expiresAt: Date | null;
   amountMinor: bigint;
   policy: CreditGrantPolicy;
   transactionId: string;
@@ -74,13 +73,14 @@ export interface ReverseCreditGrantInput {
   grantId: string;
   reference: string;
 }
-export interface CreditBucketBalance {
+export interface CreditGrantLotBalance {
   grantId: string;
   reference: string;
   externalReference: string | null;
   policy: CreditGrantPolicy;
   createdAt: Date;
-  origin: CreditGrantOrigin;
+  provenance: string;
+  expiresAt: Date | null;
   grantedMinor: bigint;
   allocatedMinor: bigint;
   consumedMinor: bigint;
@@ -88,17 +88,12 @@ export interface CreditBucketBalance {
   reversedMinor: bigint;
   remainingMinor: bigint;
 }
-export type CreditOriginBalance = Omit<
-  CreditBucketBalance,
-  'grantId' | 'reference' | 'externalReference' | 'policy' | 'createdAt'
->;
 export interface CreditBalance {
   accountId: string;
   assetId: string;
   ledgerBalanceMinor: bigint;
   remainingMinor: bigint;
-  buckets: CreditBucketBalance[];
-  originTotals: CreditOriginBalance[];
+  lots: CreditGrantLotBalance[];
 }
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = LedgerEntity;
