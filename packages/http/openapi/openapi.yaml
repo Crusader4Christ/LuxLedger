@@ -946,37 +946,24 @@ components:
     CreateCreditGrantRequest:
       type: object
       additionalProperties: false
-      required: [ledger_id, account_id, funding_account_id, reference, provenance, amount_minor, policy]
+      required: [ledger_id, account_id, funding_account_id, reference, amount_minor]
       properties:
         ledger_id: { type: string, format: uuid }
         account_id: { type: string, format: uuid }
         funding_account_id: { type: string, format: uuid }
         reference: { type: string, minLength: 1 }
         external_reference: { type: string, minLength: 1 }
-        provenance: { type: string, minLength: 1, maxLength: 64 }
-        expires_at: { type: string, format: date-time, nullable: true }
         amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
-        policy:
-          $ref: '#/components/schemas/CreditGrantPolicy'
     ReverseCreditGrantRequest:
       type: object
       additionalProperties: false
       required: [reference]
       properties:
         reference: { type: string, minLength: 1 }
-    CreditGrantPolicy:
-      type: object
-      additionalProperties: false
-      required: [refundable, transferable, consumption_priority, eligibility]
-      properties:
-        refundable: { type: boolean }
-        transferable: { type: boolean }
-        consumption_priority: { type: integer, minimum: 0, maximum: 2147483647 }
-        eligibility: { type: string, nullable: true }
     CreditGrant:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, account_id, funding_account_id, asset_id, reference, external_reference, provenance, expires_at, amount_minor, policy, transaction_id, created_at, reversed_by_transaction_id]
+      required: [id, tenant_id, ledger_id, account_id, funding_account_id, asset_id, reference, external_reference, amount_minor, transaction_id, created_at, reversed_by_transaction_id]
       properties:
         id: { type: string, format: uuid }
         tenant_id: { type: string, format: uuid }
@@ -986,31 +973,20 @@ components:
         asset_id: { type: string, format: uuid }
         reference: { type: string }
         external_reference: { type: string, nullable: true }
-        provenance: { type: string }
-        expires_at: { type: string, format: date-time, nullable: true }
         amount_minor: { type: string }
-        policy:
-          $ref: '#/components/schemas/CreditGrantPolicy'
         transaction_id: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
         reversed_by_transaction_id: { type: string, format: uuid, nullable: true }
     CreditGrantLot:
       type: object
       additionalProperties: false
-      required: [grant_id, reference, external_reference, policy, created_at, provenance, expires_at, granted_minor, allocated_minor, consumed_minor, expired_minor, reversed_minor, remaining_minor]
+      required: [grant_id, reference, external_reference, created_at, granted_minor, reversed_minor, remaining_minor]
       properties:
         grant_id: { type: string, format: uuid }
         reference: { type: string }
         external_reference: { type: string, nullable: true }
-        policy:
-          $ref: '#/components/schemas/CreditGrantPolicy'
         created_at: { type: string, format: date-time }
-        provenance: { type: string }
-        expires_at: { type: string, format: date-time, nullable: true }
         granted_minor: { type: string }
-        allocated_minor: { type: string }
-        consumed_minor: { type: string }
-        expired_minor: { type: string }
         reversed_minor: { type: string }
         remaining_minor: { type: string }
     CreditBalance:

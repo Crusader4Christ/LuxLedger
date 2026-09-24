@@ -2,7 +2,6 @@ import type { AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
-import type { CreditGrantPolicy } from '../credit-grant';
 import type { EntryDirection } from '../entry/entity';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
@@ -32,7 +31,6 @@ export interface CreateAssetInput {
   scale: number;
 }
 
-export type { CreditGrantPolicy } from '../credit-grant';
 export interface CreateCreditGrantInput {
   tenantId: string;
   ledgerId: string;
@@ -40,10 +38,7 @@ export interface CreateCreditGrantInput {
   fundingAccountId: string;
   reference: string;
   externalReference?: string | null;
-  provenance: string;
-  expiresAt?: Date | null;
   amountMinor: bigint;
-  policy: CreditGrantPolicy;
 }
 
 export interface CreditGrant {
@@ -55,10 +50,7 @@ export interface CreditGrant {
   assetId: string;
   reference: string;
   externalReference: string | null;
-  provenance: string;
-  expiresAt: Date | null;
   amountMinor: bigint;
-  policy: CreditGrantPolicy;
   transactionId: string;
   createdAt: Date;
   reversedByTransactionId: string | null;
@@ -77,14 +69,8 @@ export interface CreditGrantLotBalance {
   grantId: string;
   reference: string;
   externalReference: string | null;
-  policy: CreditGrantPolicy;
   createdAt: Date;
-  provenance: string;
-  expiresAt: Date | null;
   grantedMinor: bigint;
-  allocatedMinor: bigint;
-  consumedMinor: bigint;
-  expiredMinor: bigint;
   reversedMinor: bigint;
   remainingMinor: bigint;
 }

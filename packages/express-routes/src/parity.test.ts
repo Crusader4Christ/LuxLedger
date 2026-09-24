@@ -154,15 +154,7 @@ describe('express adapter parity with fastify adapter', () => {
           fundingAccountId: string;
           reference: string;
           externalReference?: string | null;
-          provenance: string;
-          expiresAt?: Date | null;
           amountMinor: bigint;
-          policy: {
-            refundable: boolean;
-            transferable: boolean;
-            consumptionPriority: number;
-            eligibility: string | null;
-          };
         }) => {
           lastGrant = {
             id: '00000000-0000-4000-8000-000000000901',
@@ -173,10 +165,7 @@ describe('express adapter parity with fastify adapter', () => {
             assetId: '00000000-0000-4000-8000-000000000903',
             reference: input.reference,
             externalReference: input.externalReference ?? null,
-            provenance: input.provenance,
-            expiresAt: input.expiresAt ?? null,
             amountMinor: input.amountMinor,
-            policy: input.policy,
             transactionId: '00000000-0000-4000-8000-000000000902',
             createdAt: new Date('2026-01-01T00:00:00.000Z'),
             reversedByTransactionId: null,
@@ -205,19 +194,8 @@ describe('express adapter parity with fastify adapter', () => {
               grantId: '00000000-0000-4000-8000-000000000901',
               reference: 'parity-grant',
               externalReference: null,
-              policy: {
-                refundable: true,
-                transferable: false,
-                consumptionPriority: 2,
-                eligibility: null,
-              },
               createdAt: new Date('2026-01-01T00:00:00.000Z'),
-              provenance: 'purchase',
-              expiresAt: null,
               grantedMinor: 100n,
-              allocatedMinor: 0n,
-              consumedMinor: 0n,
-              expiredMinor: 0n,
               reversedMinor: 0n,
               remainingMinor: 100n,
             },
@@ -664,10 +642,7 @@ describe('express adapter parity with fastify adapter', () => {
       account_id: '00000000-0000-4000-8000-000000000911',
       funding_account_id: '00000000-0000-4000-8000-000000000912',
       reference: 'parity-grant',
-      provenance: 'purchase',
-      expires_at: '2027-01-01T00:00:00.000Z',
       amount_minor: '100',
-      policy: { refundable: true, transferable: false, consumption_priority: 2, eligibility: null },
     };
     const [fastifyCreate, expressCreate] = await Promise.all([
       requestFastify('POST', '/v1/credit-grants', payload),

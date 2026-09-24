@@ -1,4 +1,4 @@
-CREATE TYPE "public"."credit_grant_entry_kind" AS ENUM('ISSUANCE', 'REVERSAL', 'ALLOCATION', 'EXPIRATION');--> statement-breakpoint
+CREATE TYPE "public"."credit_grant_entry_kind" AS ENUM('ISSUANCE', 'REVERSAL');--> statement-breakpoint
 CREATE TABLE "credit_grant_entries" (
 	"tenant_id" uuid NOT NULL,
 	"ledger_id" uuid NOT NULL,
@@ -19,18 +19,9 @@ CREATE TABLE "credit_grants" (
 	"funding_account_id" uuid NOT NULL,
 	"reference" text NOT NULL,
 	"external_reference" text,
-	"provenance" text NOT NULL,
-	"expires_at" timestamp with time zone,
-	"refundable" boolean NOT NULL,
-	"transferable" boolean NOT NULL,
-	"consumption_priority" integer NOT NULL,
-	"eligibility" text,
 	"transaction_id" uuid NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "credit_grants_accounts_chk" CHECK ("credit_grants"."account_id" <> "credit_grants"."funding_account_id"),
-	CONSTRAINT "credit_grants_priority_chk" CHECK ("credit_grants"."consumption_priority" >= 0),
-	CONSTRAINT "credit_grants_provenance_chk" CHECK (length(btrim("credit_grants"."provenance")) between 1 and 64),
-	CONSTRAINT "credit_grants_eligibility_v1_chk" CHECK ("credit_grants"."eligibility" is null)
+	CONSTRAINT "credit_grants_accounts_chk" CHECK ("credit_grants"."account_id" <> "credit_grants"."funding_account_id")
 );
 --> statement-breakpoint
 ALTER TABLE "accounts" ALTER COLUMN "asset_id" DROP DEFAULT;--> statement-breakpoint
@@ -102,8 +93,6 @@ BEGIN
     AND linked_direction = 'DEBIT' AND NEW.amount_minor = entry_amount
   ) THEN
     RAISE EXCEPTION 'credit grant reversal link is invalid';
-  ELSIF NEW.kind IN ('ALLOCATION', 'EXPIRATION') AND linked_direction <> 'DEBIT' THEN
-    RAISE EXCEPTION 'credit grant deduction link must reference a debit entry';
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint

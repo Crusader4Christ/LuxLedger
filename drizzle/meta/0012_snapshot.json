@@ -885,42 +885,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "provenance": {
-          "name": "provenance",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "refundable": {
-          "name": "refundable",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "transferable": {
-          "name": "transferable",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "consumption_priority": {
-          "name": "consumption_priority",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "eligibility": {
-          "name": "eligibility",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "transaction_id": {
           "name": "transaction_id",
           "type": "uuid",
@@ -1142,18 +1106,6 @@
         "credit_grants_accounts_chk": {
           "name": "credit_grants_accounts_chk",
           "value": "\"credit_grants\".\"account_id\" <> \"credit_grants\".\"funding_account_id\""
-        },
-        "credit_grants_priority_chk": {
-          "name": "credit_grants_priority_chk",
-          "value": "\"credit_grants\".\"consumption_priority\" >= 0"
-        },
-        "credit_grants_provenance_chk": {
-          "name": "credit_grants_provenance_chk",
-          "value": "length(btrim(\"credit_grants\".\"provenance\")) between 1 and 64"
-        },
-        "credit_grants_eligibility_v1_chk": {
-          "name": "credit_grants_eligibility_v1_chk",
-          "value": "\"credit_grants\".\"eligibility\" is null"
         }
       },
       "isRLSEnabled": false
@@ -2872,9 +2824,7 @@
       "schema": "public",
       "values": [
         "ISSUANCE",
-        "REVERSAL",
-        "ALLOCATION",
-        "EXPIRATION"
+        "REVERSAL"
       ]
     },
     "public.entry_direction": {

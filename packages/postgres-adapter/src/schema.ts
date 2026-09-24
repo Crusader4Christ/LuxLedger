@@ -347,12 +347,6 @@ export const creditGrants = pgTable(
     fundingAccountId: uuid('funding_account_id').notNull(),
     reference: text('reference').notNull(),
     externalReference: text('external_reference'),
-    provenance: text('provenance').notNull(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    refundable: boolean('refundable').notNull(),
-    transferable: boolean('transferable').notNull(),
-    consumptionPriority: integer('consumption_priority').notNull(),
-    eligibility: text('eligibility'),
     transactionId: uuid('transaction_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -398,21 +392,10 @@ export const creditGrants = pgTable(
       'credit_grants_accounts_chk',
       sql`${table.accountId} <> ${table.fundingAccountId}`,
     ),
-    priorityChk: check('credit_grants_priority_chk', sql`${table.consumptionPriority} >= 0`),
-    provenanceChk: check(
-      'credit_grants_provenance_chk',
-      sql`length(btrim(${table.provenance})) between 1 and 64`,
-    ),
-    eligibilityChk: check('credit_grants_eligibility_v1_chk', sql`${table.eligibility} is null`),
   }),
 );
 
-export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', [
-  'ISSUANCE',
-  'REVERSAL',
-  'ALLOCATION',
-  'EXPIRATION',
-]);
+export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', ['ISSUANCE', 'REVERSAL']);
 
 export const creditGrantEntries = pgTable(
   'credit_grant_entries',

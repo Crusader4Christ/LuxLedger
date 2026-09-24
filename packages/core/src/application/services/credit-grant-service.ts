@@ -20,14 +20,10 @@ export class CreditGrantService {
       accountId: input.accountId,
       fundingAccountId: input.fundingAccountId,
       reference: input.reference,
-      provenance: input.provenance,
     }))
       assertNonEmpty(value, `${name} is required`);
     if (input.externalReference != null) {
       assertNonEmpty(input.externalReference, 'externalReference must not be empty');
-    }
-    if (input.expiresAt != null && !(input.expiresAt instanceof Date)) {
-      throw new InvariantViolationError('expiresAt must be a Date');
     }
     validateCreditGrant(input);
     if (input.accountId === input.fundingAccountId) {

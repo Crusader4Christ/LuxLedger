@@ -43,6 +43,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         .limit(1);
       if (existing) {
         const grant = await this.toGrant(tx, existing);
+        if (!this.sameScope(grant, input)) {
+          throw new CreditGrantConflictError(
+            'Grant reference already belongs to another ledger or account',
+          );
+        }
         if (!this.samePayload(grant, input)) {
           throw new CreditGrantConflictError('Grant reference payload mismatch');
         }
@@ -81,12 +86,6 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           fundingAccountId: input.fundingAccountId,
           reference: input.reference,
           externalReference: input.externalReference ?? null,
-          provenance: input.provenance.trim(),
-          expiresAt: input.expiresAt ?? null,
-          refundable: input.policy.refundable,
-          transferable: input.policy.transferable,
-          consumptionPriority: input.policy.consumptionPriority,
-          eligibility: input.policy.eligibility,
           transactionId: posted.transactionId,
         })
         .returning();
@@ -133,18 +132,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         }
         return { grant: await this.toGrant(tx, row), created: false };
       }
-      const balance = await this.balanceInTx(tx, input.tenantId, row.accountId);
-      const target = balance.lots.find((lot) => lot.grantId === row.id);
       const grant = await this.toGrant(tx, row);
-      if (
-        !target ||
-        target.remainingMinor !== grant.amountMinor ||
-        target.allocatedMinor !== 0n ||
-        target.consumedMinor !== 0n ||
-        target.expiredMinor !== 0n
-      ) {
-        throw new CreditGrantConflictError('Target grant is not fully unallocated');
-      }
       const [account] = await tx
         .select({ currency: schema.accounts.currency })
         .from(schema.accounts)
@@ -204,6 +192,22 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
       .for('update')
       .limit(1);
+    return this.assertCreditAccount(account, accountId);
+  }
+
+  private async findCreditAccount(tx: Tx, tenantId: string, accountId: string) {
+    const [account] = await tx
+      .select()
+      .from(schema.accounts)
+      .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
+      .limit(1);
+    return this.assertCreditAccount(account, accountId);
+  }
+
+  private assertCreditAccount(
+    account: typeof schema.accounts.$inferSelect | undefined,
+    accountId: string,
+  ) {
     if (!account) throw new AccountNotFoundError(accountId);
     if (!account.assetId || account.side !== 'CREDIT' || account.overdraftPolicy !== 'DISALLOW') {
       throw new CreditGrantConflictError(
@@ -272,7 +276,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   }
 
   private async balanceInTx(tx: Tx, tenantId: string, accountId: string): Promise<CreditBalance> {
-    const account = await this.lockCreditAccount(tx, tenantId, accountId);
+    const account = await this.findCreditAccount(tx, tenantId, accountId);
     const rows = await tx
       .select()
       .from(schema.creditGrants)
@@ -344,19 +348,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         grantId: row.id,
         reference: row.reference,
         externalReference: row.externalReference,
-        policy: {
-          refundable: row.refundable,
-          transferable: row.transferable,
-          consumptionPriority: row.consumptionPriority,
-          eligibility: row.eligibility,
-        },
         createdAt: row.createdAt,
-        provenance: row.provenance,
-        expiresAt: row.expiresAt,
         grantedMinor,
-        allocatedMinor: 0n,
-        consumedMinor: 0n,
-        expiredMinor: 0n,
         reversedMinor,
         remainingMinor: 0n,
       };
@@ -449,15 +442,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       assetId: issuance.assetId,
       reference: row.reference,
       externalReference: row.externalReference,
-      provenance: row.provenance,
-      expiresAt: row.expiresAt,
       amountMinor: issuance.amountMinor,
-      policy: {
-        refundable: row.refundable,
-        transferable: row.transferable,
-        consumptionPriority: row.consumptionPriority,
-        eligibility: row.eligibility,
-      },
       transactionId: row.transactionId,
       createdAt: row.createdAt,
       reversedByTransactionId: reversal?.id ?? null,
@@ -466,17 +451,17 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   private samePayload(grant: CreditGrant, input: CreateCreditGrantInput): boolean {
     return (
-      grant.ledgerId === input.ledgerId &&
-      grant.accountId === input.accountId &&
       grant.fundingAccountId === input.fundingAccountId &&
-      grant.provenance === input.provenance.trim() &&
-      grant.expiresAt?.getTime() === input.expiresAt?.getTime() &&
       grant.amountMinor === input.amountMinor &&
-      grant.externalReference === (input.externalReference ?? null) &&
-      grant.policy.refundable === input.policy.refundable &&
-      grant.policy.transferable === input.policy.transferable &&
-      grant.policy.consumptionPriority === input.policy.consumptionPriority &&
-      grant.policy.eligibility === input.policy.eligibility
+      grant.externalReference === (input.externalReference ?? null)
+    );
+  }
+
+  private sameScope(grant: CreditGrant, input: CreateCreditGrantInput): boolean {
+    return (
+      grant.tenantId === input.tenantId &&
+      grant.ledgerId === input.ledgerId &&
+      grant.accountId === input.accountId
     );
   }
 }

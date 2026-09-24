@@ -80,7 +80,13 @@ describe('framework-agnostic contract suite', () => {
           name: 'grant derives its asset from the account and uses integer minor units',
           assert: () => {
             expect(createCreditGrantBodySchema.required).not.toContain('asset_id');
-            expect(createCreditGrantBodySchema.required).toContain('provenance');
+            expect(createCreditGrantBodySchema.required).toEqual([
+              'ledger_id',
+              'account_id',
+              'funding_account_id',
+              'reference',
+              'amount_minor',
+            ]);
             expect(createCreditGrantBodySchema.properties.amount_minor).toEqual({
               type: 'string',
               pattern: '^[1-9][0-9]*$',

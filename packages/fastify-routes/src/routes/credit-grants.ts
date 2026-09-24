@@ -37,15 +37,7 @@ export class CreditGrantRoutes extends BaseRoute {
             fundingAccountId: body.funding_account_id,
             reference: body.reference,
             externalReference: body.external_reference,
-            provenance: body.provenance,
-            expiresAt: body.expires_at == null ? null : new Date(body.expires_at),
             amountMinor: BigInt(body.amount_minor),
-            policy: {
-              refundable: body.policy.refundable,
-              transferable: body.policy.transferable,
-              consumptionPriority: body.policy.consumption_priority,
-              eligibility: body.policy.eligibility,
-            },
           });
           return reply.status(result.created ? 201 : 200).send(toCreditGrantResponse(result.grant));
         }),
