@@ -384,7 +384,7 @@ describe('credit grants', () => {
     }
   });
 
-  it('detects a tampered ledger amount during aggregate reconciliation', async () => {
+  it('uses ledger entries as source of truth when the account balance cache drifts', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const grant = await services.creditGrants.create(
@@ -410,9 +410,10 @@ describe('credit grants', () => {
       .update(accountRows)
       .set({ balanceMinor: 101n })
       .where(eq(accountRows.id, accounts.accountId));
-    await expect(
-      services.creditGrants.getBalance(tenantId, accounts.accountId),
-    ).rejects.toBeInstanceOf(CreditGrantConflictError);
+    const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+    expect(balance.ledgerBalanceMinor).toBe(100n);
+    expect(balance.remainingMinor).toBe(100n);
+    expect(balance.lots[0]?.remainingMinor).toBe(100n);
   });
 
   it('enforces tenant and ledger scope in PostgreSQL foreign keys', async () => {

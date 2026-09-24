@@ -242,9 +242,6 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       )
       .limit(1);
     if (!existingGrant) {
-      if (account.balanceMinor !== 0n) {
-        throw new CreditGrantConflictError('Grant-enabled account must start with zero balance');
-      }
       const [priorEntry] = await tx
         .select({ id: schema.entries.id })
         .from(schema.entries)
@@ -367,10 +364,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       lots.push(lot);
       total += lot.remainingMinor;
     }
-    if (
-      total !== account.balanceMinor ||
-      total !== (await this.ledgerTotalInTx(tx, tenantId, accountId))
-    ) {
+    const ledgerBalanceMinor = await this.ledgerTotalInTx(tx, tenantId, accountId);
+    if (total !== ledgerBalanceMinor) {
       throw new CreditGrantConflictError(
         'Credit grant lot totals do not reconcile with ledger balance',
       );
@@ -378,7 +373,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return {
       accountId,
       assetId: account.assetId,
-      ledgerBalanceMinor: account.balanceMinor,
+      ledgerBalanceMinor,
       remainingMinor: total,
       lots,
     };

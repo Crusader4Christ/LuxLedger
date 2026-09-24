@@ -14,7 +14,7 @@ Entry-to-grant links are append-only financial lineage. They contain a link kind
 
 `POST /v1/credit-grants/{id}/reversal` fully compensates a grant only while its derived capacity is untouched. It posts an opposite linked ledger transaction. Partial refunds and already-spent clawback policy remain LL-87.
 
-`GET /v1/accounts/{id}/credit-balance` returns one `lot` per grant. Lot amounts are derived from immutable entry links, and the aggregate must reconcile with both the account balance and its posted ledger entries. The response intentionally has no provenance totals: provenance is audit metadata, not an economic balance dimension. Until LL-66 and LL-85 add deduction writers, allocated, consumed, and expired derived amounts are zero.
+`GET /v1/accounts/{id}/credit-balance` returns one `lot` per grant. Lot amounts and `ledger_balance_minor` are derived from immutable ledger entries, and the lot aggregate must reconcile with those entries. The mutable `accounts.balance_minor` projection is not an authority for this read and cache drift does not make grant history unreadable. The response intentionally has no provenance totals: provenance is audit metadata, not an economic balance dimension. Until LL-66 and LL-85 add deduction writers, allocated, consumed, and expired derived amounts are zero.
 
 Generic transaction and hold contracts remain unchanged. A database boundary rejects unattributed entries or holds only after an account has grants, preventing its derived lot view from diverging while imposing no grant payload requirements on ordinary accounts.
 
