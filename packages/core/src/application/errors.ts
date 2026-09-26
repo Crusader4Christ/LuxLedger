@@ -15,6 +15,18 @@ export class AssetNotFoundError extends DomainError {
   }
 }
 
+export class CreditGrantNotFoundError extends DomainError {
+  public constructor(grantId: string) {
+    super(`Credit grant not found: ${grantId}`, 'CREDIT_GRANT_NOT_FOUND', 404);
+  }
+}
+
+export class CreditGrantConflictError extends DomainError {
+  public constructor(message: string) {
+    super(message, 'CREDIT_GRANT_CONFLICT', 409);
+  }
+}
+
 export class AccountNotFoundError extends DomainError {
   public readonly accountId: string;
 

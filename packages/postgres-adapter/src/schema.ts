@@ -11,6 +11,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -85,6 +86,7 @@ export const ledgers = pgTable(
   },
   (table) => ({
     ledgersTenantIdIdx: index('ledgers_tenant_id_idx').on(table.tenantId),
+    ledgersTenantIdUq: uniqueIndex('ledgers_tenant_id_uq').on(table.tenantId, table.id),
   }),
 );
 
@@ -103,7 +105,7 @@ export const accounts = pgTable(
     side: accountSideEnum('side').notNull(),
     overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id'),
+    assetId: uuid('asset_id').notNull(),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' })
       .notNull()
@@ -122,6 +124,11 @@ export const accounts = pgTable(
     }),
     accountsTenantIdIdx: index('accounts_tenant_id_idx').on(table.tenantId),
     accountsLedgerIdIdx: index('accounts_ledger_id_idx').on(table.ledgerId),
+    accountsTenantLedgerIdUq: uniqueIndex('accounts_tenant_ledger_id_uq').on(
+      table.tenantId,
+      table.ledgerId,
+      table.id,
+    ),
     accountsInflightDebitNonnegativeChk: check(
       'accounts_inflight_debit_nonnegative_chk',
       sql`${table.inflightDebitMinor} >= 0`,
@@ -175,7 +182,7 @@ export const holds = pgTable(
       .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id'),
+    assetId: uuid('asset_id').notNull(),
     description: text('description'),
     state: holdStateEnum('state').notNull().default('HELD'),
     originalAmountMinor: bigint('original_amount_minor', { mode: 'bigint' }).notNull(),
@@ -214,7 +221,7 @@ export const holdEntries = pgTable(
     direction: entryDirectionEnum('direction').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id'),
+    assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -253,7 +260,7 @@ export const transactions = pgTable(
     relationType: transactionRelationTypeEnum('relation_type'),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id'),
+    assetId: uuid('asset_id').notNull(),
     description: text('description'),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -273,6 +280,11 @@ export const transactions = pgTable(
       table.effectiveAt,
     ),
     transactionsLedgerIdIdx: index('transactions_ledger_id_idx').on(table.ledgerId),
+    transactionsTenantLedgerIdUq: uniqueIndex('transactions_tenant_ledger_id_uq').on(
+      table.tenantId,
+      table.ledgerId,
+      table.id,
+    ),
     transactionsHoldIdIdx: index('transactions_hold_id_idx').on(table.holdId),
     transactionsRelatedIdIdx: index('transactions_related_transaction_id_idx').on(
       table.relatedTransactionId,
@@ -303,7 +315,7 @@ export const entries = pgTable(
     direction: entryDirectionEnum('direction').notNull(),
     amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
-    assetId: uuid('asset_id'),
+    assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -315,6 +327,124 @@ export const entries = pgTable(
     entriesTenantIdIdx: index('entries_tenant_id_idx').on(table.tenantId),
     entriesTransactionIdIdx: index('entries_transaction_id_idx').on(table.transactionId),
     entriesAccountIdIdx: index('entries_account_id_idx').on(table.accountId),
+    entriesTenantAccountIdUq: uniqueIndex('entries_tenant_account_id_uq').on(
+      table.tenantId,
+      table.accountId,
+      table.id,
+    ),
+  }),
+);
+
+export const creditGrants = pgTable(
+  'credit_grants',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    ledgerId: uuid('ledger_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    fundingAccountId: uuid('funding_account_id').notNull(),
+    reference: text('reference').notNull(),
+    externalReference: text('external_reference'),
+    transactionId: uuid('transaction_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    tenantReferenceUq: uniqueIndex('credit_grants_tenant_reference_uq').on(
+      table.tenantId,
+      table.reference,
+    ),
+    tenantIdUq: uniqueIndex('credit_grants_tenant_id_uq').on(table.tenantId, table.id),
+    tenantLedgerIdUq: uniqueIndex('credit_grants_tenant_ledger_id_uq').on(
+      table.tenantId,
+      table.ledgerId,
+      table.id,
+    ),
+    tenantLedgerAccountIdUq: uniqueIndex('credit_grants_tenant_ledger_account_id_uq').on(
+      table.tenantId,
+      table.ledgerId,
+      table.accountId,
+      table.id,
+    ),
+    transactionUq: uniqueIndex('credit_grants_transaction_uq').on(table.transactionId),
+    ledgerFk: foreignKey({
+      name: 'credit_grants_tenant_ledger_fk',
+      columns: [table.tenantId, table.ledgerId],
+      foreignColumns: [ledgers.tenantId, ledgers.id],
+    }),
+    accountFk: foreignKey({
+      name: 'credit_grants_account_scope_fk',
+      columns: [table.tenantId, table.ledgerId, table.accountId],
+      foreignColumns: [accounts.tenantId, accounts.ledgerId, accounts.id],
+    }),
+    fundingAccountFk: foreignKey({
+      name: 'credit_grants_funding_account_scope_fk',
+      columns: [table.tenantId, table.ledgerId, table.fundingAccountId],
+      foreignColumns: [accounts.tenantId, accounts.ledgerId, accounts.id],
+    }),
+    transactionFk: foreignKey({
+      name: 'credit_grants_transaction_scope_fk',
+      columns: [table.tenantId, table.ledgerId, table.transactionId],
+      foreignColumns: [transactions.tenantId, transactions.ledgerId, transactions.id],
+    }),
+    accountsChk: check(
+      'credit_grants_accounts_chk',
+      sql`${table.accountId} <> ${table.fundingAccountId}`,
+    ),
+  }),
+);
+
+export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', ['ISSUANCE', 'REVERSAL']);
+
+export const creditGrantEntries = pgTable(
+  'credit_grant_entries',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    ledgerId: uuid('ledger_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    grantId: uuid('grant_id').notNull(),
+    entryId: uuid('entry_id').notNull(),
+    kind: creditGrantEntryKindEnum('kind').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      name: 'credit_grant_entries_pk',
+      columns: [table.grantId, table.entryId],
+    }),
+    grantFk: foreignKey({
+      name: 'credit_grant_entries_grant_fk',
+      columns: [table.tenantId, table.ledgerId, table.accountId, table.grantId],
+      foreignColumns: [
+        creditGrants.tenantId,
+        creditGrants.ledgerId,
+        creditGrants.accountId,
+        creditGrants.id,
+      ],
+    }),
+    entryFk: foreignKey({
+      name: 'credit_grant_entries_entry_fk',
+      columns: [table.tenantId, table.accountId, table.entryId],
+      foreignColumns: [entries.tenantId, entries.accountId, entries.id],
+    }),
+    grantIdx: index('credit_grant_entries_tenant_grant_idx').on(table.tenantId, table.grantId),
+    accountIdx: index('credit_grant_entries_tenant_account_idx').on(
+      table.tenantId,
+      table.accountId,
+    ),
+    oneIssuanceUq: uniqueIndex('credit_grant_entries_one_issuance_uq')
+      .on(table.grantId)
+      .where(sql`${table.kind} = 'ISSUANCE'`),
+    oneReversalUq: uniqueIndex('credit_grant_entries_one_reversal_uq')
+      .on(table.grantId)
+      .where(sql`${table.kind} = 'REVERSAL'`),
+    amountPositiveChk: check(
+      'credit_grant_entries_amount_positive_chk',
+      sql`${table.amountMinor} > 0`,
+    ),
   }),
 );
 

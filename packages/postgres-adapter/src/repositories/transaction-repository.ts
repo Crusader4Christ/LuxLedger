@@ -42,14 +42,38 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
   public async create(input: CreateTransactionInput): Promise<CreateTransactionResult> {
     return this.client.runTenantTx(input.tenantId, 'create transaction', async (tx) =>
-      this.createOrResolvePostedTransaction(tx, {
-        ...input,
-        description: input.description ?? null,
-        effectiveAt: input.effectiveAt ?? undefined,
-        compareDescriptionOnRetry: true,
-        payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
-      }),
+      this.createInTx(tx, input),
     );
+  }
+
+  public postCreditGrantInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput,
+  ): Promise<CreateTransactionResult> {
+    return this.createInTx(tx, input);
+  }
+
+  public postCreditGrantReversalInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput & { relatedTransactionId: string; relationType: 'REVERSAL' },
+  ): Promise<CreateTransactionResult> {
+    return this.createInTx(tx, input);
+  }
+
+  private createInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput & {
+      relatedTransactionId?: string;
+      relationType?: 'REVERSAL' | 'CORRECTION';
+    },
+  ): Promise<CreateTransactionResult> {
+    return this.createOrResolvePostedTransaction(tx, {
+      ...input,
+      description: input.description ?? null,
+      effectiveAt: input.effectiveAt ?? undefined,
+      compareDescriptionOnRetry: true,
+      payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
+    });
   }
 
   public async createBulk(input: BulkCreateTransactionInput): Promise<BulkCreateTransactionResult> {

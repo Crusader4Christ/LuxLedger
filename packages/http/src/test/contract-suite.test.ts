@@ -5,8 +5,12 @@ import {
   accountResponseSchema,
   createAccountBodySchema,
   createApiKeyBodySchema,
+  createCreditGrantBodySchema,
   createLedgerBodySchema,
   createTransactionRequestSchema,
+  creditBalanceResponseSchema,
+  creditGrantLotResponseSchema,
+  creditGrantResponseSchema,
   entriesPageResponseSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
@@ -74,6 +78,33 @@ describe('framework-agnostic contract suite', () => {
           name: 'account request forbids additional properties',
           assert: () => expect(createAccountBodySchema.additionalProperties).toBeFalse(),
         },
+        {
+          name: 'grant derives its asset from the account and uses integer minor units',
+          assert: () => {
+            expect(createCreditGrantBodySchema.required).not.toContain('asset_id');
+            expect(createCreditGrantBodySchema.required).toEqual([
+              'ledger_id',
+              'account_id',
+              'funding_account_id',
+              'reference',
+              'amount_minor',
+            ]);
+            expect(createCreditGrantBodySchema.properties.amount_minor).toEqual({
+              type: 'string',
+              pattern: '^[1-9][0-9]*$',
+            });
+            const responseAmount = { type: 'string', pattern: '^[0-9]+$' } as const;
+            expect(creditGrantResponseSchema.properties.amount_minor).toEqual(responseAmount);
+            expect(creditGrantLotResponseSchema.properties.granted_minor).toEqual(responseAmount);
+            expect(creditGrantLotResponseSchema.properties.reversed_minor).toEqual(responseAmount);
+            expect(creditGrantLotResponseSchema.properties.remaining_minor).toEqual(responseAmount);
+            expect(creditBalanceResponseSchema.properties.ledger_balance_minor).toEqual(
+              responseAmount,
+            );
+            expect(creditBalanceResponseSchema.properties.remaining_minor).toEqual(responseAmount);
+            expect(creditBalanceResponseSchema.required).toContain('ledger_balance_minor');
+          },
+        },
       ],
     );
   });
@@ -139,5 +170,8 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('required: [ledger_id, reference, currency, entries]');
     expect(openapi).toContain('CreateAccountRequest:');
     expect(openapi).toContain('CreateApiKeyRequest:');
+    expect(openapi).toContain('/v1/credit-grants:');
+    expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');
+    expect(openapi).toContain('CreateCreditGrantRequest:');
   });
 });

@@ -21,12 +21,16 @@ import type {
   CorrectTransactionResult,
   CreateAccountInput,
   CreateAssetInput,
+  CreateCreditGrantInput,
   CreateHoldInput,
   CreateHoldResult,
   CreateLedgerInput,
   CreateReconRuleInput,
   CreateTransactionInput,
   CreateTransactionResult,
+  CreditBalance,
+  CreditGrant,
+  CreditGrantResult,
   HistoricalBalance,
   IngestReconRecordsInput,
   LedgerTrialBalanceQuery,
@@ -34,6 +38,7 @@ import type {
   PaginationQuery,
   ReconRun,
   ReconUpload,
+  ReverseCreditGrantInput,
   ReverseTransactionInput,
   ReverseTransactionResult,
   RunReconInput,
@@ -42,6 +47,14 @@ import type {
   VoidHoldInput,
   VoidHoldResult,
 } from './types';
+
+export interface CreditGrantRepository {
+  create(input: CreateCreditGrantInput): Promise<CreditGrantResult>;
+  /** Reverses only the specified grant when its own remaining capacity equals its original amount. */
+  reverse(input: ReverseCreditGrantInput): Promise<CreditGrantResult>;
+  findById(tenantId: string, grantId: string): Promise<CreditGrant | null>;
+  getBalance(tenantId: string, accountId: string): Promise<CreditBalance>;
+}
 
 export interface AssetRepository {
   create(input: CreateAssetInput): Promise<Asset>;

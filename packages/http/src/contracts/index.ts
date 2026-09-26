@@ -1,6 +1,7 @@
 export * from './accounts';
 export * from './auth-admin';
 export * from './common';
+export * from './credit-grants';
 export * from './entries';
 export * from './holds';
 export * from './ledgers';

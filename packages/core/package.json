@@ -28,6 +28,10 @@
       "types": "./dist/base/index.d.ts",
       "import": "./dist/base/index.js"
     },
+    "./credit-grant": {
+      "types": "./dist/credit-grant/index.d.ts",
+      "import": "./dist/credit-grant/index.js"
+    },
     "./entry": {
       "types": "./dist/entry/index.d.ts",
       "import": "./dist/entry/index.js"
@@ -72,6 +76,6 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.ts src/account/index.ts src/api-key/index.ts src/application/index.ts src/base/index.ts src/entry/index.ts src/ledger/index.ts src/reconciliation/index.ts src/tenant/index.ts src/transaction/index.ts src/utils/index.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/core/dist"
+    "build": "rm -rf dist && bun build src/index.ts src/account/index.ts src/api-key/index.ts src/application/index.ts src/base/index.ts src/credit-grant/index.ts src/entry/index.ts src/ledger/index.ts src/reconciliation/index.ts src/tenant/index.ts src/transaction/index.ts src/utils/index.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/core/dist"
   }
 }
