@@ -766,6 +766,38 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "credit_grant_entries_one_issuance_uq": {
+          "name": "credit_grant_entries_one_issuance_uq",
+          "columns": [
+            {
+              "expression": "grant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"credit_grant_entries\".\"kind\" = 'ISSUANCE'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_grant_entries_one_reversal_uq": {
+          "name": "credit_grant_entries_one_reversal_uq",
+          "columns": [
+            {
+              "expression": "grant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"credit_grant_entries\".\"kind\" = 'REVERSAL'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {

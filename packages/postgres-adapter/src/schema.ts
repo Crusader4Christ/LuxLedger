@@ -435,6 +435,12 @@ export const creditGrantEntries = pgTable(
       table.tenantId,
       table.accountId,
     ),
+    oneIssuanceUq: uniqueIndex('credit_grant_entries_one_issuance_uq')
+      .on(table.grantId)
+      .where(sql`${table.kind} = 'ISSUANCE'`),
+    oneReversalUq: uniqueIndex('credit_grant_entries_one_reversal_uq')
+      .on(table.grantId)
+      .where(sql`${table.kind} = 'REVERSAL'`),
     amountPositiveChk: check(
       'credit_grant_entries_amount_positive_chk',
       sql`${table.amountMinor} > 0`,

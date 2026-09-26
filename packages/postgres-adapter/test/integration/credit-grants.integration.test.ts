@@ -337,6 +337,96 @@ describe('credit grants', () => {
     }
   });
 
+  it('rejects partial and duplicate reversal links at the PostgreSQL boundary', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(grantInput(tenantId, accounts, 'buy-1'));
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        const [reversal] = await tx
+          .insert(transactions)
+          .values({
+            tenantId,
+            ledgerId: accounts.ledgerId,
+            relatedTransactionId: grant.grant.transactionId,
+            relationType: 'REVERSAL',
+            reference: 'direct-partial-reversal',
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: transactions.id });
+        const [entry] = await tx
+          .insert(entries)
+          .values({
+            tenantId,
+            transactionId: reversal.id,
+            accountId: accounts.accountId,
+            direction: 'DEBIT',
+            amountMinor: 50n,
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: entries.id });
+        await tx.insert(creditGrantEntries).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: grant.grant.id,
+          entryId: entry.id,
+          kind: 'REVERSAL',
+          amountMinor: 50n,
+        });
+      }),
+    ).rejects.toThrow();
+    expect(
+      await db
+        .select()
+        .from(creditGrantEntries)
+        .where(eq(creditGrantEntries.grantId, grant.grant.id)),
+    ).toHaveLength(1);
+
+    const reversed = await services.creditGrants.reverse({
+      tenantId,
+      grantId: grant.grant.id,
+      reference: 'full-reversal',
+    });
+    const reversalTransactionId = reversed.grant.reversedByTransactionId;
+    if (!reversalTransactionId) throw new Error('Expected reversal transaction');
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        const [entry] = await tx
+          .insert(entries)
+          .values({
+            tenantId,
+            transactionId: reversalTransactionId,
+            accountId: accounts.accountId,
+            direction: 'DEBIT',
+            amountMinor: 100n,
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: entries.id });
+        await tx.insert(creditGrantEntries).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: grant.grant.id,
+          entryId: entry.id,
+          kind: 'REVERSAL',
+          amountMinor: 100n,
+        });
+      }),
+    ).rejects.toThrow();
+    expect(
+      await db
+        .select()
+        .from(creditGrantEntries)
+        .where(eq(creditGrantEntries.grantId, grant.grant.id)),
+    ).toHaveLength(2);
+  });
+
   it('uses ledger entries as source of truth when the account balance cache drifts', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);

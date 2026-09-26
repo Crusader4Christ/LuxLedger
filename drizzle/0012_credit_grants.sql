@@ -43,6 +43,8 @@ ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_funding_account_scope_
 ALTER TABLE "credit_grants" ADD CONSTRAINT "credit_grants_transaction_scope_fk" FOREIGN KEY ("tenant_id","ledger_id","transaction_id") REFERENCES "public"."transactions"("tenant_id","ledger_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "credit_grant_entries_tenant_grant_idx" ON "credit_grant_entries" USING btree ("tenant_id","grant_id");--> statement-breakpoint
 CREATE INDEX "credit_grant_entries_tenant_account_idx" ON "credit_grant_entries" USING btree ("tenant_id","account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "credit_grant_entries_one_issuance_uq" ON "credit_grant_entries" USING btree ("grant_id") WHERE "credit_grant_entries"."kind" = 'ISSUANCE';--> statement-breakpoint
+CREATE UNIQUE INDEX "credit_grant_entries_one_reversal_uq" ON "credit_grant_entries" USING btree ("grant_id") WHERE "credit_grant_entries"."kind" = 'REVERSAL';--> statement-breakpoint
 ALTER TABLE credit_grants ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE credit_grants FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY credit_grants_tenant_rls ON credit_grants USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);--> statement-breakpoint
@@ -59,6 +61,7 @@ DECLARE linked_direction entry_direction;
 DECLARE linked_relation transaction_relation_type;
 DECLARE related_transaction uuid;
 DECLARE entry_amount bigint;
+DECLARE issuance_amount bigint;
 DECLARE entry_asset uuid;
 DECLARE account_asset uuid;
 BEGIN
@@ -83,11 +86,16 @@ BEGIN
     AND NEW.amount_minor = entry_amount
   ) THEN
     RAISE EXCEPTION 'credit grant issuance link is invalid';
-  ELSIF NEW.kind = 'REVERSAL' AND NOT (
-    linked_relation = 'REVERSAL' AND related_transaction = source_transaction
-    AND linked_direction = 'DEBIT' AND NEW.amount_minor = entry_amount
-  ) THEN
-    RAISE EXCEPTION 'credit grant reversal link is invalid';
+  ELSIF NEW.kind = 'REVERSAL' THEN
+    SELECT amount_minor INTO issuance_amount FROM credit_grant_entries
+      WHERE tenant_id = NEW.tenant_id AND grant_id = NEW.grant_id AND kind = 'ISSUANCE';
+    IF NOT (
+      linked_relation = 'REVERSAL' AND related_transaction = source_transaction
+      AND linked_direction = 'DEBIT' AND NEW.amount_minor = entry_amount
+      AND issuance_amount IS NOT NULL AND NEW.amount_minor = issuance_amount
+    ) THEN
+      RAISE EXCEPTION 'credit grant reversal link is invalid';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
