@@ -55,6 +55,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       }
 
       const account = await this.assertIssuanceAccountInTx(tx, input);
+      await this.assertFundingAccountInTx(tx, input, account);
       const id = generateUuidV7();
       const posted = await this.transactions.postCreditGrantInTx(tx, {
         tenantId: input.tenantId,
@@ -204,6 +205,40 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return this.assertCreditAccount(account, accountId);
   }
 
+  private async assertFundingAccountInTx(
+    tx: Tx,
+    input: CreateCreditGrantInput,
+    grantAccount: typeof schema.accounts.$inferSelect,
+  ): Promise<void> {
+    if (input.fundingAccountId === input.accountId) {
+      throw new CreditGrantConflictError('Grant account and funding account must differ');
+    }
+    const [fundingAccount] = await tx
+      .select({
+        ledgerId: schema.accounts.ledgerId,
+        assetId: schema.accounts.assetId,
+        currency: schema.accounts.currency,
+      })
+      .from(schema.accounts)
+      .where(
+        and(
+          eq(schema.accounts.tenantId, input.tenantId),
+          eq(schema.accounts.id, input.fundingAccountId),
+        ),
+      )
+      .limit(1);
+    if (!fundingAccount) throw new AccountNotFoundError(input.fundingAccountId);
+    if (fundingAccount.ledgerId !== input.ledgerId) {
+      throw new CreditGrantConflictError('Funding account ledger mismatch');
+    }
+    if (fundingAccount.assetId !== grantAccount.assetId) {
+      throw new CreditGrantConflictError('Funding account asset mismatch');
+    }
+    if (fundingAccount.currency !== grantAccount.currency) {
+      throw new CreditGrantConflictError('Funding account currency mismatch');
+    }
+  }
+
   private assertCreditAccount(
     account: typeof schema.accounts.$inferSelect | undefined,
     accountId: string,
@@ -292,7 +327,14 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   private async balanceInTx(tx: Tx, tenantId: string, accountId: string): Promise<CreditBalance> {
     const account = await this.findCreditAccount(tx, tenantId, accountId);
     const rows = await tx
-      .select()
+      .select({
+        id: schema.creditGrants.id,
+        ledgerId: schema.creditGrants.ledgerId,
+        reference: schema.creditGrants.reference,
+        externalReference: schema.creditGrants.externalReference,
+        transactionId: schema.creditGrants.transactionId,
+        createdAt: schema.creditGrants.createdAt,
+      })
       .from(schema.creditGrants)
       .where(
         and(
@@ -306,15 +348,35 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         grantId: schema.creditGrantEntries.grantId,
         linkKind: schema.creditGrantEntries.kind,
         linkedAmountMinor: schema.creditGrantEntries.amountMinor,
-        entry: schema.entries,
-        transaction: schema.transactions,
+        entryTransactionId: schema.entries.transactionId,
+        entryDirection: schema.entries.direction,
+        entryAssetId: schema.entries.assetId,
+        transactionLedgerId: schema.transactions.ledgerId,
+        transactionAssetId: schema.transactions.assetId,
+        transactionRelationType: schema.transactions.relationType,
+        relatedTransactionId: schema.transactions.relatedTransactionId,
       })
       .from(schema.creditGrantEntries)
-      .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
-      .innerJoin(schema.transactions, eq(schema.entries.transactionId, schema.transactions.id))
+      .innerJoin(
+        schema.entries,
+        and(
+          eq(schema.creditGrantEntries.entryId, schema.entries.id),
+          eq(schema.creditGrantEntries.tenantId, schema.entries.tenantId),
+          eq(schema.creditGrantEntries.accountId, schema.entries.accountId),
+        ),
+      )
+      .innerJoin(
+        schema.transactions,
+        and(
+          eq(schema.entries.transactionId, schema.transactions.id),
+          eq(schema.creditGrantEntries.tenantId, schema.transactions.tenantId),
+          eq(schema.creditGrantEntries.ledgerId, schema.transactions.ledgerId),
+        ),
+      )
       .where(
         and(
           eq(schema.creditGrantEntries.tenantId, tenantId),
+          eq(schema.creditGrantEntries.ledgerId, account.ledgerId),
           eq(schema.creditGrantEntries.accountId, accountId),
         ),
       );
@@ -333,24 +395,28 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       let grantedMinor = 0n;
       let reversedMinor = 0n;
       let issuanceCount = 0;
-      for (const { entry, transaction, linkKind, linkedAmountMinor } of byGrant.get(row.id) ?? []) {
-        if (entry.assetId !== account.assetId || transaction.ledgerId !== row.ledgerId) {
+      for (const movement of byGrant.get(row.id) ?? []) {
+        if (
+          movement.entryAssetId !== account.assetId ||
+          movement.transactionAssetId !== account.assetId ||
+          movement.transactionLedgerId !== row.ledgerId
+        ) {
           throw new CreditGrantConflictError('Credit entry scope mismatch');
         }
         if (
-          linkKind === 'ISSUANCE' &&
-          entry.transactionId === row.transactionId &&
-          entry.direction === 'CREDIT'
+          movement.linkKind === 'ISSUANCE' &&
+          movement.entryTransactionId === row.transactionId &&
+          movement.entryDirection === 'CREDIT'
         ) {
-          grantedMinor += linkedAmountMinor;
+          grantedMinor += movement.linkedAmountMinor;
           issuanceCount++;
         } else if (
-          linkKind === 'REVERSAL' &&
-          transaction.relatedTransactionId === row.transactionId &&
-          transaction.relationType === 'REVERSAL' &&
-          entry.direction === 'DEBIT'
+          movement.linkKind === 'REVERSAL' &&
+          movement.relatedTransactionId === row.transactionId &&
+          movement.transactionRelationType === 'REVERSAL' &&
+          movement.entryDirection === 'DEBIT'
         ) {
-          reversedMinor += linkedAmountMinor;
+          reversedMinor += movement.linkedAmountMinor;
         } else {
           throw new CreditGrantConflictError('Unsupported credit lot movement');
         }

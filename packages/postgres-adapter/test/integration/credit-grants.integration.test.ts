@@ -534,7 +534,52 @@ describe('credit grants', () => {
         ...grantInput(tenantId, accounts, 'wrong-funding-asset'),
         fundingAccountId: funding.id,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow('Funding account asset mismatch');
+  });
+
+  it('rejects an explicitly incompatible funding account currency', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const [funding] = await db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+      return tx
+        .insert(accountRows)
+        .values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          name: 'Legacy currency mismatch',
+          side: 'DEBIT',
+          currency: 'LEGACY_USD',
+          assetId: accounts.assetId,
+        })
+        .returning({ id: accountRows.id });
+    });
+    await expect(
+      services.creditGrants.create({
+        ...grantInput(tenantId, accounts, 'wrong-funding-currency'),
+        fundingAccountId: funding.id,
+      }),
+    ).rejects.toThrow('Funding account currency mismatch');
+  });
+
+  it('does not treat the funding account natural side as a posting restriction', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const funding = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Credit-side funding',
+      side: AccountSide.CREDIT,
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+
+    const result = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'credit-side-funding'),
+      fundingAccountId: funding.id,
+    });
+    expect(result.created).toBeTrue();
+    expect(result.grant.fundingAccountId).toBe(funding.id);
   });
 
   it('enforces entry attribution at the PostgreSQL boundary without changing account kind', async () => {

@@ -1034,6 +1034,39 @@
           "method": "btree",
           "with": {}
         },
+        "credit_grants_tenant_account_created_id_idx": {
+          "name": "credit_grants_tenant_account_created_id_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "credit_grants_transaction_uq": {
           "name": "credit_grants_transaction_uq",
           "columns": [

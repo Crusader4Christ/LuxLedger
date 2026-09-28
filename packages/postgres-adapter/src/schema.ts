@@ -367,6 +367,12 @@ export const creditGrants = pgTable(
       table.accountId,
       table.id,
     ),
+    tenantAccountCreatedIdIdx: index('credit_grants_tenant_account_created_id_idx').on(
+      table.tenantId,
+      table.accountId,
+      table.createdAt,
+      table.id,
+    ),
     transactionUq: uniqueIndex('credit_grants_transaction_uq').on(table.transactionId),
     ledgerFk: foreignKey({
       name: 'credit_grants_tenant_ledger_fk',
