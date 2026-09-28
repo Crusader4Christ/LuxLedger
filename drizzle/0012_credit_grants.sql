@@ -25,8 +25,6 @@ CREATE TABLE "credit_grants" (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_reference_uq" ON "credit_grants" USING btree ("tenant_id","reference");--> statement-breakpoint
-CREATE UNIQUE INDEX "credit_grants_tenant_id_uq" ON "credit_grants" USING btree ("tenant_id","id");--> statement-breakpoint
-CREATE UNIQUE INDEX "credit_grants_tenant_ledger_id_uq" ON "credit_grants" USING btree ("tenant_id","ledger_id","id");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_tenant_ledger_account_id_uq" ON "credit_grants" USING btree ("tenant_id","ledger_id","account_id","id");--> statement-breakpoint
 CREATE INDEX "credit_grants_tenant_account_created_id_idx" ON "credit_grants" USING btree ("tenant_id","account_id","created_at","id");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grants_transaction_uq" ON "credit_grants" USING btree ("transaction_id");--> statement-breakpoint

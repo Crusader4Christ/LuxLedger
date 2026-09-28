@@ -953,54 +953,6 @@
           "method": "btree",
           "with": {}
         },
-        "credit_grants_tenant_id_uq": {
-          "name": "credit_grants_tenant_id_uq",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credit_grants_tenant_ledger_id_uq": {
-          "name": "credit_grants_tenant_ledger_id_uq",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "ledger_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "credit_grants_tenant_ledger_account_id_uq": {
           "name": "credit_grants_tenant_ledger_account_id_uq",
           "columns": [

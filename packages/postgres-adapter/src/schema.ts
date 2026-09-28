@@ -355,12 +355,6 @@ export const creditGrants = pgTable(
       table.tenantId,
       table.reference,
     ),
-    tenantIdUq: uniqueIndex('credit_grants_tenant_id_uq').on(table.tenantId, table.id),
-    tenantLedgerIdUq: uniqueIndex('credit_grants_tenant_ledger_id_uq').on(
-      table.tenantId,
-      table.ledgerId,
-      table.id,
-    ),
     tenantLedgerAccountIdUq: uniqueIndex('credit_grants_tenant_ledger_account_id_uq').on(
       table.tenantId,
       table.ledgerId,

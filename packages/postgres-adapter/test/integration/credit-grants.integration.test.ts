@@ -337,6 +337,39 @@ describe('credit grants', () => {
     }
   });
 
+  it('scopes a reversal idempotency reference to one grant within the tenant', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const first = await services.creditGrants.create(grantInput(tenantId, accounts, 'buy-1'));
+    const second = await services.creditGrants.create(grantInput(tenantId, accounts, 'buy-2'));
+
+    const reversed = await services.creditGrants.reverse({
+      tenantId,
+      grantId: first.grant.id,
+      reference: 'shared-refund',
+    });
+    expect(reversed.created).toBeTrue();
+    expect(
+      (
+        await services.creditGrants.reverse({
+          tenantId,
+          grantId: first.grant.id,
+          reference: 'shared-refund',
+        })
+      ).created,
+    ).toBeFalse();
+    await expect(
+      services.creditGrants.reverse({
+        tenantId,
+        grantId: second.grant.id,
+        reference: 'shared-refund',
+      }),
+    ).rejects.toThrow('Reversal reference belongs to another grant');
+    expect(
+      (await services.creditGrants.getById(tenantId, second.grant.id)).reversedByTransactionId,
+    ).toBeNull();
+  });
+
   it('rejects partial and duplicate reversal links at the PostgreSQL boundary', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
