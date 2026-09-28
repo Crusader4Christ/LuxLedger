@@ -26,7 +26,7 @@ Domain-first ledger library for LuxLedger.
 - `src/transaction`
   - Transaction invariants and create transaction use-case.
 - `src/credit-grant`
-  - Minimal grant issuance and derived remaining-capacity invariants.
+  - Grant issuance plus immutable consumption/compensation lineage and derived capacity invariants.
 - `src/entry`
   - Entry contracts.
 - `src/api-key`
@@ -51,7 +51,7 @@ Core contains executable transaction/account invariants and application services
 - ledger and account validation
 - transaction, balance, hold, API-key, and reconciliation services
 - deterministic reconciliation matching
-- credit grant amount and nonnegative capacity validation
+- credit grant amount, consumption/compensation consistency, and nonnegative capacity validation
 
 Persistence-dependent atomicity and idempotency are implemented by adapters against these contracts. See the repository [invariants guide](../../docs/product/invariants.md) for the guarantees exposed to integrators.
 Credit grant posting and lot reconciliation are documented in the [credit grants guide](../../docs/product/credit-grants.md).

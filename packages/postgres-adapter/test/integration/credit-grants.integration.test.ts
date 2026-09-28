@@ -62,6 +62,33 @@ const grantInput = (
   externalReference: 'business-order-1',
 });
 
+const consume = (
+  tenantId: string,
+  setupResult: Awaited<ReturnType<typeof setup>>,
+  reference: string,
+  amountMinor: bigint,
+) =>
+  services.transactions.create({
+    tenantId,
+    ledgerId: setupResult.ledgerId,
+    reference,
+    currency: 'USD',
+    entries: [
+      {
+        accountId: setupResult.accountId,
+        direction: EntryDirection.DEBIT,
+        amountMinor,
+        currency: 'USD',
+      },
+      {
+        accountId: setupResult.fundingAccountId,
+        direction: EntryDirection.CREDIT,
+        amountMinor,
+        currency: 'USD',
+      },
+    ],
+  });
+
 describe('credit grants', () => {
   beforeAll(() => migrateTestDatabase(db));
   beforeEach(() => truncateTestDatabase(db));
@@ -94,6 +121,156 @@ describe('credit grants', () => {
     expect(
       posted.every((entry) => entry.assetId === accounts.assetId && entry.amountMinor === 100n),
     ).toBeTrue();
+  });
+
+  it('allocates consumption deterministically across grants and exposes both audit directions', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const first = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    const second = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
+
+    const consumed = await consume(tenantId, accounts, 'consume-150', 150n);
+    const transactionLineage = await services.creditGrants.listLineageByTransaction(
+      tenantId,
+      consumed.transactionId,
+    );
+    expect(
+      transactionLineage.map(({ grantId, amountMinor, kind }) => ({ grantId, amountMinor, kind })),
+    ).toEqual([
+      { grantId: first.grant.id, amountMinor: 100n, kind: 'CONSUMPTION' },
+      { grantId: second.grant.id, amountMinor: 50n, kind: 'CONSUMPTION' },
+    ]);
+    expect(await services.creditGrants.listLineageByGrant(tenantId, first.grant.id)).toHaveLength(
+      1,
+    );
+    const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+    expect(balance.remainingMinor).toBe(50n);
+    expect(balance.lots.map((lot) => [lot.consumedMinor, lot.remainingMinor])).toEqual([
+      [100n, 0n],
+      [50n, 50n],
+    ]);
+
+    const retry = await consume(tenantId, accounts, 'consume-150', 150n);
+    expect(retry).toEqual({ transactionId: consumed.transactionId, created: false });
+    await expect(consume(tenantId, accounts, 'consume-150', 149n)).rejects.toThrow(
+      'reference payload mismatch',
+    );
+  });
+
+  it('rolls back insufficient and concurrent consumption without double allocation', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    await expect(consume(tenantId, accounts, 'too-much', 101n)).rejects.toThrow(
+      'insufficient credit grant capacity',
+    );
+    expect(
+      await services.transactions.list({ tenantId, ledgerId: accounts.ledgerId, limit: 100 }),
+    ).not.toBeNull();
+
+    const secondClient = createDbClient({
+      databaseUrl:
+        process.env.DATABASE_URL_TEST ??
+        'postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test',
+      max: 2,
+    });
+    try {
+      const other = createApplicationServices(secondClient);
+      const makeConsumption = (service: typeof services, reference: string) =>
+        service.transactions.create({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          reference,
+          currency: 'USD',
+          entries: [
+            {
+              accountId: accounts.accountId,
+              direction: EntryDirection.DEBIT,
+              amountMinor: 75n,
+              currency: 'USD',
+            },
+            {
+              accountId: accounts.fundingAccountId,
+              direction: EntryDirection.CREDIT,
+              amountMinor: 75n,
+              currency: 'USD',
+            },
+          ],
+        });
+      const results = await Promise.allSettled([
+        makeConsumption(services, 'concurrent-consume-a'),
+        makeConsumption(other, 'concurrent-consume-b'),
+      ]);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+      expect(
+        (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+      ).toBe(25n);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('reverses consumption with exact immutable compensation lineage', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    const consumed = await consume(tenantId, accounts, 'consume-60', 60n);
+    const reversed = await services.transactions.reverse({
+      tenantId,
+      transactionId: consumed.transactionId,
+      reference: 'reverse-consume-60',
+    });
+    expect(
+      await services.creditGrants.listLineageByTransaction(tenantId, reversed.transactionId),
+    ).toEqual([
+      expect.objectContaining({ grantId: grant.grant.id, kind: 'COMPENSATION', amountMinor: 60n }),
+    ]);
+    const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+    expect(balance.remainingMinor).toBe(100n);
+    expect(balance.lots[0]?.consumedMinor).toBe(60n);
+    expect(balance.lots[0]?.compensatedMinor).toBe(60n);
+  });
+
+  it('corrects consumption by compensating the original and allocating the replacement', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    const consumed = await consume(tenantId, accounts, 'consume-60', 60n);
+    const corrected = await services.transactions.correct({
+      tenantId,
+      transactionId: consumed.transactionId,
+      reversalReference: 'correct-consume-60-reversal',
+      correctedReference: 'correct-consume-40',
+      entries: [
+        {
+          accountId: accounts.accountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 40n,
+          currency: 'USD',
+        },
+        {
+          accountId: accounts.fundingAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 40n,
+          currency: 'USD',
+        },
+      ],
+    });
+    expect(
+      await services.creditGrants.listLineageByTransaction(
+        tenantId,
+        corrected.reversalTransactionId,
+      ),
+    ).toEqual([expect.objectContaining({ kind: 'COMPENSATION', amountMinor: 60n })]);
+    expect(
+      await services.creditGrants.listLineageByTransaction(
+        tenantId,
+        corrected.correctedTransactionId,
+      ),
+    ).toEqual([expect.objectContaining({ kind: 'CONSUMPTION', amountMinor: 40n })]);
+    const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+    expect(balance.remainingMinor).toBe(60n);
   });
 
   it('supports multiple grant-enabled accounts with different assets', async () => {
@@ -645,6 +822,51 @@ describe('credit grants', () => {
           .set({ amountMinor: link.amountMinor })
           .where(eq(creditGrantEntries.entryId, link.entryId));
       })(),
+    ).rejects.toThrow();
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(100n);
+  });
+
+  it('rejects direct-SQL consumption beyond immutable grant capacity', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(grantInput(tenantId, accounts, 'buy-1'));
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        const [transaction] = await tx
+          .insert(transactions)
+          .values({
+            tenantId,
+            ledgerId: accounts.ledgerId,
+            reference: 'direct-over-allocation',
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: transactions.id });
+        const [entry] = await tx
+          .insert(entries)
+          .values({
+            tenantId,
+            transactionId: transaction.id,
+            accountId: accounts.accountId,
+            direction: 'DEBIT',
+            amountMinor: 101n,
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: entries.id });
+        await tx.insert(creditGrantEntries).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: grant.grant.id,
+          entryId: entry.id,
+          kind: 'CONSUMPTION',
+          amountMinor: 101n,
+        });
+      }),
     ).rejects.toThrow();
     expect(
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,

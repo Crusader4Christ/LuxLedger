@@ -841,6 +841,44 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+  /v1/credit-grants/{id}/allocations:
+    get:
+      summary: Traverse consumption and compensation lineage for a grant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Immutable allocation lineage ordered by entry creation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantLineage'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/transactions/{id}/credit-allocations:
+    get:
+      summary: Traverse source grants for a consumption or compensation transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Immutable allocation lineage ordered by entry creation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantLineage'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
   /v1/accounts/{id}/credit-balance:
     get:
       summary: Read reconciled credit grant lots for an account
@@ -980,7 +1018,7 @@ components:
     CreditGrantLot:
       type: object
       additionalProperties: false
-      required: [grant_id, reference, external_reference, created_at, granted_minor, reversed_minor, remaining_minor]
+      required: [grant_id, reference, external_reference, created_at, granted_minor, reversed_minor, consumed_minor, compensated_minor, remaining_minor]
       properties:
         grant_id: { type: string, format: uuid }
         reference: { type: string }
@@ -988,6 +1026,8 @@ components:
         created_at: { type: string, format: date-time }
         granted_minor: { type: string, pattern: '^[0-9]+$' }
         reversed_minor: { type: string, pattern: '^[0-9]+$' }
+        consumed_minor: { type: string, pattern: '^[0-9]+$' }
+        compensated_minor: { type: string, pattern: '^[0-9]+$' }
         remaining_minor: { type: string, pattern: '^[0-9]+$' }
     CreditBalance:
       type: object
@@ -1002,6 +1042,24 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreditGrantLot'
+    CreditGrantLineage:
+      type: object
+      additionalProperties: false
+      required: [allocations]
+      properties:
+        allocations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [grant_id, entry_id, transaction_id, kind, amount_minor, created_at]
+            properties:
+              grant_id: { type: string, format: uuid }
+              entry_id: { type: string, format: uuid }
+              transaction_id: { type: string, format: uuid }
+              kind: { type: string, enum: [CONSUMPTION, COMPENSATION] }
+              amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+              created_at: { type: string, format: date-time }
     ErrorResponse:
       type: object
       required: [error, message]

@@ -23,7 +23,7 @@ import {
   type TransactionApplicationRepository,
   type TransactionPaginationQuery,
 } from '@luxledger/core/application';
-import { and, desc, eq, gt, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import { toEntryEntity } from '../mappers/entry-mapper';
@@ -57,7 +57,14 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     tx: PostgresJsDatabase<typeof schema>,
     input: CreateTransactionInput & { relatedTransactionId: string; relationType: 'REVERSAL' },
   ): Promise<CreateTransactionResult> {
-    return this.createInTx(tx, input);
+    return this.createOrResolvePostedTransaction(tx, {
+      ...input,
+      description: input.description ?? null,
+      effectiveAt: input.effectiveAt ?? undefined,
+      compareDescriptionOnRetry: true,
+      payloadMismatchMessage: 'Unable to create transaction: reference payload mismatch',
+      skipGrantLineage: true,
+    });
   }
 
   private createInTx(
@@ -344,6 +351,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       effectiveAt?: Date;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
+      skipGrantLineage?: boolean;
       entries: Array<{
         accountId: string;
         direction: EntryDirection;
@@ -524,6 +532,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       effectiveAt?: Date;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
+      skipGrantLineage?: boolean;
       entries: Array<{
         accountId: string;
         direction: EntryDirection;
@@ -573,6 +582,9 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       ledgerId: string;
       currency: string;
       assetId: string;
+      relatedTransactionId?: string | null;
+      relationType?: 'REVERSAL' | 'CORRECTION' | null;
+      skipGrantLineage?: boolean;
       entries: Array<{
         accountId: string;
         direction: EntryDirection;
@@ -583,17 +595,28 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     transactionId: string,
     effectiveAt: Date,
   ): Promise<void> {
-    await tx.insert(schema.entries).values(
-      input.entries.map((entry) => ({
-        tenantId: input.tenantId,
-        transactionId,
-        accountId: entry.accountId,
-        direction: entry.direction,
-        amountMinor: entry.amountMinor,
-        currency: entry.currency,
-        assetId: input.assetId,
-      })),
-    );
+    const insertedEntries = await tx
+      .insert(schema.entries)
+      .values(
+        input.entries.map((entry) => ({
+          tenantId: input.tenantId,
+          transactionId,
+          accountId: entry.accountId,
+          direction: entry.direction,
+          amountMinor: entry.amountMinor,
+          currency: entry.currency,
+          assetId: input.assetId,
+        })),
+      )
+      .returning({
+        id: schema.entries.id,
+        accountId: schema.entries.accountId,
+        direction: schema.entries.direction,
+        amountMinor: schema.entries.amountMinor,
+      });
+    if (!input.skipGrantLineage) {
+      await this.recordGrantLineage(tx, input, insertedEntries);
+    }
     const entriesForBalanceUpdate = aggregateAccountEntries(input.entries);
     for (const entry of entriesForBalanceUpdate) {
       const delta = entry.creditMinor - entry.debitMinor;
@@ -660,6 +683,144 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
             gt(schema.balanceSnapshots.effectiveAt, effectiveAt),
           ),
         );
+    }
+  }
+
+  private async recordGrantLineage(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: {
+      tenantId: string;
+      ledgerId: string;
+      assetId: string;
+      relatedTransactionId?: string | null;
+      relationType?: 'REVERSAL' | 'CORRECTION' | null;
+    },
+    insertedEntries: Array<{
+      id: string;
+      accountId: string;
+      direction: 'DEBIT' | 'CREDIT';
+      amountMinor: bigint;
+    }>,
+  ): Promise<void> {
+    const copiedOriginalEntryIds = new Set<string>();
+    for (const entry of insertedEntries) {
+      const grants = await tx
+        .select({ id: schema.creditGrants.id })
+        .from(schema.creditGrants)
+        .where(
+          and(
+            eq(schema.creditGrants.tenantId, input.tenantId),
+            eq(schema.creditGrants.ledgerId, input.ledgerId),
+            eq(schema.creditGrants.accountId, entry.accountId),
+          ),
+        )
+        .orderBy(schema.creditGrants.createdAt, schema.creditGrants.id)
+        .for('update');
+      if (grants.length === 0) continue;
+
+      if (input.relationType === 'REVERSAL' && input.relatedTransactionId) {
+        const originalLinks = await tx
+          .select({
+            entryId: schema.creditGrantEntries.entryId,
+            grantId: schema.creditGrantEntries.grantId,
+            kind: schema.creditGrantEntries.kind,
+            amountMinor: schema.creditGrantEntries.amountMinor,
+          })
+          .from(schema.creditGrantEntries)
+          .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
+          .where(
+            and(
+              eq(schema.creditGrantEntries.tenantId, input.tenantId),
+              eq(schema.creditGrantEntries.accountId, entry.accountId),
+              eq(schema.entries.transactionId, input.relatedTransactionId),
+            ),
+          );
+        const originalKind = entry.direction === 'CREDIT' ? 'CONSUMPTION' : 'ISSUANCE';
+        const newKind: 'COMPENSATION' | 'REVERSAL' =
+          entry.direction === 'CREDIT' ? 'COMPENSATION' : 'REVERSAL';
+        const candidates = new Map<string, typeof originalLinks>();
+        for (const link of originalLinks) {
+          if (link.kind !== originalKind || copiedOriginalEntryIds.has(link.entryId)) continue;
+          const links = candidates.get(link.entryId) ?? [];
+          links.push(link);
+          candidates.set(link.entryId, links);
+        }
+        const match = [...candidates.entries()].find(
+          ([, links]) =>
+            links.reduce((sum, link) => sum + link.amountMinor, 0n) === entry.amountMinor,
+        );
+        if (!match) {
+          throw new InvariantViolationError(
+            'Unable to reverse transaction: grant lineage does not match original entry',
+          );
+        }
+        const [originalEntryId, copied] = match;
+        copiedOriginalEntryIds.add(originalEntryId);
+        await tx.insert(schema.creditGrantEntries).values(
+          copied.map((link) => ({
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            accountId: entry.accountId,
+            grantId: link.grantId,
+            entryId: entry.id,
+            kind: newKind,
+            amountMinor: link.amountMinor,
+          })),
+        );
+        continue;
+      }
+
+      if (entry.direction !== 'DEBIT') continue;
+      const movements = await tx
+        .select({
+          grantId: schema.creditGrantEntries.grantId,
+          kind: schema.creditGrantEntries.kind,
+          amountMinor: schema.creditGrantEntries.amountMinor,
+        })
+        .from(schema.creditGrantEntries)
+        .where(
+          and(
+            eq(schema.creditGrantEntries.tenantId, input.tenantId),
+            inArray(
+              schema.creditGrantEntries.grantId,
+              grants.map((grant) => grant.id),
+            ),
+          ),
+        );
+      const remainingByGrant = new Map(grants.map((grant) => [grant.id, 0n]));
+      for (const movement of movements) {
+        const sign = movement.kind === 'ISSUANCE' || movement.kind === 'COMPENSATION' ? 1n : -1n;
+        remainingByGrant.set(
+          movement.grantId,
+          (remainingByGrant.get(movement.grantId) ?? 0n) + sign * movement.amountMinor,
+        );
+      }
+      let required = entry.amountMinor;
+      const allocations: Array<{ grantId: string; amountMinor: bigint }> = [];
+      for (const grant of grants) {
+        const available = remainingByGrant.get(grant.id) ?? 0n;
+        if (available <= 0n) continue;
+        const amountMinor = available < required ? available : required;
+        allocations.push({ grantId: grant.id, amountMinor });
+        required -= amountMinor;
+        if (required === 0n) break;
+      }
+      if (required !== 0n) {
+        throw new InvariantViolationError(
+          'Unable to create transaction: insufficient credit grant capacity',
+        );
+      }
+      await tx.insert(schema.creditGrantEntries).values(
+        allocations.map((allocation) => ({
+          tenantId: input.tenantId,
+          ledgerId: input.ledgerId,
+          accountId: entry.accountId,
+          grantId: allocation.grantId,
+          entryId: entry.id,
+          kind: 'CONSUMPTION' as const,
+          amountMinor: allocation.amountMinor,
+        })),
+      );
     }
   }
 

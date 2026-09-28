@@ -5,11 +5,16 @@ import {
   createCreditGrantBodySchema,
   creditBalanceResponseSchema,
   creditGrantIdParamsSchema,
+  creditGrantLineageResponseSchema,
   creditGrantResponseSchema,
   type ReverseCreditGrantRequest,
   reverseCreditGrantBodySchema,
 } from '@luxledger/http/contracts';
-import { toCreditBalanceResponse, toCreditGrantResponse } from '@luxledger/http/mappers';
+import {
+  toCreditBalanceResponse,
+  toCreditGrantLineageResponse,
+  toCreditGrantResponse,
+} from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
 import { BaseRoute } from '../routing/base-route';
 
@@ -78,6 +83,49 @@ export class CreditGrantRoutes extends BaseRoute {
           });
           return reply.status(result.created ? 201 : 200).send(toCreditGrantResponse(result.grant));
         }),
+    );
+
+    server.get<{ Params: CreditGrantIdParams }>(
+      '/v1/credit-grants/:id/allocations',
+      {
+        schema: {
+          params: creditGrantIdParamsSchema,
+          response: { 200: creditGrantLineageResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () =>
+          reply
+            .status(200)
+            .send(
+              toCreditGrantLineageResponse(
+                await this.grants.listLineageByGrant(request.tenantId as string, request.params.id),
+              ),
+            ),
+        ),
+    );
+
+    server.get<{ Params: CreditGrantIdParams }>(
+      '/v1/transactions/:id/credit-allocations',
+      {
+        schema: {
+          params: creditGrantIdParamsSchema,
+          response: { 200: creditGrantLineageResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () =>
+          reply
+            .status(200)
+            .send(
+              toCreditGrantLineageResponse(
+                await this.grants.listLineageByTransaction(
+                  request.tenantId as string,
+                  request.params.id,
+                ),
+              ),
+            ),
+        ),
     );
 
     server.get<{ Params: CreditGrantIdParams }>(

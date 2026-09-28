@@ -76,6 +76,8 @@ export const creditGrantLotResponseSchema = {
     'created_at',
     'granted_minor',
     'reversed_minor',
+    'consumed_minor',
+    'compensated_minor',
     'remaining_minor',
   ],
   properties: {
@@ -85,6 +87,8 @@ export const creditGrantLotResponseSchema = {
     created_at: { type: 'string', format: 'date-time' },
     granted_minor: amount,
     reversed_minor: amount,
+    consumed_minor: amount,
+    compensated_minor: amount,
     remaining_minor: amount,
   },
 } as const;
@@ -102,8 +106,33 @@ export const creditBalanceResponseSchema = {
   },
 } as const;
 
+export const creditGrantLineageResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['allocations'],
+  properties: {
+    allocations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['grant_id', 'entry_id', 'transaction_id', 'kind', 'amount_minor', 'created_at'],
+        properties: {
+          grant_id: uuid,
+          entry_id: uuid,
+          transaction_id: uuid,
+          kind: { type: 'string', enum: ['CONSUMPTION', 'COMPENSATION'] },
+          amount_minor: minor,
+          created_at: { type: 'string', format: 'date-time' },
+        },
+      },
+    },
+  },
+} as const;
+
 export type CreateCreditGrantRequest = InferSchema<typeof createCreditGrantBodySchema>;
 export type ReverseCreditGrantRequest = InferSchema<typeof reverseCreditGrantBodySchema>;
 export type CreditGrantResponse = InferSchema<typeof creditGrantResponseSchema>;
 export type CreditBalanceResponse = InferSchema<typeof creditBalanceResponseSchema>;
 export type CreditGrantIdParams = InferSchema<typeof creditGrantIdParamsSchema>;
+export type CreditGrantLineageResponse = InferSchema<typeof creditGrantLineageResponseSchema>;

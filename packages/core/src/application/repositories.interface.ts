@@ -30,6 +30,7 @@ import type {
   CreateTransactionResult,
   CreditBalance,
   CreditGrant,
+  CreditGrantLineage,
   CreditGrantResult,
   HistoricalBalance,
   IngestReconRecordsInput,
@@ -54,6 +55,8 @@ export interface CreditGrantRepository {
   reverse(input: ReverseCreditGrantInput): Promise<CreditGrantResult>;
   findById(tenantId: string, grantId: string): Promise<CreditGrant | null>;
   getBalance(tenantId: string, accountId: string): Promise<CreditBalance>;
+  listLineageByGrant(tenantId: string, grantId: string): Promise<CreditGrantLineage[]>;
+  listLineageByTransaction(tenantId: string, transactionId: string): Promise<CreditGrantLineage[]>;
 }
 
 export interface AssetRepository {

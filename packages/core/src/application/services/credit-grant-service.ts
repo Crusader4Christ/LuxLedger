@@ -6,6 +6,7 @@ import type {
   CreateCreditGrantInput,
   CreditBalance,
   CreditGrant,
+  CreditGrantLineage,
   CreditGrantResult,
   ReverseCreditGrantInput,
 } from '../types';
@@ -51,5 +52,23 @@ export class CreditGrantService {
     assertNonEmpty(tenantId, 'tenantId is required');
     assertNonEmpty(accountId, 'accountId is required');
     return this.repository.getBalance(tenantId, accountId);
+  }
+
+  public async listLineageByGrant(
+    tenantId: string,
+    grantId: string,
+  ): Promise<CreditGrantLineage[]> {
+    assertNonEmpty(tenantId, 'tenantId is required');
+    assertNonEmpty(grantId, 'grantId is required');
+    return this.repository.listLineageByGrant(tenantId, grantId);
+  }
+
+  public async listLineageByTransaction(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<CreditGrantLineage[]> {
+    assertNonEmpty(tenantId, 'tenantId is required');
+    assertNonEmpty(transactionId, 'transactionId is required');
+    return this.repository.listLineageByTransaction(tenantId, transactionId);
   }
 }

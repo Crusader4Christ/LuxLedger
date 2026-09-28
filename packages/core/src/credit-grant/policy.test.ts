@@ -29,4 +29,30 @@ describe('credit grant invariants', () => {
       InvalidCreditGrantError,
     );
   });
+
+  it('derives remaining capacity from consumption and immutable compensation', () => {
+    expect(
+      creditGrantRemaining({
+        grantedMinor: 100n,
+        reversedMinor: 0n,
+        consumedMinor: 70n,
+        compensatedMinor: 20n,
+      }),
+    ).toBe(50n);
+    expect(() =>
+      creditGrantRemaining({
+        grantedMinor: 100n,
+        reversedMinor: 0n,
+        consumedMinor: 101n,
+      }),
+    ).toThrow(InvalidCreditGrantError);
+    expect(() =>
+      creditGrantRemaining({
+        grantedMinor: 100n,
+        reversedMinor: 0n,
+        consumedMinor: 10n,
+        compensatedMinor: 11n,
+      }),
+    ).toThrow(InvalidCreditGrantError);
+  });
 });

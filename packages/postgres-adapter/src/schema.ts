@@ -395,7 +395,12 @@ export const creditGrants = pgTable(
   }),
 );
 
-export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', ['ISSUANCE', 'REVERSAL']);
+export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', [
+  'ISSUANCE',
+  'REVERSAL',
+  'CONSUMPTION',
+  'COMPENSATION',
+]);
 
 export const creditGrantEntries = pgTable(
   'credit_grant_entries',
@@ -435,6 +440,7 @@ export const creditGrantEntries = pgTable(
       table.tenantId,
       table.accountId,
     ),
+    entryIdx: index('credit_grant_entries_tenant_entry_idx').on(table.tenantId, table.entryId),
     oneIssuanceUq: uniqueIndex('credit_grant_entries_one_issuance_uq')
       .on(table.grantId)
       .where(sql`${table.kind} = 'ISSUANCE'`),

@@ -72,6 +72,8 @@ export interface CreditGrantLotBalance {
   createdAt: Date;
   grantedMinor: bigint;
   reversedMinor: bigint;
+  consumedMinor: bigint;
+  compensatedMinor: bigint;
   remainingMinor: bigint;
 }
 export interface CreditBalance {
@@ -80,6 +82,15 @@ export interface CreditBalance {
   ledgerBalanceMinor: bigint;
   remainingMinor: bigint;
   lots: CreditGrantLotBalance[];
+}
+export type CreditGrantLineageKind = 'CONSUMPTION' | 'COMPENSATION';
+export interface CreditGrantLineage {
+  grantId: string;
+  entryId: string;
+  transactionId: string;
+  kind: CreditGrantLineageKind;
+  amountMinor: bigint;
+  createdAt: Date;
 }
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = LedgerEntity;
