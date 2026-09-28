@@ -63,21 +63,25 @@ DECLARE related_transaction uuid;
 DECLARE entry_amount bigint;
 DECLARE issuance_amount bigint;
 DECLARE entry_asset uuid;
+DECLARE transaction_asset uuid;
 DECLARE account_asset uuid;
 BEGIN
   SELECT transaction_id INTO source_transaction FROM credit_grants
     WHERE id = NEW.grant_id AND tenant_id = NEW.tenant_id AND ledger_id = NEW.ledger_id
       AND account_id = NEW.account_id;
   SELECT e.transaction_id, e.direction, t.relation_type, t.related_transaction_id,
-         e.amount_minor, e.asset_id, a.asset_id
+         e.amount_minor, e.asset_id, t.asset_id, a.asset_id
     INTO linked_transaction, linked_direction, linked_relation, related_transaction,
-         entry_amount, entry_asset, account_asset
+         entry_amount, entry_asset, transaction_asset, account_asset
     FROM entries e
     JOIN transactions t ON t.id = e.transaction_id
+      AND t.tenant_id = NEW.tenant_id AND t.ledger_id = NEW.ledger_id
     JOIN accounts a ON a.id = e.account_id
+      AND a.tenant_id = NEW.tenant_id AND a.ledger_id = NEW.ledger_id
     WHERE e.id = NEW.entry_id AND e.tenant_id = NEW.tenant_id
-      AND e.account_id = NEW.account_id AND t.ledger_id = NEW.ledger_id;
-  IF source_transaction IS NULL OR linked_transaction IS NULL OR entry_asset <> account_asset
+      AND e.account_id = NEW.account_id;
+  IF source_transaction IS NULL OR linked_transaction IS NULL
+    OR entry_asset <> account_asset OR transaction_asset <> account_asset
     OR NEW.amount_minor > entry_amount THEN
     RAISE EXCEPTION 'credit grant entry scope or amount mismatch';
   END IF;

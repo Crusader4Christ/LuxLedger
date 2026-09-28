@@ -573,6 +573,58 @@ describe('credit grants', () => {
     ).toBe(100n);
   });
 
+  it('rejects grant attribution when the transaction asset differs from the account asset', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(grantInput(tenantId, accounts, 'buy-1'));
+    const otherAsset = await services.assets.create({ tenantId, code: 'BONUS', scale: 0 });
+
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        const [transaction] = await tx
+          .insert(transactions)
+          .values({
+            tenantId,
+            ledgerId: accounts.ledgerId,
+            relatedTransactionId: grant.grant.transactionId,
+            relationType: 'REVERSAL',
+            reference: 'wrong-transaction-asset',
+            currency: 'BONUS',
+            assetId: otherAsset.id,
+          })
+          .returning({ id: transactions.id });
+        const [entry] = await tx
+          .insert(entries)
+          .values({
+            tenantId,
+            transactionId: transaction.id,
+            accountId: accounts.accountId,
+            direction: 'DEBIT',
+            amountMinor: 100n,
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: entries.id });
+        await tx.insert(creditGrantEntries).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: grant.grant.id,
+          entryId: entry.id,
+          kind: 'REVERSAL',
+          amountMinor: 100n,
+        });
+      }),
+    ).rejects.toThrow();
+    expect(
+      await db
+        .select()
+        .from(creditGrantEntries)
+        .where(eq(creditGrantEntries.grantId, grant.grant.id)),
+    ).toHaveLength(1);
+  });
+
   it('does not adopt a zero-balance account with prior ledger history', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
