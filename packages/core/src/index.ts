@@ -2,6 +2,7 @@ export * from './account';
 export * from './api-key';
 export { ApiKeyService, InvariantViolationError, LedgerService } from './application';
 export * from './base';
+export * from './credit-grant';
 export * from './entry';
 export * from './ledger';
 export * from './reconciliation';

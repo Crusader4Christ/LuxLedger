@@ -4,6 +4,7 @@ import {
   type ApplicationServices,
   AssetService,
   BalanceService,
+  CreditGrantService,
   HoldService,
   LedgerService,
   ReconciliationService,
@@ -14,6 +15,7 @@ import { DrizzleAccountRepository } from './repositories/account-repository';
 import { DrizzleApiKeyRepository } from './repositories/api-key-repository';
 import { DrizzleAssetRepository } from './repositories/asset-repository';
 import { DrizzleBalanceRepository } from './repositories/balance-repository';
+import { DrizzleCreditGrantRepository } from './repositories/credit-grant-repository';
 import { DrizzleHoldRepository } from './repositories/hold-repository';
 import { DrizzleLedgerRepository } from './repositories/ledger-repository';
 import { DrizzleReconciliationRepository } from './repositories/reconciliation-repository';
@@ -30,6 +32,9 @@ export const createApiKeyService = (client: DbClient): ApiKeyService =>
 
 export const createBalanceService = (client: DbClient): BalanceService =>
   new BalanceService(new DrizzleBalanceRepository(client));
+
+export const createCreditGrantService = (client: DbClient): CreditGrantService =>
+  new CreditGrantService(new DrizzleCreditGrantRepository(client));
 
 export const createHoldService = (client: DbClient): HoldService =>
   new HoldService(new DrizzleHoldRepository(client));
@@ -48,6 +53,7 @@ export const createApplicationServices = (client: DbClient): ApplicationServices
   assets: createAssetService(client),
   apiKeys: createApiKeyService(client),
   balances: createBalanceService(client),
+  creditGrants: createCreditGrantService(client),
   holds: createHoldService(client),
   ledgers: createLedgerService(client),
   reconciliation: createReconciliationService(client),

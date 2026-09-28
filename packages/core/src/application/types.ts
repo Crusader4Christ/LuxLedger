@@ -30,6 +30,57 @@ export interface CreateAssetInput {
   code: string;
   scale: number;
 }
+
+export interface CreateCreditGrantInput {
+  tenantId: string;
+  ledgerId: string;
+  accountId: string;
+  fundingAccountId: string;
+  reference: string;
+  externalReference?: string | null;
+  amountMinor: bigint;
+}
+
+export interface CreditGrant {
+  id: string;
+  tenantId: string;
+  ledgerId: string;
+  accountId: string;
+  fundingAccountId: string;
+  assetId: string;
+  reference: string;
+  externalReference: string | null;
+  amountMinor: bigint;
+  transactionId: string;
+  createdAt: Date;
+  reversedByTransactionId: string | null;
+}
+
+export interface CreditGrantResult {
+  grant: CreditGrant;
+  created: boolean;
+}
+export interface ReverseCreditGrantInput {
+  tenantId: string;
+  grantId: string;
+  reference: string;
+}
+export interface CreditGrantLotBalance {
+  grantId: string;
+  reference: string;
+  externalReference: string | null;
+  createdAt: Date;
+  grantedMinor: bigint;
+  reversedMinor: bigint;
+  remainingMinor: bigint;
+}
+export interface CreditBalance {
+  accountId: string;
+  assetId: string;
+  ledgerBalanceMinor: bigint;
+  remainingMinor: bigint;
+  lots: CreditGrantLotBalance[];
+}
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = LedgerEntity;
 
