@@ -706,7 +706,18 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     const orderedEntries = [...insertedEntries].sort((left, right) =>
       left.id.localeCompare(right.id),
     );
+    const entriesByAccount = new Map<string, typeof orderedEntries>();
     for (const entry of orderedEntries) {
+      const accountEntries = entriesByAccount.get(entry.accountId) ?? [];
+      accountEntries.push(entry);
+      entriesByAccount.set(entry.accountId, accountEntries);
+    }
+    const lineageRows: Array<typeof schema.creditGrantEntries.$inferInsert> = [];
+    const orderedAccountEntries = [...entriesByAccount.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+
+    for (const [accountId, accountEntries] of orderedAccountEntries) {
       const grants = await tx
         .select({ id: schema.creditGrants.id })
         .from(schema.creditGrants)
@@ -714,7 +725,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           and(
             eq(schema.creditGrants.tenantId, input.tenantId),
             eq(schema.creditGrants.ledgerId, input.ledgerId),
-            eq(schema.creditGrants.accountId, entry.accountId),
+            eq(schema.creditGrants.accountId, accountId),
           ),
         )
         .orderBy(schema.creditGrants.createdAt, schema.creditGrants.id)
@@ -734,47 +745,57 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           .where(
             and(
               eq(schema.creditGrantEntries.tenantId, input.tenantId),
-              eq(schema.creditGrantEntries.accountId, entry.accountId),
+              eq(schema.creditGrantEntries.accountId, accountId),
               eq(schema.entries.transactionId, input.relatedTransactionId),
             ),
           )
           .orderBy(schema.entries.createdAt, schema.entries.id, schema.creditGrantEntries.grantId);
-        const originalKind = entry.direction === 'CREDIT' ? 'CONSUMPTION' : 'ISSUANCE';
-        const newKind: 'COMPENSATION' | 'REVERSAL' =
-          entry.direction === 'CREDIT' ? 'COMPENSATION' : 'REVERSAL';
-        const candidates = new Map<string, typeof originalLinks>();
+        const candidatesByKind = new Map<
+          'ISSUANCE' | 'CONSUMPTION',
+          Map<string, typeof originalLinks>
+        >();
         for (const link of originalLinks) {
-          if (link.kind !== originalKind || copiedOriginalEntryIds.has(link.entryId)) continue;
+          if (link.kind !== 'ISSUANCE' && link.kind !== 'CONSUMPTION') continue;
+          const candidates = candidatesByKind.get(link.kind) ?? new Map();
           const links = candidates.get(link.entryId) ?? [];
           links.push(link);
           candidates.set(link.entryId, links);
+          candidatesByKind.set(link.kind, candidates);
         }
-        const match = [...candidates.entries()].find(
-          ([, links]) =>
-            links.reduce((sum, link) => sum + link.amountMinor, 0n) === entry.amountMinor,
-        );
-        if (!match) {
-          throw new InvariantViolationError(
-            'Unable to reverse transaction: grant lineage does not match original entry',
+
+        for (const entry of accountEntries) {
+          const originalKind = entry.direction === 'CREDIT' ? 'CONSUMPTION' : 'ISSUANCE';
+          const newKind: 'COMPENSATION' | 'REVERSAL' =
+            entry.direction === 'CREDIT' ? 'COMPENSATION' : 'REVERSAL';
+          const match = [...(candidatesByKind.get(originalKind)?.entries() ?? [])].find(
+            ([entryId, links]) =>
+              !copiedOriginalEntryIds.has(entryId) &&
+              links.reduce((sum, link) => sum + link.amountMinor, 0n) === entry.amountMinor,
+          );
+          if (!match) {
+            throw new InvariantViolationError(
+              'Unable to reverse transaction: grant lineage does not match original entry',
+            );
+          }
+          const [originalEntryId, copied] = match;
+          copiedOriginalEntryIds.add(originalEntryId);
+          lineageRows.push(
+            ...copied.map((link) => ({
+              tenantId: input.tenantId,
+              ledgerId: input.ledgerId,
+              accountId,
+              grantId: link.grantId,
+              entryId: entry.id,
+              kind: newKind,
+              amountMinor: link.amountMinor,
+            })),
           );
         }
-        const [originalEntryId, copied] = match;
-        copiedOriginalEntryIds.add(originalEntryId);
-        await tx.insert(schema.creditGrantEntries).values(
-          copied.map((link) => ({
-            tenantId: input.tenantId,
-            ledgerId: input.ledgerId,
-            accountId: entry.accountId,
-            grantId: link.grantId,
-            entryId: entry.id,
-            kind: newKind,
-            amountMinor: link.amountMinor,
-          })),
-        );
         continue;
       }
 
-      if (entry.direction !== 'DEBIT') continue;
+      const debitEntries = accountEntries.filter((entry) => entry.direction === 'DEBIT');
+      if (debitEntries.length === 0) continue;
       const movements = await tx
         .select({
           grantId: schema.creditGrantEntries.grantId,
@@ -799,32 +820,35 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           (remainingByGrant.get(movement.grantId) ?? 0n) + sign * movement.amountMinor,
         );
       }
-      let required = entry.amountMinor;
-      const allocations: Array<{ grantId: string; amountMinor: bigint }> = [];
-      for (const grant of grants) {
-        const available = remainingByGrant.get(grant.id) ?? 0n;
-        if (available <= 0n) continue;
-        const amountMinor = available < required ? available : required;
-        allocations.push({ grantId: grant.id, amountMinor });
-        required -= amountMinor;
-        if (required === 0n) break;
+      for (const entry of debitEntries) {
+        let required = entry.amountMinor;
+        for (const grant of grants) {
+          const available = remainingByGrant.get(grant.id) ?? 0n;
+          if (available <= 0n) continue;
+          const amountMinor = available < required ? available : required;
+          lineageRows.push({
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            accountId,
+            grantId: grant.id,
+            entryId: entry.id,
+            kind: 'CONSUMPTION',
+            amountMinor,
+          });
+          remainingByGrant.set(grant.id, available - amountMinor);
+          required -= amountMinor;
+          if (required === 0n) break;
+        }
+        if (required !== 0n) {
+          throw new InvariantViolationError(
+            'Unable to create transaction: insufficient credit grant capacity',
+          );
+        }
       }
-      if (required !== 0n) {
-        throw new InvariantViolationError(
-          'Unable to create transaction: insufficient credit grant capacity',
-        );
-      }
-      await tx.insert(schema.creditGrantEntries).values(
-        allocations.map((allocation) => ({
-          tenantId: input.tenantId,
-          ledgerId: input.ledgerId,
-          accountId: entry.accountId,
-          grantId: allocation.grantId,
-          entryId: entry.id,
-          kind: 'CONSUMPTION' as const,
-          amountMinor: allocation.amountMinor,
-        })),
-      );
+    }
+
+    if (lineageRows.length > 0) {
+      await tx.insert(schema.creditGrantEntries).values(lineageRows);
     }
   }
 
