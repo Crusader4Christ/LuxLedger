@@ -197,10 +197,14 @@ describe('express adapter parity with fastify adapter', () => {
               createdAt: new Date('2026-01-01T00:00:00.000Z'),
               grantedMinor: 100n,
               reversedMinor: 0n,
+              consumedMinor: 0n,
+              compensatedMinor: 0n,
               remainingMinor: 100n,
             },
           ],
         }),
+        listLineageByGrant: async () => [],
+        listLineageByTransaction: async () => [],
       },
       apiKeys: apiKeyService,
       balances: fakeLedgerService,
@@ -669,5 +673,11 @@ describe('express adapter parity with fastify adapter', () => {
     ]);
     expect(fastifyBalance.status).toBe(200);
     expect(expressBalance).toEqual(fastifyBalance);
+    const [fastifyLineage, expressLineage] = await Promise.all([
+      requestFastify('GET', `${grantPath}/allocations`),
+      requestExpress('GET', `${grantPath}/allocations`),
+    ]);
+    expect(fastifyLineage.status).toBe(200);
+    expect(expressLineage).toEqual(fastifyLineage);
   });
 });

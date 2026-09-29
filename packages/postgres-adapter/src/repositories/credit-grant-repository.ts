@@ -5,6 +5,7 @@ import {
   type CreditBalance,
   type CreditGrant,
   CreditGrantConflictError,
+  type CreditGrantLineage,
   CreditGrantNotFoundError,
   type CreditGrantRepository,
   type CreditGrantResult,
@@ -134,6 +135,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         return { grant: await this.toGrant(tx, row), created: false };
       }
       const grant = await this.toGrant(tx, row);
+      const balance = await this.balanceInTx(tx, input.tenantId, row.accountId);
+      const lot = balance.lots.find((candidate) => candidate.grantId === row.id);
+      if (!lot || lot.remainingMinor !== grant.amountMinor) {
+        throw new CreditGrantConflictError('Consumed grant cannot be fully reversed');
+      }
       const [account] = await tx
         .select({ currency: schema.accounts.currency })
         .from(schema.accounts)
@@ -183,6 +189,21 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   public getBalance(tenantId: string, accountId: string): Promise<CreditBalance> {
     return this.client.runTenantTx(tenantId, 'read credit balance', (tx) =>
       this.balanceInTx(tx, tenantId, accountId),
+    );
+  }
+
+  public listLineageByGrant(tenantId: string, grantId: string): Promise<CreditGrantLineage[]> {
+    return this.client.runTenantTx(tenantId, 'list credit grant lineage', (tx) =>
+      this.listLineageInTx(tx, tenantId, { grantId }),
+    );
+  }
+
+  public listLineageByTransaction(
+    tenantId: string,
+    transactionId: string,
+  ): Promise<CreditGrantLineage[]> {
+    return this.client.runTenantTx(tenantId, 'list transaction credit lineage', (tx) =>
+      this.listLineageInTx(tx, tenantId, { transactionId }),
     );
   }
 
@@ -394,6 +415,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       }
       let grantedMinor = 0n;
       let reversedMinor = 0n;
+      let consumedMinor = 0n;
+      let compensatedMinor = 0n;
       let issuanceCount = 0;
       for (const movement of byGrant.get(row.id) ?? []) {
         if (
@@ -417,6 +440,14 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           movement.entryDirection === 'DEBIT'
         ) {
           reversedMinor += movement.linkedAmountMinor;
+        } else if (movement.linkKind === 'CONSUMPTION' && movement.entryDirection === 'DEBIT') {
+          consumedMinor += movement.linkedAmountMinor;
+        } else if (
+          movement.linkKind === 'COMPENSATION' &&
+          movement.transactionRelationType === 'REVERSAL' &&
+          movement.entryDirection === 'CREDIT'
+        ) {
+          compensatedMinor += movement.linkedAmountMinor;
         } else {
           throw new CreditGrantConflictError('Unsupported credit lot movement');
         }
@@ -431,6 +462,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         createdAt: row.createdAt,
         grantedMinor,
         reversedMinor,
+        consumedMinor,
+        compensatedMinor,
         remainingMinor: 0n,
       };
       lot.remainingMinor = creditGrantRemaining(lot);
@@ -450,6 +483,37 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       remainingMinor: total,
       lots,
     };
+  }
+
+  private async listLineageInTx(
+    tx: Tx,
+    tenantId: string,
+    filter: { grantId?: string; transactionId?: string },
+  ): Promise<CreditGrantLineage[]> {
+    const predicates = [
+      eq(schema.creditGrantEntries.tenantId, tenantId),
+      sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION')`,
+    ];
+    if (filter.grantId) predicates.push(eq(schema.creditGrantEntries.grantId, filter.grantId));
+    if (filter.transactionId)
+      predicates.push(eq(schema.entries.transactionId, filter.transactionId));
+    const rows = await tx
+      .select({
+        grantId: schema.creditGrantEntries.grantId,
+        entryId: schema.creditGrantEntries.entryId,
+        transactionId: schema.entries.transactionId,
+        kind: schema.creditGrantEntries.kind,
+        amountMinor: schema.creditGrantEntries.amountMinor,
+        createdAt: schema.entries.createdAt,
+      })
+      .from(schema.creditGrantEntries)
+      .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
+      .where(and(...predicates))
+      .orderBy(schema.entries.createdAt, schema.entries.id, schema.creditGrantEntries.grantId);
+    return rows.map((row) => ({
+      ...row,
+      kind: row.kind as CreditGrantLineage['kind'],
+    }));
   }
 
   private async linkWalletEntry(

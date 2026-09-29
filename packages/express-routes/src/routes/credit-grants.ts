@@ -5,7 +5,11 @@ import {
   type ReverseCreditGrantRequest,
   reverseCreditGrantBodySchema,
 } from '@luxledger/http/contracts';
-import { toCreditBalanceResponse, toCreditGrantResponse } from '@luxledger/http/mappers';
+import {
+  toCreditBalanceResponse,
+  toCreditGrantLineageResponse,
+  toCreditGrantResponse,
+} from '@luxledger/http/mappers';
 import { parseUuidParam } from '@luxledger/http/validation-utils';
 import type { Application, Response } from 'express';
 import { sendInvalidInput, withDomainErrorHandling } from '../errors/handlers';
@@ -68,6 +72,44 @@ export const registerCreditGrantRoutes = (
       });
       res.status(result.created ? 201 : 200).json(toCreditGrantResponse(result.grant));
     }),
+  );
+
+  app.get('/v1/credit-grants/:id/allocations', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam(req.params.id, 'id');
+      if (!params) {
+        sendInvalidInput(res, 'Invalid path parameter');
+        return;
+      }
+      const { tenantId } = requireContext(req);
+      res
+        .status(200)
+        .json(
+          toCreditGrantLineageResponse(
+            await services.creditGrants.listLineageByGrant(tenantId, params.id),
+          ),
+        );
+    }),
+  );
+
+  app.get(
+    '/v1/transactions/:id/credit-allocations',
+    async (req: RequestWithContext, res: Response) =>
+      withDomainErrorHandling(res, async () => {
+        const params = parseUuidParam(req.params.id, 'id');
+        if (!params) {
+          sendInvalidInput(res, 'Invalid path parameter');
+          return;
+        }
+        const { tenantId } = requireContext(req);
+        res
+          .status(200)
+          .json(
+            toCreditGrantLineageResponse(
+              await services.creditGrants.listLineageByTransaction(tenantId, params.id),
+            ),
+          );
+      }),
   );
 
   app.get('/v1/accounts/:id/credit-balance', async (req: RequestWithContext, res: Response) =>

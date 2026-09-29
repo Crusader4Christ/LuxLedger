@@ -1,5 +1,9 @@
-import type { CreditBalance, CreditGrant } from '@luxledger/core/application';
-import type { CreditBalanceResponse, CreditGrantResponse } from '../contracts/credit-grants';
+import type { CreditBalance, CreditGrant, CreditGrantLineage } from '@luxledger/core/application';
+import type {
+  CreditBalanceResponse,
+  CreditGrantLineageResponse,
+  CreditGrantResponse,
+} from '../contracts/credit-grants';
 
 export const toCreditGrantResponse = (grant: CreditGrant): CreditGrantResponse => ({
   id: grant.id,
@@ -28,6 +32,21 @@ export const toCreditBalanceResponse = (balance: CreditBalance): CreditBalanceRe
     created_at: lot.createdAt.toISOString(),
     granted_minor: lot.grantedMinor.toString(),
     reversed_minor: lot.reversedMinor.toString(),
+    consumed_minor: lot.consumedMinor.toString(),
+    compensated_minor: lot.compensatedMinor.toString(),
     remaining_minor: lot.remainingMinor.toString(),
+  })),
+});
+
+export const toCreditGrantLineageResponse = (
+  allocations: CreditGrantLineage[],
+): CreditGrantLineageResponse => ({
+  allocations: allocations.map((allocation) => ({
+    grant_id: allocation.grantId,
+    entry_id: allocation.entryId,
+    transaction_id: allocation.transactionId,
+    kind: allocation.kind,
+    amount_minor: allocation.amountMinor.toString(),
+    created_at: allocation.createdAt.toISOString(),
   })),
 });
