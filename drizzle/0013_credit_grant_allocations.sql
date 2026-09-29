@@ -11,6 +11,7 @@ DECLARE entry_amount bigint;
 DECLARE issuance_amount bigint;
 DECLARE available_amount bigint;
 DECLARE source_allocation bigint;
+DECLARE compensated_amount bigint;
 DECLARE entry_asset uuid;
 DECLARE transaction_asset uuid;
 DECLARE account_asset uuid;
@@ -63,21 +64,62 @@ BEGIN
       RAISE EXCEPTION 'credit grant consumption exceeds available capacity';
     END IF;
   ELSIF NEW.kind::text = 'COMPENSATION' THEN
-    SELECT l.amount_minor INTO source_allocation
+    SELECT coalesce(sum(l.amount_minor), 0) INTO source_allocation
       FROM credit_grant_entries l
       JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
       WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
         AND l.kind::text = 'CONSUMPTION' AND e.transaction_id = related_transaction;
+    SELECT coalesce(sum(l.amount_minor), 0) INTO compensated_amount
+      FROM credit_grant_entries l
+      JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
+      WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
+        AND l.kind::text = 'COMPENSATION' AND e.transaction_id = linked_transaction;
     IF linked_direction <> 'CREDIT' OR linked_relation <> 'REVERSAL'
-      OR related_transaction IS NULL OR source_allocation IS NULL
-      OR NEW.amount_minor <> source_allocation THEN
+      OR related_transaction IS NULL OR source_allocation = 0
+      OR compensated_amount + NEW.amount_minor > source_allocation THEN
       RAISE EXCEPTION 'credit grant compensation does not match original allocation';
     END IF;
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
+CREATE FUNCTION assert_grant_compensation_complete() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE linked_transaction uuid;
+DECLARE related_transaction uuid;
+DECLARE source_allocation bigint;
+DECLARE compensated_amount bigint;
+BEGIN
+  IF NEW.kind::text <> 'COMPENSATION' THEN
+    RETURN NEW;
+  END IF;
+  SELECT e.transaction_id, t.related_transaction_id
+    INTO linked_transaction, related_transaction
+    FROM entries e
+    JOIN transactions t ON t.id = e.transaction_id AND t.tenant_id = e.tenant_id
+    WHERE e.id = NEW.entry_id AND e.tenant_id = NEW.tenant_id;
+  SELECT coalesce(sum(l.amount_minor), 0) INTO source_allocation
+    FROM credit_grant_entries l
+    JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
+    WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
+      AND l.kind::text = 'CONSUMPTION' AND e.transaction_id = related_transaction;
+  SELECT coalesce(sum(l.amount_minor), 0) INTO compensated_amount
+    FROM credit_grant_entries l
+    JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
+    WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
+      AND l.kind::text = 'COMPENSATION' AND e.transaction_id = linked_transaction;
+  IF source_allocation = 0 OR compensated_amount <> source_allocation THEN
+    RAISE EXCEPTION 'credit grant compensation must exactly restore original allocation';
+  END IF;
+  RETURN NEW;
+END $$;--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER credit_grant_compensation_complete
+  AFTER INSERT ON credit_grant_entries DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION assert_grant_compensation_complete();--> statement-breakpoint
 CREATE OR REPLACE FUNCTION assert_grant_entry_attributed() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE attributed_amount bigint;
+DECLARE linked_relation transaction_relation_type;
+DECLARE related_transaction uuid;
+DECLARE original_amount bigint;
+DECLARE reversal_amount bigint;
 BEGIN
   IF EXISTS (
     SELECT 1 FROM credit_grants
@@ -88,6 +130,22 @@ BEGIN
       WHERE tenant_id = NEW.tenant_id AND entry_id = NEW.id;
     IF attributed_amount <> NEW.amount_minor THEN
       RAISE EXCEPTION 'grant-enabled account entry requires complete grant attribution';
+    END IF;
+    SELECT relation_type, related_transaction_id INTO linked_relation, related_transaction
+      FROM transactions WHERE id = NEW.transaction_id AND tenant_id = NEW.tenant_id;
+    IF linked_relation::text = 'REVERSAL' THEN
+      SELECT coalesce(sum(amount_minor), 0) INTO original_amount
+        FROM entries
+        WHERE tenant_id = NEW.tenant_id AND transaction_id = related_transaction
+          AND account_id = NEW.account_id
+          AND direction = CASE WHEN NEW.direction = 'CREDIT' THEN 'DEBIT'::entry_direction ELSE 'CREDIT'::entry_direction END;
+      SELECT coalesce(sum(amount_minor), 0) INTO reversal_amount
+        FROM entries
+        WHERE tenant_id = NEW.tenant_id AND transaction_id = NEW.transaction_id
+          AND account_id = NEW.account_id AND direction = NEW.direction;
+      IF original_amount = 0 OR reversal_amount <> original_amount THEN
+        RAISE EXCEPTION 'grant-enabled account reversal must exactly mirror original entries';
+      END IF;
     END IF;
   END IF;
   RETURN NEW;

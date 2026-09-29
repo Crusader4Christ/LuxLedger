@@ -89,6 +89,48 @@ const consume = (
     ],
   });
 
+const consumeInTwoEntries = (
+  tenantId: string,
+  setupResult: Awaited<ReturnType<typeof setup>>,
+  reference: string,
+) =>
+  services.transactions.create({
+    tenantId,
+    ledgerId: setupResult.ledgerId,
+    reference,
+    currency: 'USD',
+    entries: [
+      {
+        accountId: setupResult.accountId,
+        direction: EntryDirection.DEBIT,
+        amountMinor: 80n,
+        currency: 'USD',
+      },
+      {
+        accountId: setupResult.accountId,
+        direction: EntryDirection.DEBIT,
+        amountMinor: 80n,
+        currency: 'USD',
+      },
+      {
+        accountId: setupResult.fundingAccountId,
+        direction: EntryDirection.CREDIT,
+        amountMinor: 160n,
+        currency: 'USD',
+      },
+    ],
+  });
+
+const lineageTotalsByGrant = (
+  lineage: Awaited<ReturnType<typeof services.creditGrants.listLineageByTransaction>>,
+) => {
+  const totals = new Map<string, bigint>();
+  for (const allocation of lineage) {
+    totals.set(allocation.grantId, (totals.get(allocation.grantId) ?? 0n) + allocation.amountMinor);
+  }
+  return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right));
+};
+
 describe('credit grants', () => {
   beforeAll(() => migrateTestDatabase(db));
   beforeEach(() => truncateTestDatabase(db));
@@ -271,6 +313,170 @@ describe('credit grants', () => {
     ).toEqual([expect.objectContaining({ kind: 'CONSUMPTION', amountMinor: 40n })]);
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.remainingMinor).toBe(60n);
+  });
+
+  it('reverses overlapping multi-entry allocations exactly and rejects duplicate compensation', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
+    const consumed = await consumeInTwoEntries(tenantId, accounts, 'consume-split');
+    const originalLineage = await services.creditGrants.listLineageByTransaction(
+      tenantId,
+      consumed.transactionId,
+    );
+    const reversed = await services.transactions.reverse({
+      tenantId,
+      transactionId: consumed.transactionId,
+      reference: 'reverse-consume-split',
+    });
+    const compensationLineage = await services.creditGrants.listLineageByTransaction(
+      tenantId,
+      reversed.transactionId,
+    );
+    expect(lineageTotalsByGrant(compensationLineage)).toEqual(
+      lineageTotalsByGrant(originalLineage),
+    );
+    const auditOrder = compensationLineage.map(
+      (allocation) =>
+        `${allocation.createdAt.toISOString()}:${allocation.entryId}:${allocation.grantId}`,
+    );
+    expect(auditOrder).toEqual([...auditOrder].sort());
+
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        const [entry] = await tx
+          .insert(entries)
+          .values({
+            tenantId,
+            transactionId: reversed.transactionId,
+            accountId: accounts.accountId,
+            direction: 'CREDIT',
+            amountMinor: 1n,
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: entries.id });
+        await tx.insert(creditGrantEntries).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: originalLineage[0].grantId,
+          entryId: entry.id,
+          kind: 'COMPENSATION',
+          amountMinor: 1n,
+        });
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(200n);
+  });
+
+  it('rejects a direct-SQL partial compensation transaction', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const first = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
+    const consumed = await consumeInTwoEntries(tenantId, accounts, 'consume-split-partial');
+
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        const [reversal] = await tx
+          .insert(transactions)
+          .values({
+            tenantId,
+            ledgerId: accounts.ledgerId,
+            relatedTransactionId: consumed.transactionId,
+            relationType: 'REVERSAL',
+            reference: 'direct-partial-compensation',
+            currency: 'USD',
+            assetId: accounts.assetId,
+          })
+          .returning({ id: transactions.id });
+        const inserted = await tx
+          .insert(entries)
+          .values([
+            {
+              tenantId,
+              transactionId: reversal.id,
+              accountId: accounts.accountId,
+              direction: 'CREDIT',
+              amountMinor: 100n,
+              currency: 'USD',
+              assetId: accounts.assetId,
+            },
+            {
+              tenantId,
+              transactionId: reversal.id,
+              accountId: accounts.fundingAccountId,
+              direction: 'DEBIT',
+              amountMinor: 100n,
+              currency: 'USD',
+              assetId: accounts.assetId,
+            },
+          ])
+          .returning({ id: entries.id, accountId: entries.accountId });
+        const walletEntry = inserted.find((entry) => entry.accountId === accounts.accountId);
+        if (!walletEntry) throw new Error('Missing wallet reversal entry');
+        await tx.insert(creditGrantEntries).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: first.grant.id,
+          entryId: walletEntry.id,
+          kind: 'COMPENSATION',
+          amountMinor: 100n,
+        });
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(40n);
+  });
+
+  it('corrects overlapping multi-entry allocations through an exact reversal', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
+    const consumed = await consumeInTwoEntries(tenantId, accounts, 'correct-split-original');
+    const originalLineage = await services.creditGrants.listLineageByTransaction(
+      tenantId,
+      consumed.transactionId,
+    );
+    const corrected = await services.transactions.correct({
+      tenantId,
+      transactionId: consumed.transactionId,
+      reversalReference: 'correct-split-reversal',
+      correctedReference: 'correct-split-replacement',
+      entries: [
+        {
+          accountId: accounts.accountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 50n,
+          currency: 'USD',
+        },
+        {
+          accountId: accounts.fundingAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 50n,
+          currency: 'USD',
+        },
+      ],
+    });
+    const compensationLineage = await services.creditGrants.listLineageByTransaction(
+      tenantId,
+      corrected.reversalTransactionId,
+    );
+    expect(lineageTotalsByGrant(compensationLineage)).toEqual(
+      lineageTotalsByGrant(originalLineage),
+    );
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(150n);
   });
 
   it('supports multiple grant-enabled accounts with different assets', async () => {

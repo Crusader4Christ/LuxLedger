@@ -27,5 +27,3 @@ The allocation query shape intentionally orders by grant `created_at, id`. Futur
 A database boundary rejects incomplete or mismatched attribution and continues to reject holds on grant-enabled accounts. Ordinary accounts and their transaction payloads remain unaffected.
 
 Allocation, consumption policy, provenance metadata, and transfer/refund rules are intentionally deferred until a concrete product flow requires them. LL-66 owns deterministic allocation and consumption lineage. LL-85 owns expiration fields, entries, and eligibility enforcement. LL-67 and LL-89 may introduce organization ownership and spending authority around accounts, but LL-84 deliberately adds no user, organization, membership, or permission model.
-
-Migration 0012 is unmerged and is rewritten in place. Disposable databases that applied an earlier PR preview must be reset before applying the revised migration.

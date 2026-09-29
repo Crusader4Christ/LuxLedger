@@ -703,7 +703,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     }>,
   ): Promise<void> {
     const copiedOriginalEntryIds = new Set<string>();
-    for (const entry of insertedEntries) {
+    const orderedEntries = [...insertedEntries].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    );
+    for (const entry of orderedEntries) {
       const grants = await tx
         .select({ id: schema.creditGrants.id })
         .from(schema.creditGrants)
@@ -734,7 +737,8 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
               eq(schema.creditGrantEntries.accountId, entry.accountId),
               eq(schema.entries.transactionId, input.relatedTransactionId),
             ),
-          );
+          )
+          .orderBy(schema.entries.createdAt, schema.entries.id, schema.creditGrantEntries.grantId);
         const originalKind = entry.direction === 'CREDIT' ? 'CONSUMPTION' : 'ISSUANCE';
         const newKind: 'COMPENSATION' | 'REVERSAL' =
           entry.direction === 'CREDIT' ? 'COMPENSATION' : 'REVERSAL';

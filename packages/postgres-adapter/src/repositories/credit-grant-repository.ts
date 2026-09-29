@@ -509,7 +509,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       .from(schema.creditGrantEntries)
       .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
       .where(and(...predicates))
-      .orderBy(schema.entries.createdAt, schema.creditGrantEntries.grantId);
+      .orderBy(schema.entries.createdAt, schema.entries.id, schema.creditGrantEntries.grantId);
     return rows.map((row) => ({
       ...row,
       kind: row.kind as CreditGrantLineage['kind'],
