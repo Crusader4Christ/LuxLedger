@@ -199,16 +199,139 @@ describe('credit grants', () => {
     );
   });
 
+  it('allocates multiple debit entries from one in-memory capacity projection', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const first = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    const second = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
+
+    const consumed = await consumeInTwoEntries(tenantId, accounts, 'consume-split-projection');
+    const lineage = await services.creditGrants.listLineageByTransaction(
+      tenantId,
+      consumed.transactionId,
+    );
+    const entryIds = [...new Set(lineage.map((allocation) => allocation.entryId))];
+
+    expect(entryIds).toHaveLength(2);
+    expect(
+      lineage.map(({ entryId, grantId, amountMinor }) => ({ entryId, grantId, amountMinor })),
+    ).toEqual([
+      { entryId: entryIds[0], grantId: first.grant.id, amountMinor: 80n },
+      { entryId: entryIds[1], grantId: first.grant.id, amountMinor: 20n },
+      { entryId: entryIds[1], grantId: second.grant.id, amountMinor: 60n },
+    ]);
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(40n);
+  });
+
+  it('allocates each grant-enabled account independently in one transaction', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const secondAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Second wallet',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    const firstGrant = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'first-account-grant'),
+    );
+    const secondGrant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'second-account-grant'),
+      accountId: secondAccount.id,
+    });
+
+    const consumed = await services.transactions.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'consume-two-accounts',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: accounts.accountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 40n,
+          currency: 'USD',
+        },
+        {
+          accountId: secondAccount.id,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 60n,
+          currency: 'USD',
+        },
+        {
+          accountId: accounts.fundingAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    const lineage = await services.creditGrants.listLineageByTransaction(
+      tenantId,
+      consumed.transactionId,
+    );
+    expect(lineage).toHaveLength(2);
+    expect(lineage.map(({ grantId, amountMinor }) => ({ grantId, amountMinor }))).toEqual(
+      expect.arrayContaining([
+        { grantId: firstGrant.grant.id, amountMinor: 40n },
+        { grantId: secondGrant.grant.id, amountMinor: 60n },
+      ]),
+    );
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(60n);
+    expect(
+      (await services.creditGrants.getBalance(tenantId, secondAccount.id)).remainingMinor,
+    ).toBe(40n);
+  });
+
   it('rolls back insufficient and concurrent consumption without double allocation', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
-    await expect(consume(tenantId, accounts, 'too-much', 101n)).rejects.toThrow(
-      'insufficient credit grant capacity',
-    );
+    await expect(
+      services.transactions.create({
+        tenantId,
+        ledgerId: accounts.ledgerId,
+        reference: 'cumulative-too-much',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: accounts.accountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 60n,
+            currency: 'USD',
+          },
+          {
+            accountId: accounts.accountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 50n,
+            currency: 'USD',
+          },
+          {
+            accountId: accounts.fundingAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 110n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toThrow('insufficient credit grant capacity');
     expect(
-      await services.transactions.list({ tenantId, ledgerId: accounts.ledgerId, limit: 100 }),
-    ).not.toBeNull();
+      await db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(eq(transactions.reference, 'cumulative-too-much')),
+    ).toHaveLength(0);
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(100n);
 
     const secondClient = createDbClient({
       databaseUrl:
@@ -477,6 +600,77 @@ describe('credit grants', () => {
     expect(
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(150n);
+    expect(
+      await services.creditGrants.listLineageByTransaction(
+        tenantId,
+        corrected.correctedTransactionId,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        grantId: originalLineage[0].grantId,
+        kind: 'CONSUMPTION',
+        amountMinor: 50n,
+      }),
+    ]);
+  });
+
+  it('leaves ordinary multi-entry account posting behavior unchanged', async () => {
+    const tenantId = await createTenant(db, 'A');
+    const accounts = await setup(tenantId);
+    const debitAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Ordinary debit',
+      side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    const creditAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Ordinary credit',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'ALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+
+    const posted = await services.transactions.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'ordinary-multi-entry',
+      currency: 'USD',
+      entries: [
+        {
+          accountId: debitAccount.id,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 30n,
+          currency: 'USD',
+        },
+        {
+          accountId: debitAccount.id,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 20n,
+          currency: 'USD',
+        },
+        {
+          accountId: creditAccount.id,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 50n,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    expect(
+      await services.creditGrants.listLineageByTransaction(tenantId, posted.transactionId),
+    ).toEqual([]);
+    const balances = await db
+      .select({ id: accountRows.id, balanceMinor: accountRows.balanceMinor })
+      .from(accountRows);
+    expect(balances.find((row) => row.id === debitAccount.id)?.balanceMinor).toBe(-50n);
+    expect(balances.find((row) => row.id === creditAccount.id)?.balanceMinor).toBe(50n);
   });
 
   it('supports multiple grant-enabled accounts with different assets', async () => {

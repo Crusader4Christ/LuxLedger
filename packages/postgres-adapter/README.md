@@ -15,6 +15,12 @@ PostgreSQL 16 is the supported persistence model.
 
 State-changing repository operations use explicit PostgreSQL transactions. The adapter enforces persistence-level tenant scoping, atomicity, and transaction-reference idempotency required by the repository [invariants guide](../../docs/product/invariants.md).
 
+### Credit-grant allocation locking
+
+Transaction posting groups inserted entries by account and processes accounts in account-ID order. For each distinct account it performs one `SELECT ... FOR UPDATE` of that account's grants, ordered by `created_at ASC, id ASC`. An account with no grants stops after that lookup. A grant-enabled account with debit entries loads its immutable grant movements once, computes remaining capacity, and updates that in-memory projection after every allocation so later entries in the same transaction observe earlier allocations. Reversals load the original transaction lineage once per grant-enabled account and copy each original entry's exact grant split.
+
+Grant locks remain held until the posting transaction commits or rolls back. Lineage rows, ledger entries, balance updates, and snapshots are written in that same transaction. The database constraints, row-level tenant policy, and deferred attribution and exact-compensation triggers remain the final boundary checks; there is no mutable authoritative grant-balance column.
+
 ## Configuration
 
 The client reads these package-owned variables when equivalent constructor options are not passed:
