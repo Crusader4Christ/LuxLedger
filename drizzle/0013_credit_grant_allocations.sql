@@ -37,12 +37,14 @@ BEGIN
     RAISE EXCEPTION 'credit grant entry scope or amount mismatch';
   END IF;
 
-  SELECT
-    coalesce(sum(CASE WHEN kind::text IN ('ISSUANCE', 'COMPENSATION') THEN amount_minor ELSE -amount_minor END), 0),
-    coalesce(sum(CASE WHEN kind::text = 'ISSUANCE' THEN amount_minor ELSE 0 END), 0)
-    INTO available_amount, issuance_amount
-    FROM credit_grant_entries
-    WHERE tenant_id = NEW.tenant_id AND grant_id = NEW.grant_id;
+  IF NEW.kind::text IN ('REVERSAL', 'CONSUMPTION') THEN
+    SELECT
+      coalesce(sum(CASE WHEN kind::text IN ('ISSUANCE', 'COMPENSATION') THEN amount_minor ELSE -amount_minor END), 0),
+      coalesce(sum(CASE WHEN kind::text = 'ISSUANCE' THEN amount_minor ELSE 0 END), 0)
+      INTO available_amount, issuance_amount
+      FROM credit_grant_entries
+      WHERE tenant_id = NEW.tenant_id AND grant_id = NEW.grant_id;
+  END IF;
 
   IF NEW.kind::text = 'ISSUANCE' AND NOT (
     linked_transaction = source_transaction AND linked_direction = 'CREDIT'
@@ -61,16 +63,17 @@ BEGIN
       RAISE EXCEPTION 'credit grant consumption exceeds available capacity';
     END IF;
   ELSIF NEW.kind::text = 'COMPENSATION' THEN
-    SELECT coalesce(sum(l.amount_minor), 0) INTO source_allocation
+    SELECT
+      coalesce(sum(l.amount_minor) FILTER (
+        WHERE l.kind::text = 'CONSUMPTION' AND e.transaction_id = related_transaction
+      ), 0),
+      coalesce(sum(l.amount_minor) FILTER (
+        WHERE l.kind::text = 'COMPENSATION' AND e.transaction_id = linked_transaction
+      ), 0)
+      INTO source_allocation, compensated_amount
       FROM credit_grant_entries l
       JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
-      WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
-        AND l.kind::text = 'CONSUMPTION' AND e.transaction_id = related_transaction;
-    SELECT coalesce(sum(l.amount_minor), 0) INTO compensated_amount
-      FROM credit_grant_entries l
-      JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
-      WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
-        AND l.kind::text = 'COMPENSATION' AND e.transaction_id = linked_transaction;
+      WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id;
     IF linked_direction <> 'CREDIT' OR linked_relation <> 'REVERSAL'
       OR related_transaction IS NULL OR source_allocation = 0
       OR compensated_amount + NEW.amount_minor > source_allocation THEN
@@ -93,16 +96,17 @@ BEGIN
     FROM entries e
     JOIN transactions t ON t.id = e.transaction_id AND t.tenant_id = e.tenant_id
     WHERE e.id = NEW.entry_id AND e.tenant_id = NEW.tenant_id;
-  SELECT coalesce(sum(l.amount_minor), 0) INTO source_allocation
+  SELECT
+    coalesce(sum(l.amount_minor) FILTER (
+      WHERE l.kind::text = 'CONSUMPTION' AND e.transaction_id = related_transaction
+    ), 0),
+    coalesce(sum(l.amount_minor) FILTER (
+      WHERE l.kind::text = 'COMPENSATION' AND e.transaction_id = linked_transaction
+    ), 0)
+    INTO source_allocation, compensated_amount
     FROM credit_grant_entries l
     JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
-    WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
-      AND l.kind::text = 'CONSUMPTION' AND e.transaction_id = related_transaction;
-  SELECT coalesce(sum(l.amount_minor), 0) INTO compensated_amount
-    FROM credit_grant_entries l
-    JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
-    WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
-      AND l.kind::text = 'COMPENSATION' AND e.transaction_id = linked_transaction;
+    WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id;
   IF source_allocation = 0 OR compensated_amount <> source_allocation THEN
     RAISE EXCEPTION 'credit grant compensation must exactly restore original allocation';
   END IF;
