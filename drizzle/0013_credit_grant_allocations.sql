@@ -16,13 +16,10 @@ DECLARE entry_asset uuid;
 DECLARE transaction_asset uuid;
 DECLARE account_asset uuid;
 BEGIN
-  PERFORM 1 FROM credit_grants
+  SELECT transaction_id INTO source_transaction FROM credit_grants
     WHERE id = NEW.grant_id AND tenant_id = NEW.tenant_id AND ledger_id = NEW.ledger_id
       AND account_id = NEW.account_id
     FOR UPDATE;
-  SELECT transaction_id INTO source_transaction FROM credit_grants
-    WHERE id = NEW.grant_id AND tenant_id = NEW.tenant_id AND ledger_id = NEW.ledger_id
-      AND account_id = NEW.account_id;
   SELECT e.transaction_id, e.direction, t.relation_type, t.related_transaction_id,
          e.amount_minor, e.asset_id, t.asset_id, a.asset_id
     INTO linked_transaction, linked_direction, linked_relation, related_transaction,
