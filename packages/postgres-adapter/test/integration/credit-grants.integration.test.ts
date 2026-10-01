@@ -3,7 +3,8 @@ import { AccountSide, EntryDirection, InvalidCreditGrantError } from '@luxledger
 import { CreditGrantConflictError, CreditGrantNotFoundError } from '@luxledger/core/application';
 import { eq, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
-import { createDbClient } from '../../src/client';
+import { createDbClient, type DbClient, type DrizzleDatabase } from '../../src/client';
+import { DrizzleTransactionRepository } from '../../src/repositories/transaction-repository';
 import {
   accounts as accountRows,
   creditGrantEntries,
@@ -1193,6 +1194,49 @@ describe('credit grants', () => {
     expect(result.grant.fundingAccountId).toBe(funding.id);
   });
 
+  it('rejects grant-enabled funding for expiring grants at application and SQL boundaries', async () => {
+    const tenantId = await createTenant(db, 'expiring-grant-funding');
+    const accounts = await setup(tenantId);
+    const fundingGrant = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'grant-enabled-funding'),
+    );
+    const target = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Expiring target',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    await expect(
+      services.creditGrants.create({
+        ...grantInput(tenantId, accounts, 'invalid-expiring-funding'),
+        accountId: target.id,
+        fundingAccountId: accounts.accountId,
+        expiresAt,
+      }),
+    ).rejects.toThrow('funding account cannot be grant-enabled');
+
+    await expect(
+      client.runTenantTx(tenantId, 'invalid direct grant funding', (tx) =>
+        tx.insert(creditGrants).values({
+          id: crypto.randomUUID(),
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: target.id,
+          fundingAccountId: accounts.accountId,
+          reference: 'invalid-direct-expiring-funding',
+          externalReference: null,
+          transactionId: fundingGrant.grant.transactionId,
+          expiresAt,
+        }),
+      ),
+    ).rejects.toThrow('data constraints violated');
+  });
+
   it('enforces entry attribution at the PostgreSQL boundary without changing account kind', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
@@ -1712,6 +1756,110 @@ describe('credit grants', () => {
       expect(expiration[0]?.amountMinor).toBe(100n);
     } finally {
       await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('re-derives expiration capacity after claiming the grant lock', async () => {
+    const tenantId = await createTenant(db, 'expiration-locked-capacity');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 100);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'locked-capacity'),
+      expiresAt,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 140));
+
+    const hookedBaseClient = createDbClient({ databaseUrl, max: 1 });
+    const transactionRepository = new DrizzleTransactionRepository(hookedBaseClient);
+    let injectedExpiration = false;
+    const hookedClient: DbClient = {
+      ...hookedBaseClient,
+      runTenantTx: async <T>(
+        scopedTenantId: string,
+        operation: string,
+        action: (tx: DrizzleDatabase) => Promise<T>,
+      ): Promise<T> =>
+        hookedBaseClient.runTenantTx(scopedTenantId, operation, async (tx) => {
+          if (operation !== 'run credit grant expirations') return action(tx);
+          let executeCount = 0;
+          const hookedTx = new Proxy(tx, {
+            get(target, property) {
+              if (property === 'execute') {
+                const execute = target.execute.bind(target);
+                return async (...args: Parameters<typeof execute>) => {
+                  const result = await execute(...args);
+                  executeCount += 1;
+                  if (executeCount !== 2 || injectedExpiration) return result;
+
+                  injectedExpiration = true;
+                  const posted = await transactionRepository.postCreditGrantExpirationInTx(target, {
+                    tenantId,
+                    ledgerId: accounts.ledgerId,
+                    reference: `test-partial-expiration:${grant.grant.id}`,
+                    currency: 'USD',
+                    effectiveAt: expiresAt,
+                    entries: [
+                      {
+                        accountId: accounts.accountId,
+                        direction: EntryDirection.DEBIT,
+                        amountMinor: 40n,
+                        currency: 'USD',
+                      },
+                      {
+                        accountId: accounts.fundingAccountId,
+                        direction: EntryDirection.CREDIT,
+                        amountMinor: 40n,
+                        currency: 'USD',
+                      },
+                    ],
+                  });
+                  const [walletEntry] = await target
+                    .select({ id: entries.id })
+                    .from(entries)
+                    .where(
+                      sql`${entries.tenantId} = ${tenantId} and ${entries.transactionId} = ${posted.transactionId} and ${entries.accountId} = ${accounts.accountId}`,
+                    )
+                    .limit(1);
+                  if (!walletEntry) throw new Error('Missing injected expiration entry');
+                  await target.insert(creditGrantEntries).values({
+                    tenantId,
+                    ledgerId: accounts.ledgerId,
+                    accountId: accounts.accountId,
+                    grantId: grant.grant.id,
+                    entryId: walletEntry.id,
+                    kind: 'EXPIRATION',
+                    amountMinor: 40n,
+                  });
+                  return result;
+                };
+              }
+              const value = Reflect.get(target, property, target);
+              return typeof value === 'function' ? value.bind(target) : value;
+            },
+          }) as DrizzleDatabase;
+          return action(hookedTx);
+        }),
+    };
+
+    try {
+      const hookedServices = createApplicationServices(hookedClient);
+      const result = await hookedServices.creditGrants.runExpirations({
+        tenantId,
+        asOf: new Date(Date.now() - 1),
+        limit: 10,
+      });
+      expect(injectedExpiration).toBeTrue();
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.amountMinor).toBe(60n);
+      const expiration = (
+        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
+      ).filter((item) => item.kind === 'EXPIRATION');
+      expect(expiration.map((item) => item.amountMinor)).toEqual([40n, 60n]);
+      expect(
+        (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0],
+      ).toMatchObject({ expiredMinor: 100n, remainingMinor: 0n });
+    } finally {
+      await hookedBaseClient.sql.end({ timeout: 5 });
     }
   });
 

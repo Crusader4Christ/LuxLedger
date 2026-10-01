@@ -15,7 +15,7 @@ import {
   type ProcessCreditGrantExpirationsInput,
   type ReverseCreditGrantInput,
 } from '@luxledger/core/application';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
@@ -278,16 +278,18 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     input: ProcessCreditGrantExpirationsInput,
     lock: boolean,
   ): Promise<ExpirationCandidate[]> {
-    type CandidateRow = {
+    type GrantCandidateRow = {
       grantId: string;
       accountId: string;
       fundingAccountId: string;
       ledgerId: string;
       expiresAt: Date;
-      remainingMinor: string;
-      expiredMinor: string;
       currency: string;
       createdAt: Date;
+    };
+    type CandidateRow = GrantCandidateRow & {
+      remainingMinor: string;
+      expiredMinor: string;
     };
     const capacityCte = sql`
       with capacities as (
@@ -299,8 +301,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         where l.tenant_id = ${input.tenantId}
         group by l.tenant_id, l.grant_id
       )`;
-    const rows = lock
-      ? await tx.execute<CandidateRow>(sql`${capacityCte}, due as (
+    let rows: CandidateRow[];
+    if (lock) {
+      const lockedGrants = await tx.execute<GrantCandidateRow>(sql`${capacityCte}, due as (
           select g.id
           from credit_grants g
           join capacities c on c.tenant_id = g.tenant_id and c.grant_id = g.id
@@ -312,33 +315,59 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         )
         select g.id as "grantId", g.account_id as "accountId",
           g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
-          g.expires_at as "expiresAt", g.created_at as "createdAt",
-          c.remaining_minor::text as "remainingMinor",
-          c.expired_minor::text as "expiredMinor", a.currency
+          g.expires_at as "expiresAt", g.created_at as "createdAt", a.currency
         from due d
         join credit_grants g on g.id = d.id
-        join capacities c on c.tenant_id = g.tenant_id and c.grant_id = g.id
         join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
           and a.id = g.account_id
         order by g.account_id asc, g.expires_at asc, g.created_at asc, g.id asc
         for update of g skip locked
-      `)
-      : await tx.execute<CandidateRow>(sql`${capacityCte}
-      select g.id as "grantId", g.account_id as "accountId",
-        g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
-        g.expires_at as "expiresAt", g.created_at as "createdAt",
-        c.remaining_minor::text as "remainingMinor",
-        c.expired_minor::text as "expiredMinor", a.currency
-      from credit_grants g
-      join capacities c on c.tenant_id = g.tenant_id and c.grant_id = g.id
-      join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
-        and a.id = g.account_id
-      where g.tenant_id = ${input.tenantId}
-        and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
-        and c.remaining_minor > 0
-      order by g.expires_at asc, g.created_at asc, g.id asc
-      limit ${input.limit}
-    `);
+      `);
+      if (lockedGrants.length === 0) return [];
+
+      const currentCapacities = await tx
+        .select({
+          grantId: schema.creditGrantEntries.grantId,
+          remainingMinor: sql<string>`sum(case when ${schema.creditGrantEntries.kind}::text in ('ISSUANCE', 'COMPENSATION') then ${schema.creditGrantEntries.amountMinor} else -${schema.creditGrantEntries.amountMinor} end)::text`,
+          expiredMinor: sql<string>`coalesce(sum(${schema.creditGrantEntries.amountMinor}) filter (where ${schema.creditGrantEntries.kind}::text = 'EXPIRATION'), 0)::text`,
+        })
+        .from(schema.creditGrantEntries)
+        .where(
+          and(
+            eq(schema.creditGrantEntries.tenantId, input.tenantId),
+            inArray(
+              schema.creditGrantEntries.grantId,
+              lockedGrants.map((grant) => grant.grantId),
+            ),
+          ),
+        )
+        .groupBy(schema.creditGrantEntries.grantId);
+      const capacityByGrant = new Map(
+        currentCapacities.map((capacity) => [capacity.grantId, capacity]),
+      );
+      rows = lockedGrants.flatMap((grant) => {
+        const capacity = capacityByGrant.get(grant.grantId);
+        if (!capacity || BigInt(capacity.remainingMinor) <= 0n) return [];
+        return [{ ...grant, ...capacity }];
+      });
+    } else {
+      rows = await tx.execute<CandidateRow>(sql`${capacityCte}
+        select g.id as "grantId", g.account_id as "accountId",
+          g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
+          g.expires_at as "expiresAt", g.created_at as "createdAt",
+          c.remaining_minor::text as "remainingMinor",
+          c.expired_minor::text as "expiredMinor", a.currency
+        from credit_grants g
+        join capacities c on c.tenant_id = g.tenant_id and c.grant_id = g.id
+        join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
+          and a.id = g.account_id
+        where g.tenant_id = ${input.tenantId}
+          and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
+          and c.remaining_minor > 0
+        order by g.expires_at asc, g.created_at asc, g.id asc
+        limit ${input.limit}
+      `);
+    }
     const candidates = rows.map((row) => ({
       grantId: row.grantId,
       accountId: row.accountId,
@@ -452,6 +481,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     }
     if (fundingAccount.currency !== grantAccount.currency) {
       throw new CreditGrantConflictError('Funding account currency mismatch');
+    }
+    if (input.expiresAt && (await this.hasGrantInTx(tx, input.tenantId, input.fundingAccountId))) {
+      throw new CreditGrantConflictError(
+        'Expiring credit grant funding account cannot be grant-enabled',
+      );
     }
   }
 

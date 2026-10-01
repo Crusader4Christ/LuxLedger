@@ -8,7 +8,7 @@ Expiration is immutable accounting, not a grant status change. A lot is spend-el
 
 ## Worker behavior
 
-Run claims due grants with `FOR UPDATE SKIP LOCKED`. Multiple workers may therefore receive different-sized pages, including an empty page while another worker owns the earliest rows. Each claimed positive balance posts a debit to the grant account and credit to the original funding account. The ledger transaction, entries, `EXPIRATION` lineage, balances, and snapshots share one database transaction.
+Run claims due grants with `FOR UPDATE SKIP LOCKED`. Multiple workers may therefore receive different-sized pages, including an empty page while another worker owns the earliest rows. After claiming, run re-aggregates immutable lineage in a separate statement while the grant locks remain held; concurrent capacity changes cannot leave the posting amount stale. Each claimed positive balance posts a debit to the grant account and credit to the original funding account. The ledger transaction, entries, `EXPIRATION` lineage, balances, and snapshots share one database transaction.
 
 The reference format is `credit-grant-expiration:<grant-id>:<cumulative-expired-minor>`. A retry of the same state resolves to the existing posting. A later compensation can restore capacity after an earlier expiration; the higher cumulative amount creates a new deterministic reference and is re-expired inside the reversal or correction transaction before commit.
 
@@ -22,4 +22,4 @@ Alert on repeated run failures, non-empty previews older than the worker service
 
 Retry failed runs with the same `as_of`; successful grants are already absent from derived remaining capacity. Never repair by updating grant rows or lineage. Investigate with the grant response, credit-balance read, allocation lineage, transaction entries, and balance snapshots.
 
-The due index bounds tenant/date ordering, but capacity remains an aggregate over immutable lineage. Preview and run therefore pay lineage aggregation cost for the tenant's grants before applying the bounded result limit. Credit-balance reads similarly aggregate all committed lineage for the account. Monitor those scans as history grows; do not add a mutable balance cache as an authority.
+The due index bounds tenant/date ordering, but capacity remains an aggregate over immutable lineage. Preview and run therefore pay lineage aggregation cost for the tenant's grants before applying the bounded result limit. Run also performs a second bounded aggregate for only the claimed grant IDs so posting uses capacity observed after locking. Credit-balance reads similarly aggregate all committed lineage for the account. Monitor those scans as history grows; do not add a mutable balance cache as an authority.
