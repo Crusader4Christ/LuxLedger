@@ -97,7 +97,9 @@ describe('framework-agnostic contract suite', () => {
             expect(creditGrantResponseSchema.properties.amount_minor).toEqual(responseAmount);
             expect(creditGrantLotResponseSchema.properties.granted_minor).toEqual(responseAmount);
             expect(creditGrantLotResponseSchema.properties.reversed_minor).toEqual(responseAmount);
+            expect(creditGrantLotResponseSchema.properties.expired_minor).toEqual(responseAmount);
             expect(creditGrantLotResponseSchema.properties.remaining_minor).toEqual(responseAmount);
+            expect(creditGrantResponseSchema.required).toContain('expires_at');
             expect(creditBalanceResponseSchema.properties.ledger_balance_minor).toEqual(
               responseAmount,
             );

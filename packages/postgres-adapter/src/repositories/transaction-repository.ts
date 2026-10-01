@@ -67,6 +67,20 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     });
   }
 
+  public postCreditGrantExpirationInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput,
+  ): Promise<CreateTransactionResult> {
+    return this.createOrResolvePostedTransaction(tx, {
+      ...input,
+      description: input.description ?? null,
+      effectiveAt: input.effectiveAt ?? undefined,
+      compareDescriptionOnRetry: true,
+      payloadMismatchMessage: 'Unable to expire credit grant: reference payload mismatch',
+      skipGrantLineage: true,
+    });
+  }
+
   private createInTx(
     tx: PostgresJsDatabase<typeof schema>,
     input: CreateTransactionInput & {
@@ -135,7 +149,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         );
       }
 
-      return this.createOrResolveReversal(tx, {
+      const reversal = await this.createOrResolveReversal(tx, {
         tenantId: input.tenantId,
         originalTransactionId: original.id,
         ledgerId: original.ledgerId,
@@ -150,6 +164,8 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           currency: entry.money.currency,
         })),
       });
+      await this.expireRestoredGrantsInTx(tx, input.tenantId, reversal.transactionId);
+      return reversal;
     });
   }
 
@@ -195,6 +211,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         description: input.description ?? null,
         entries: reversalEntries,
       });
+      await this.expireRestoredGrantsInTx(tx, input.tenantId, reversal.transactionId);
 
       const corrected = await this.createOrResolvePostedTransaction(tx, {
         tenantId: input.tenantId,
@@ -615,7 +632,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         amountMinor: schema.entries.amountMinor,
       });
     if (!input.skipGrantLineage) {
-      await this.recordGrantLineage(tx, input, insertedEntries);
+      await this.recordGrantLineage(tx, { ...input, effectiveAt }, insertedEntries);
     }
     const entriesForBalanceUpdate = aggregateAccountEntries(input.entries);
     for (const entry of entriesForBalanceUpdate) {
@@ -694,6 +711,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       assetId: string;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
+      effectiveAt: Date;
     },
     insertedEntries: Array<{
       id: string;
@@ -719,7 +737,11 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
     for (const [accountId, accountEntries] of orderedAccountEntries) {
       const grants = await tx
-        .select({ id: schema.creditGrants.id })
+        .select({
+          id: schema.creditGrants.id,
+          expiresAt: schema.creditGrants.expiresAt,
+          eligible: sql<boolean>`${schema.creditGrants.expiresAt} is null or (${schema.creditGrants.expiresAt} > ${input.effectiveAt.toISOString()}::timestamptz and ${schema.creditGrants.expiresAt} > transaction_timestamp())`,
+        })
         .from(schema.creditGrants)
         .where(
           and(
@@ -728,7 +750,11 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
             eq(schema.creditGrants.accountId, accountId),
           ),
         )
-        .orderBy(schema.creditGrants.createdAt, schema.creditGrants.id)
+        .orderBy(
+          sql`${schema.creditGrants.expiresAt} asc nulls last`,
+          schema.creditGrants.createdAt,
+          schema.creditGrants.id,
+        )
         .for('update');
       if (grants.length === 0) continue;
 
@@ -823,6 +849,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       for (const entry of debitEntries) {
         let required = entry.amountMinor;
         for (const grant of grants) {
+          if (!grant.eligible) continue;
           const available = remainingByGrant.get(grant.id) ?? 0n;
           if (available <= 0n) continue;
           const amountMinor = available < required ? available : required;
@@ -849,6 +876,125 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
     if (lineageRows.length > 0) {
       await tx.insert(schema.creditGrantEntries).values(lineageRows);
+    }
+  }
+
+  private async expireRestoredGrantsInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    tenantId: string,
+    compensationTransactionId: string,
+  ): Promise<void> {
+    const restored = await tx
+      .selectDistinct({ grantId: schema.creditGrantEntries.grantId })
+      .from(schema.creditGrantEntries)
+      .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
+      .innerJoin(schema.creditGrants, eq(schema.creditGrantEntries.grantId, schema.creditGrants.id))
+      .where(
+        and(
+          eq(schema.creditGrantEntries.tenantId, tenantId),
+          eq(schema.creditGrantEntries.kind, 'COMPENSATION'),
+          eq(schema.entries.transactionId, compensationTransactionId),
+          sql`${schema.creditGrants.expiresAt} <= transaction_timestamp()`,
+        ),
+      );
+    if (restored.length === 0) return;
+
+    const grants = await tx
+      .select({
+        id: schema.creditGrants.id,
+        tenantId: schema.creditGrants.tenantId,
+        ledgerId: schema.creditGrants.ledgerId,
+        accountId: schema.creditGrants.accountId,
+        fundingAccountId: schema.creditGrants.fundingAccountId,
+        expiresAt: schema.creditGrants.expiresAt,
+      })
+      .from(schema.creditGrants)
+      .where(
+        and(
+          eq(schema.creditGrants.tenantId, tenantId),
+          inArray(
+            schema.creditGrants.id,
+            restored.map((row) => row.grantId),
+          ),
+        ),
+      )
+      .orderBy(
+        schema.creditGrants.accountId,
+        schema.creditGrants.expiresAt,
+        schema.creditGrants.createdAt,
+        schema.creditGrants.id,
+      )
+      .for('update');
+
+    for (const grant of grants) {
+      if (!grant.expiresAt) continue;
+      const [capacity] = await tx
+        .select({
+          remainingMinor: sql<string>`sum(case when ${schema.creditGrantEntries.kind}::text in ('ISSUANCE', 'COMPENSATION') then ${schema.creditGrantEntries.amountMinor} else -${schema.creditGrantEntries.amountMinor} end)::text`,
+          expiredMinor: sql<string>`coalesce(sum(${schema.creditGrantEntries.amountMinor}) filter (where ${schema.creditGrantEntries.kind}::text = 'EXPIRATION'), 0)::text`,
+        })
+        .from(schema.creditGrantEntries)
+        .where(
+          and(
+            eq(schema.creditGrantEntries.tenantId, tenantId),
+            eq(schema.creditGrantEntries.grantId, grant.id),
+          ),
+        );
+      const remainingMinor = BigInt(capacity?.remainingMinor ?? '0');
+      if (remainingMinor <= 0n) continue;
+      const cumulativeExpiredMinor = BigInt(capacity?.expiredMinor ?? '0') + remainingMinor;
+      const [account] = await tx
+        .select({ currency: schema.accounts.currency })
+        .from(schema.accounts)
+        .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, grant.accountId)))
+        .limit(1);
+      if (!account)
+        throw new InvariantViolationError('Unable to expire credit grant: account missing');
+      const posted = await this.postCreditGrantExpirationInTx(tx, {
+        tenantId,
+        ledgerId: grant.ledgerId,
+        reference: `credit-grant-expiration:${grant.id}:${cumulativeExpiredMinor}`,
+        currency: account.currency,
+        effectiveAt: grant.expiresAt,
+        entries: [
+          {
+            accountId: grant.accountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: remainingMinor,
+            currency: account.currency,
+          },
+          {
+            accountId: grant.fundingAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: remainingMinor,
+            currency: account.currency,
+          },
+        ],
+      });
+      if (!posted.created) continue;
+      const [walletEntry] = await tx
+        .select({ id: schema.entries.id, amountMinor: schema.entries.amountMinor })
+        .from(schema.entries)
+        .where(
+          and(
+            eq(schema.entries.tenantId, tenantId),
+            eq(schema.entries.transactionId, posted.transactionId),
+            eq(schema.entries.accountId, grant.accountId),
+          ),
+        )
+        .limit(1);
+      if (!walletEntry) {
+        throw new InvariantViolationError('Unable to expire credit grant: wallet entry missing');
+      }
+      await tx.insert(schema.creditGrantEntries).values({
+        tenantId,
+        ledgerId: grant.ledgerId,
+        accountId: grant.accountId,
+        grantId: grant.id,
+        entryId: walletEntry.id,
+        kind: 'EXPIRATION',
+        amountMinor: walletEntry.amountMinor,
+      });
     }
   }
 

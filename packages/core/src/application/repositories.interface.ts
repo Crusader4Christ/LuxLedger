@@ -30,6 +30,7 @@ import type {
   CreateTransactionResult,
   CreditBalance,
   CreditGrant,
+  CreditGrantExpirationResult,
   CreditGrantLineage,
   CreditGrantResult,
   HistoricalBalance,
@@ -37,6 +38,7 @@ import type {
   LedgerTrialBalanceQuery,
   PaginatedResult,
   PaginationQuery,
+  ProcessCreditGrantExpirationsInput,
   ReconRun,
   ReconUpload,
   ReverseCreditGrantInput,
@@ -57,6 +59,10 @@ export interface CreditGrantRepository {
   getBalance(tenantId: string, accountId: string): Promise<CreditBalance>;
   listLineageByGrant(tenantId: string, grantId: string): Promise<CreditGrantLineage[]>;
   listLineageByTransaction(tenantId: string, transactionId: string): Promise<CreditGrantLineage[]>;
+  previewExpirations(
+    input: ProcessCreditGrantExpirationsInput,
+  ): Promise<CreditGrantExpirationResult>;
+  runExpirations(input: ProcessCreditGrantExpirationsInput): Promise<CreditGrantExpirationResult>;
 }
 
 export interface AssetRepository {

@@ -1,6 +1,12 @@
-import type { CreditBalance, CreditGrant, CreditGrantLineage } from '@luxledger/core/application';
+import type {
+  CreditBalance,
+  CreditGrant,
+  CreditGrantExpirationResult,
+  CreditGrantLineage,
+} from '@luxledger/core/application';
 import type {
   CreditBalanceResponse,
+  CreditGrantExpirationResponse,
   CreditGrantLineageResponse,
   CreditGrantResponse,
 } from '../contracts/credit-grants';
@@ -17,6 +23,7 @@ export const toCreditGrantResponse = (grant: CreditGrant): CreditGrantResponse =
   amount_minor: grant.amountMinor.toString(),
   transaction_id: grant.transactionId,
   created_at: grant.createdAt.toISOString(),
+  expires_at: grant.expiresAt?.toISOString() ?? null,
   reversed_by_transaction_id: grant.reversedByTransactionId,
 });
 
@@ -30,11 +37,28 @@ export const toCreditBalanceResponse = (balance: CreditBalance): CreditBalanceRe
     reference: lot.reference,
     external_reference: lot.externalReference,
     created_at: lot.createdAt.toISOString(),
+    expires_at: lot.expiresAt?.toISOString() ?? null,
     granted_minor: lot.grantedMinor.toString(),
     reversed_minor: lot.reversedMinor.toString(),
     consumed_minor: lot.consumedMinor.toString(),
     compensated_minor: lot.compensatedMinor.toString(),
+    expired_minor: lot.expiredMinor.toString(),
     remaining_minor: lot.remainingMinor.toString(),
+  })),
+});
+
+export const toCreditGrantExpirationResponse = (
+  result: CreditGrantExpirationResult,
+): CreditGrantExpirationResponse => ({
+  as_of: result.asOf.toISOString(),
+  items: result.items.map((item) => ({
+    grant_id: item.grantId,
+    account_id: item.accountId,
+    funding_account_id: item.fundingAccountId,
+    expires_at: item.expiresAt.toISOString(),
+    amount_minor: item.amountMinor.toString(),
+    cumulative_expired_minor: item.cumulativeExpiredMinor.toString(),
+    transaction_id: item.transactionId,
   })),
 });
 

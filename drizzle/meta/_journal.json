@@ -99,6 +99,13 @@
       "when": 1790610101591,
       "tag": "0013_credit_grant_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790870180897,
+      "tag": "0014_2026-10-01-credit-grant-expiration",
+      "breakpoints": true
     }
   ]
 }

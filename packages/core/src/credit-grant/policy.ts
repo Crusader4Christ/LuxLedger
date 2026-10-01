@@ -17,17 +17,26 @@ export const creditGrantRemaining = (input: {
   reversedMinor: bigint;
   consumedMinor?: bigint;
   compensatedMinor?: bigint;
+  expiredMinor?: bigint;
 }): bigint => {
-  const amounts = Object.values(input);
+  const consumedMinor = input.consumedMinor ?? 0n;
+  const compensatedMinor = input.compensatedMinor ?? 0n;
+  const expiredMinor = input.expiredMinor ?? 0n;
+  const amounts = [
+    input.grantedMinor,
+    input.reversedMinor,
+    consumedMinor,
+    compensatedMinor,
+    expiredMinor,
+  ];
   if (amounts.some((value) => value < 0n)) {
     throw new InvalidCreditGrantError('Credit grant totals cannot be negative');
   }
-  const consumedMinor = input.consumedMinor ?? 0n;
-  const compensatedMinor = input.compensatedMinor ?? 0n;
   if (compensatedMinor > consumedMinor || input.reversedMinor > input.grantedMinor) {
     throw new InvalidCreditGrantError('Credit grant lineage totals are inconsistent');
   }
-  const remaining = input.grantedMinor - input.reversedMinor - consumedMinor + compensatedMinor;
+  const remaining =
+    input.grantedMinor - input.reversedMinor - consumedMinor + compensatedMinor - expiredMinor;
   if (remaining < 0n) {
     throw new InvalidCreditGrantError('Credit grant remaining capacity cannot be negative');
   }

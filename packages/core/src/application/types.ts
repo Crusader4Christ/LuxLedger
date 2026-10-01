@@ -39,6 +39,7 @@ export interface CreateCreditGrantInput {
   reference: string;
   externalReference?: string | null;
   amountMinor: bigint;
+  expiresAt?: Date | null;
 }
 
 export interface CreditGrant {
@@ -53,6 +54,7 @@ export interface CreditGrant {
   amountMinor: bigint;
   transactionId: string;
   createdAt: Date;
+  expiresAt: Date | null;
   reversedByTransactionId: string | null;
 }
 
@@ -70,10 +72,12 @@ export interface CreditGrantLotBalance {
   reference: string;
   externalReference: string | null;
   createdAt: Date;
+  expiresAt: Date | null;
   grantedMinor: bigint;
   reversedMinor: bigint;
   consumedMinor: bigint;
   compensatedMinor: bigint;
+  expiredMinor: bigint;
   remainingMinor: bigint;
 }
 export interface CreditBalance {
@@ -83,7 +87,7 @@ export interface CreditBalance {
   remainingMinor: bigint;
   lots: CreditGrantLotBalance[];
 }
-export type CreditGrantLineageKind = 'CONSUMPTION' | 'COMPENSATION';
+export type CreditGrantLineageKind = 'CONSUMPTION' | 'COMPENSATION' | 'EXPIRATION';
 export interface CreditGrantLineage {
   grantId: string;
   entryId: string;
@@ -91,6 +95,27 @@ export interface CreditGrantLineage {
   kind: CreditGrantLineageKind;
   amountMinor: bigint;
   createdAt: Date;
+}
+
+export interface ProcessCreditGrantExpirationsInput {
+  tenantId: string;
+  asOf: Date;
+  limit: number;
+}
+
+export interface CreditGrantExpirationItem {
+  grantId: string;
+  accountId: string;
+  fundingAccountId: string;
+  expiresAt: Date;
+  amountMinor: bigint;
+  cumulativeExpiredMinor: bigint;
+  transactionId: string | null;
+}
+
+export interface CreditGrantExpirationResult {
+  asOf: Date;
+  items: CreditGrantExpirationItem[];
 }
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
 export type Ledger = LedgerEntity;

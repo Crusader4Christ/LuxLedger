@@ -5,10 +5,14 @@ import {
   type CreditBalance,
   type CreditGrant,
   CreditGrantConflictError,
+  type CreditGrantExpirationItem,
+  type CreditGrantExpirationResult,
   type CreditGrantLineage,
   CreditGrantNotFoundError,
   type CreditGrantRepository,
   type CreditGrantResult,
+  InvariantViolationError,
+  type ProcessCreditGrantExpirationsInput,
   type ReverseCreditGrantInput,
 } from '@luxledger/core/application';
 import { and, eq, sql } from 'drizzle-orm';
@@ -19,6 +23,11 @@ import { DrizzleTransactionRepository } from './transaction-repository';
 
 type GrantRow = typeof schema.creditGrants.$inferSelect;
 type Tx = DrizzleDatabase;
+type ExpirationCandidate = CreditGrantExpirationItem & {
+  ledgerId: string;
+  currency: string;
+  createdAt: Date;
+};
 
 export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   private readonly transactions: DrizzleTransactionRepository;
@@ -55,6 +64,15 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         return { grant, created: false };
       }
 
+      if (input.expiresAt) {
+        const [clock] = await tx.execute<{ databaseNow: Date }>(
+          sql`select transaction_timestamp() as "databaseNow"`,
+        );
+        if (!clock || input.expiresAt.getTime() <= new Date(clock.databaseNow).getTime()) {
+          throw new CreditGrantConflictError('Grant expiration must be strictly in the future');
+        }
+      }
+
       const account = await this.assertIssuanceAccountInTx(tx, input);
       await this.assertFundingAccountInTx(tx, input, account);
       const id = generateUuidV7();
@@ -89,6 +107,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           reference: input.reference,
           externalReference: input.externalReference ?? null,
           transactionId: posted.transactionId,
+          expiresAt: input.expiresAt ?? null,
         })
         .returning();
       if (!row) throw new CreditGrantConflictError('Grant insert failed');
@@ -135,6 +154,20 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         return { grant: await this.toGrant(tx, row), created: false };
       }
       const grant = await this.toGrant(tx, row);
+      const [priorUse] = await tx
+        .select({ entryId: schema.creditGrantEntries.entryId })
+        .from(schema.creditGrantEntries)
+        .where(
+          and(
+            eq(schema.creditGrantEntries.tenantId, input.tenantId),
+            eq(schema.creditGrantEntries.grantId, row.id),
+            sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'EXPIRATION')`,
+          ),
+        )
+        .limit(1);
+      if (priorUse) {
+        throw new CreditGrantConflictError('Consumed or expired grant cannot be fully reversed');
+      }
       const balance = await this.balanceInTx(tx, input.tenantId, row.accountId);
       const lot = balance.lots.find((candidate) => candidate.grantId === row.id);
       if (!lot || lot.remainingMinor !== grant.amountMinor) {
@@ -205,6 +238,168 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return this.client.runTenantTx(tenantId, 'list transaction credit lineage', (tx) =>
       this.listLineageInTx(tx, tenantId, { transactionId }),
     );
+  }
+
+  public previewExpirations(
+    input: ProcessCreditGrantExpirationsInput,
+  ): Promise<CreditGrantExpirationResult> {
+    return this.client.runTenantTx(
+      input.tenantId,
+      'preview credit grant expirations',
+      async (tx) => ({
+        asOf: input.asOf,
+        items: await this.findExpirationCandidates(tx, input, false),
+      }),
+    );
+  }
+
+  public runExpirations(
+    input: ProcessCreditGrantExpirationsInput,
+  ): Promise<CreditGrantExpirationResult> {
+    return this.client.runTenantTx(input.tenantId, 'run credit grant expirations', async (tx) => {
+      const [clock] = await tx.execute<{ databaseNow: Date }>(
+        sql`select transaction_timestamp() as "databaseNow"`,
+      );
+      if (!clock || input.asOf.getTime() > new Date(clock.databaseNow).getTime()) {
+        throw new InvariantViolationError('Expiration asOf cannot be later than database time');
+      }
+      const candidates = await this.findExpirationCandidates(tx, input, true);
+      const items: CreditGrantExpirationItem[] = [];
+      for (const candidate of candidates) {
+        const posted = await this.postExpirationInTx(tx, candidate);
+        items.push({ ...candidate, transactionId: posted.transactionId });
+      }
+      return { asOf: input.asOf, items };
+    });
+  }
+
+  private async findExpirationCandidates(
+    tx: Tx,
+    input: ProcessCreditGrantExpirationsInput,
+    lock: boolean,
+  ): Promise<ExpirationCandidate[]> {
+    type CandidateRow = {
+      grantId: string;
+      accountId: string;
+      fundingAccountId: string;
+      ledgerId: string;
+      expiresAt: Date;
+      remainingMinor: string;
+      expiredMinor: string;
+      currency: string;
+      createdAt: Date;
+    };
+    const capacityCte = sql`
+      with capacities as (
+        select l.tenant_id, l.grant_id,
+          sum(case when l.kind::text in ('ISSUANCE', 'COMPENSATION')
+            then l.amount_minor else -l.amount_minor end) as remaining_minor,
+          coalesce(sum(l.amount_minor) filter (where l.kind::text = 'EXPIRATION'), 0) as expired_minor
+        from credit_grant_entries l
+        where l.tenant_id = ${input.tenantId}
+        group by l.tenant_id, l.grant_id
+      )`;
+    const rows = lock
+      ? await tx.execute<CandidateRow>(sql`${capacityCte}, due as (
+          select g.id
+          from credit_grants g
+          join capacities c on c.tenant_id = g.tenant_id and c.grant_id = g.id
+          where g.tenant_id = ${input.tenantId}
+            and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
+            and c.remaining_minor > 0
+          order by g.expires_at asc, g.created_at asc, g.id asc
+          limit ${input.limit}
+        )
+        select g.id as "grantId", g.account_id as "accountId",
+          g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
+          g.expires_at as "expiresAt", g.created_at as "createdAt",
+          c.remaining_minor::text as "remainingMinor",
+          c.expired_minor::text as "expiredMinor", a.currency
+        from due d
+        join credit_grants g on g.id = d.id
+        join capacities c on c.tenant_id = g.tenant_id and c.grant_id = g.id
+        join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
+          and a.id = g.account_id
+        order by g.account_id asc, g.expires_at asc, g.created_at asc, g.id asc
+        for update of g skip locked
+      `)
+      : await tx.execute<CandidateRow>(sql`${capacityCte}
+      select g.id as "grantId", g.account_id as "accountId",
+        g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
+        g.expires_at as "expiresAt", g.created_at as "createdAt",
+        c.remaining_minor::text as "remainingMinor",
+        c.expired_minor::text as "expiredMinor", a.currency
+      from credit_grants g
+      join capacities c on c.tenant_id = g.tenant_id and c.grant_id = g.id
+      join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
+        and a.id = g.account_id
+      where g.tenant_id = ${input.tenantId}
+        and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
+        and c.remaining_minor > 0
+      order by g.expires_at asc, g.created_at asc, g.id asc
+      limit ${input.limit}
+    `);
+    const candidates = rows.map((row) => ({
+      grantId: row.grantId,
+      accountId: row.accountId,
+      fundingAccountId: row.fundingAccountId,
+      ledgerId: row.ledgerId,
+      expiresAt: new Date(row.expiresAt),
+      amountMinor: BigInt(row.remainingMinor),
+      cumulativeExpiredMinor: BigInt(row.expiredMinor) + BigInt(row.remainingMinor),
+      currency: row.currency,
+      createdAt: new Date(row.createdAt),
+      transactionId: null,
+    }));
+    return candidates.sort(
+      (left, right) =>
+        left.expiresAt.getTime() - right.expiresAt.getTime() ||
+        left.createdAt.getTime() - right.createdAt.getTime() ||
+        left.grantId.localeCompare(right.grantId),
+    );
+  }
+
+  private async postExpirationInTx(
+    tx: Tx,
+    candidate: ExpirationCandidate,
+  ): Promise<{ transactionId: string }> {
+    const reference = `credit-grant-expiration:${candidate.grantId}:${candidate.cumulativeExpiredMinor}`;
+    const posted = await this.transactions.postCreditGrantExpirationInTx(tx, {
+      tenantId: (await this.requireGrantRow(tx, candidate.grantId)).tenantId,
+      ledgerId: candidate.ledgerId,
+      reference,
+      currency: candidate.currency,
+      effectiveAt: candidate.expiresAt,
+      entries: [
+        {
+          accountId: candidate.accountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: candidate.amountMinor,
+          currency: candidate.currency,
+        },
+        {
+          accountId: candidate.fundingAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: candidate.amountMinor,
+          currency: candidate.currency,
+        },
+      ],
+    });
+    if (posted.created) {
+      const row = await this.requireGrantRow(tx, candidate.grantId);
+      await this.linkWalletEntry(tx, row, posted.transactionId, 'EXPIRATION');
+    }
+    return { transactionId: posted.transactionId };
+  }
+
+  private async requireGrantRow(tx: Tx, grantId: string): Promise<GrantRow> {
+    const [row] = await tx
+      .select()
+      .from(schema.creditGrants)
+      .where(eq(schema.creditGrants.id, grantId))
+      .limit(1);
+    if (!row) throw new CreditGrantNotFoundError(grantId);
+    return row;
   }
 
   private async lockCreditAccount(tx: Tx, tenantId: string, accountId: string) {
@@ -355,6 +550,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         externalReference: schema.creditGrants.externalReference,
         transactionId: schema.creditGrants.transactionId,
         createdAt: schema.creditGrants.createdAt,
+        expiresAt: schema.creditGrants.expiresAt,
       })
       .from(schema.creditGrants)
       .where(
@@ -417,6 +613,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       let reversedMinor = 0n;
       let consumedMinor = 0n;
       let compensatedMinor = 0n;
+      let expiredMinor = 0n;
       let issuanceCount = 0;
       for (const movement of byGrant.get(row.id) ?? []) {
         if (
@@ -448,6 +645,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           movement.entryDirection === 'CREDIT'
         ) {
           compensatedMinor += movement.linkedAmountMinor;
+        } else if (movement.linkKind === 'EXPIRATION' && movement.entryDirection === 'DEBIT') {
+          expiredMinor += movement.linkedAmountMinor;
         } else {
           throw new CreditGrantConflictError('Unsupported credit lot movement');
         }
@@ -460,10 +659,12 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         reference: row.reference,
         externalReference: row.externalReference,
         createdAt: row.createdAt,
+        expiresAt: row.expiresAt,
         grantedMinor,
         reversedMinor,
         consumedMinor,
         compensatedMinor,
+        expiredMinor,
         remainingMinor: 0n,
       };
       lot.remainingMinor = creditGrantRemaining(lot);
@@ -492,7 +693,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   ): Promise<CreditGrantLineage[]> {
     const predicates = [
       eq(schema.creditGrantEntries.tenantId, tenantId),
-      sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION')`,
+      sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION', 'EXPIRATION')`,
     ];
     if (filter.grantId) predicates.push(eq(schema.creditGrantEntries.grantId, filter.grantId));
     if (filter.transactionId)
@@ -520,7 +721,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     tx: Tx,
     row: GrantRow,
     transactionId: string,
-    kind: 'ISSUANCE' | 'REVERSAL',
+    kind: 'ISSUANCE' | 'REVERSAL' | 'EXPIRATION',
   ): Promise<void> {
     const walletEntries = await tx
       .select({ id: schema.entries.id, amountMinor: schema.entries.amountMinor })
@@ -589,6 +790,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       amountMinor: issuance.amountMinor,
       transactionId: row.transactionId,
       createdAt: row.createdAt,
+      expiresAt: row.expiresAt,
       reversedByTransactionId: reversal?.id ?? null,
     };
   }
@@ -597,7 +799,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return (
       grant.fundingAccountId === input.fundingAccountId &&
       grant.amountMinor === input.amountMinor &&
-      grant.externalReference === (input.externalReference ?? null)
+      grant.externalReference === (input.externalReference ?? null) &&
+      (grant.expiresAt?.getTime() ?? null) === (input.expiresAt?.getTime() ?? null)
     );
   }
 

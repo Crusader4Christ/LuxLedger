@@ -348,6 +348,7 @@ export const creditGrants = pgTable(
     reference: text('reference').notNull(),
     externalReference: text('external_reference'),
     transactionId: uuid('transaction_id').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -364,6 +365,12 @@ export const creditGrants = pgTable(
     tenantAccountCreatedIdIdx: index('credit_grants_tenant_account_created_id_idx').on(
       table.tenantId,
       table.accountId,
+      table.createdAt,
+      table.id,
+    ),
+    tenantDueIdx: index('credit_grants_tenant_due_idx').on(
+      table.tenantId,
+      table.expiresAt,
       table.createdAt,
       table.id,
     ),
@@ -400,6 +407,7 @@ export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', [
   'REVERSAL',
   'CONSUMPTION',
   'COMPENSATION',
+  'EXPIRATION',
 ]);
 
 export const creditGrantEntries = pgTable(
