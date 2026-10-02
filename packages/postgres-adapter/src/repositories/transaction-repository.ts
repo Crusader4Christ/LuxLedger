@@ -822,29 +822,28 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
       const debitEntries = accountEntries.filter((entry) => entry.direction === 'DEBIT');
       if (debitEntries.length === 0) continue;
-      const movements = await tx
-        .select({
-          grantId: schema.creditGrantEntries.grantId,
-          kind: schema.creditGrantEntries.kind,
-          amountMinor: schema.creditGrantEntries.amountMinor,
+      const capacities = await tx
+        .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
+          grantId: schema.creditGrantCapacityVersions.grantId,
+          remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
         })
-        .from(schema.creditGrantEntries)
+        .from(schema.creditGrantCapacityVersions)
         .where(
           and(
-            eq(schema.creditGrantEntries.tenantId, input.tenantId),
+            eq(schema.creditGrantCapacityVersions.tenantId, input.tenantId),
             inArray(
-              schema.creditGrantEntries.grantId,
+              schema.creditGrantCapacityVersions.grantId,
               grants.map((grant) => grant.id),
             ),
           ),
+        )
+        .orderBy(
+          schema.creditGrantCapacityVersions.grantId,
+          desc(schema.creditGrantCapacityVersions.version),
         );
       const remainingByGrant = new Map(grants.map((grant) => [grant.id, 0n]));
-      for (const movement of movements) {
-        const sign = movement.kind === 'ISSUANCE' || movement.kind === 'COMPENSATION' ? 1n : -1n;
-        remainingByGrant.set(
-          movement.grantId,
-          (remainingByGrant.get(movement.grantId) ?? 0n) + sign * movement.amountMinor,
-        );
+      for (const capacity of capacities) {
+        remainingByGrant.set(capacity.grantId, capacity.remainingMinor);
       }
       for (const entry of debitEntries) {
         let required = entry.amountMinor;
@@ -930,19 +929,21 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       if (!grant.expiresAt) continue;
       const [capacity] = await tx
         .select({
-          remainingMinor: sql<string>`sum(case when ${schema.creditGrantEntries.kind}::text in ('ISSUANCE', 'COMPENSATION') then ${schema.creditGrantEntries.amountMinor} else -${schema.creditGrantEntries.amountMinor} end)::text`,
-          expiredMinor: sql<string>`coalesce(sum(${schema.creditGrantEntries.amountMinor}) filter (where ${schema.creditGrantEntries.kind}::text = 'EXPIRATION'), 0)::text`,
+          remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
+          expiredMinor: schema.creditGrantCapacityVersions.expiredMinor,
         })
-        .from(schema.creditGrantEntries)
+        .from(schema.creditGrantCapacityVersions)
         .where(
           and(
-            eq(schema.creditGrantEntries.tenantId, tenantId),
-            eq(schema.creditGrantEntries.grantId, grant.id),
+            eq(schema.creditGrantCapacityVersions.tenantId, tenantId),
+            eq(schema.creditGrantCapacityVersions.grantId, grant.id),
           ),
-        );
-      const remainingMinor = BigInt(capacity?.remainingMinor ?? '0');
+        )
+        .orderBy(desc(schema.creditGrantCapacityVersions.version))
+        .limit(1);
+      const remainingMinor = capacity?.remainingMinor ?? 0n;
       if (remainingMinor <= 0n) continue;
-      const cumulativeExpiredMinor = BigInt(capacity?.expiredMinor ?? '0') + remainingMinor;
+      const cumulativeExpiredMinor = (capacity?.expiredMinor ?? 0n) + remainingMinor;
       const [account] = await tx
         .select({ currency: schema.accounts.currency })
         .from(schema.accounts)

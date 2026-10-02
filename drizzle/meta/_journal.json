@@ -113,6 +113,13 @@
       "when": 1790873763700,
       "tag": "0015_prevent-expiring-grant-enabled-funding",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790942278167,
+      "tag": "0016_credit-grant-capacity-versions",
+      "breakpoints": true
     }
   ]
 }

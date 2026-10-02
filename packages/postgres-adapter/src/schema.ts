@@ -462,6 +462,70 @@ export const creditGrantEntries = pgTable(
   }),
 );
 
+export const creditGrantCapacityVersions = pgTable(
+  'credit_grant_capacity_versions',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    ledgerId: uuid('ledger_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    grantId: uuid('grant_id').notNull(),
+    sourceEntryId: uuid('source_entry_id'),
+    version: bigint('version', { mode: 'bigint' }).notNull(),
+    grantedMinor: bigint('granted_minor', { mode: 'bigint' }).notNull(),
+    reversedMinor: bigint('reversed_minor', { mode: 'bigint' }).notNull(),
+    consumedMinor: bigint('consumed_minor', { mode: 'bigint' }).notNull(),
+    compensatedMinor: bigint('compensated_minor', { mode: 'bigint' }).notNull(),
+    expiredMinor: bigint('expired_minor', { mode: 'bigint' }).notNull(),
+    remainingMinor: bigint('remaining_minor', { mode: 'bigint' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    grantVersionUq: uniqueIndex('credit_grant_capacity_versions_grant_version_uq').on(
+      table.grantId,
+      table.version,
+    ),
+    sourceEntryUq: uniqueIndex('credit_grant_capacity_versions_source_entry_uq').on(
+      table.grantId,
+      table.sourceEntryId,
+    ),
+    tenantGrantVersionIdx: index('credit_grant_capacity_versions_tenant_grant_version_idx').on(
+      table.tenantId,
+      table.grantId,
+      table.version,
+    ),
+    grantFk: foreignKey({
+      name: 'credit_grant_capacity_versions_grant_fk',
+      columns: [table.tenantId, table.ledgerId, table.accountId, table.grantId],
+      foreignColumns: [
+        creditGrants.tenantId,
+        creditGrants.ledgerId,
+        creditGrants.accountId,
+        creditGrants.id,
+      ],
+    }),
+    sourceEntryFk: foreignKey({
+      name: 'credit_grant_capacity_versions_source_entry_fk',
+      columns: [table.grantId, table.sourceEntryId],
+      foreignColumns: [creditGrantEntries.grantId, creditGrantEntries.entryId],
+    }),
+    versionPositiveChk: check(
+      'credit_grant_capacity_versions_version_nonnegative_chk',
+      sql`${table.version} >= 0`,
+    ),
+    totalsNonnegativeChk: check(
+      'credit_grant_capacity_versions_totals_nonnegative_chk',
+      sql`${table.grantedMinor} >= 0 and ${table.reversedMinor} >= 0 and ${table.consumedMinor} >= 0 and ${table.compensatedMinor} >= 0 and ${table.expiredMinor} >= 0 and ${table.remainingMinor} >= 0`,
+    ),
+    remainingChk: check(
+      'credit_grant_capacity_versions_remaining_chk',
+      sql`${table.remainingMinor} = ${table.grantedMinor} + ${table.compensatedMinor} - ${table.reversedMinor} - ${table.consumedMinor} - ${table.expiredMinor}`,
+    ),
+  }),
+);
+
 export const balanceSnapshots = pgTable(
   'balance_snapshots',
   {

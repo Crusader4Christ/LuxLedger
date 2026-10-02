@@ -7,6 +7,7 @@ import { createDbClient, type DbClient, type DrizzleDatabase } from '../../src/c
 import { DrizzleTransactionRepository } from '../../src/repositories/transaction-repository';
 import {
   accounts as accountRows,
+  creditGrantCapacityVersions,
   creditGrantEntries,
   creditGrants,
   entries,
@@ -225,6 +226,21 @@ describe('credit grants', () => {
     expect(
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(40n);
+
+    const firstGrantVersions = await db
+      .select({
+        version: creditGrantCapacityVersions.version,
+        consumedMinor: creditGrantCapacityVersions.consumedMinor,
+        remainingMinor: creditGrantCapacityVersions.remainingMinor,
+      })
+      .from(creditGrantCapacityVersions)
+      .where(eq(creditGrantCapacityVersions.grantId, first.grant.id))
+      .orderBy(creditGrantCapacityVersions.version);
+    expect(firstGrantVersions).toEqual([
+      { version: 1n, consumedMinor: 0n, remainingMinor: 100n },
+      { version: 2n, consumedMinor: 80n, remainingMinor: 20n },
+      { version: 3n, consumedMinor: 100n, remainingMinor: 0n },
+    ]);
   });
 
   it('allocates each grant-enabled account independently in one transaction', async () => {
@@ -881,6 +897,21 @@ describe('credit grants', () => {
           .update(creditGrants)
           .set({ externalReference: 'tampered' })
           .where(eq(creditGrants.id, result.grant.id));
+      })(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await db
+          .update(creditGrantCapacityVersions)
+          .set({ remainingMinor: 99n })
+          .where(eq(creditGrantCapacityVersions.grantId, result.grant.id));
+      })(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await db
+          .delete(creditGrantCapacityVersions)
+          .where(eq(creditGrantCapacityVersions.grantId, result.grant.id));
       })(),
     ).rejects.toThrow();
     expect(
