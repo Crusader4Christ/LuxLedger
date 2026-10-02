@@ -50,8 +50,8 @@ CREATE TRIGGER credit_grant_capacity_versions_immutable
   FOR EACH ROW EXECUTE FUNCTION reject_credit_grant_mutation();--> statement-breakpoint
 CREATE FUNCTION reject_credit_grant_capacity_baseline_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.source_entry_id IS NULL THEN
-    RAISE EXCEPTION 'credit grant capacity baseline can only be created by migration';
+  IF NEW.source_entry_id IS NULL OR pg_trigger_depth() < 2 THEN
+    RAISE EXCEPTION 'credit grant capacity versions can only be appended from lineage';
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint

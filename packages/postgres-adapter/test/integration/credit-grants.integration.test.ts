@@ -914,6 +914,24 @@ describe('credit grants', () => {
           .where(eq(creditGrantCapacityVersions.grantId, result.grant.id));
       })(),
     ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await db.insert(creditGrantCapacityVersions).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: result.grant.id,
+          sourceEntryId: crypto.randomUUID(),
+          version: 99n,
+          grantedMinor: 100n,
+          reversedMinor: 0n,
+          consumedMinor: 0n,
+          compensatedMinor: 0n,
+          expiredMinor: 0n,
+          remainingMinor: 100n,
+        });
+      })(),
+    ).rejects.toThrow();
     expect(
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(100n);
@@ -1785,6 +1803,52 @@ describe('credit grants', () => {
       ).filter((item) => item.kind === 'EXPIRATION');
       expect(expiration).toHaveLength(1);
       expect(expiration[0]?.amountMinor).toBe(100n);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('serializes a late reversal against an expiration worker without capacity drift', async () => {
+    const tenantId = await createTenant(db, 'late-reversal-concurrency');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 100);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'late-reversal-concurrent-grant'),
+      expiresAt,
+    });
+    const consumed = await consume(tenantId, accounts, 'late-reversal-concurrent-spend', 80n);
+    await new Promise((resolve) => setTimeout(resolve, 140));
+
+    const secondClient = createDbClient({ databaseUrl, max: 2 });
+    try {
+      const other = createApplicationServices(secondClient);
+      const [run, reversal] = await Promise.all([
+        services.creditGrants.runExpirations({
+          tenantId,
+          asOf: new Date(Date.now() - 1),
+          limit: 10,
+        }),
+        other.transactions.reverse({
+          tenantId,
+          transactionId: consumed.transactionId,
+          reference: 'late-reversal-concurrent-reversal',
+        }),
+      ]);
+      expect(run.items.length).toBeLessThanOrEqual(1);
+      expect(reversal.created).toBeTrue();
+
+      const lot = (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0];
+      expect(lot).toMatchObject({
+        consumedMinor: 80n,
+        compensatedMinor: 80n,
+        expiredMinor: 100n,
+        remainingMinor: 0n,
+      });
+      const expiration = (
+        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
+      ).filter((item) => item.kind === 'EXPIRATION');
+      expect(expiration.reduce((sum, item) => sum + item.amountMinor, 0n)).toBe(100n);
+      expect(new Set(expiration.map((item) => item.transactionId)).size).toBe(expiration.length);
     } finally {
       await secondClient.sql.end({ timeout: 5 });
     }
