@@ -316,6 +316,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       )`;
     let rows: CandidateRow[];
     if (lock) {
+      // The bounded window is selected by business FEFO above. Acquire its grant locks by
+      // account first to preserve the LL-91 multi-account lock hierarchy, then restore FEFO
+      // before returning candidates. SKIP LOCKED may therefore produce a short page.
       const lockedGrants = await tx.execute<GrantCandidateRow>(sql`${dueCte}
         select d."grantId", d."accountId", d."fundingAccountId", d."ledgerId",
           d."expiresAt", d."createdAt", d.currency

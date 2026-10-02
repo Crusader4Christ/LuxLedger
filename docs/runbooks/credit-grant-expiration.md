@@ -8,7 +8,11 @@ Expiration is immutable accounting, not a grant status change. A lot is spend-el
 
 ## Worker behavior
 
-Run claims due grants with `FOR UPDATE SKIP LOCKED`. Multiple workers may therefore receive different-sized pages, including an empty page while another worker owns the earliest rows. After claiming, run reads the latest immutable capacity version in a separate statement while the grant locks remain held; concurrent capacity changes cannot leave the posting amount stale. Each claimed positive balance posts a debit to the grant account and credit to the original funding account. The ledger transaction, entries, `EXPIRATION` lineage, capacity version, balances, and snapshots share one database transaction.
+Run first selects its bounded candidate window in business FEFO order. It acquires the selected grant locks in `account_id`, `expires_at`, `created_at`, `id` order to preserve the deterministic multi-account lock hierarchy introduced by LL-91, then restores FEFO order in memory before returning or posting the locked subset. `account_id` is a physical lock-order key, not an allocation or expiration-priority rule.
+
+`FOR UPDATE SKIP LOCKED` means another worker may own one or more grants inside the selected window. The call then returns a short or empty page rather than waiting or scanning beyond that bounded window. This is safe: locked grants remain unchanged by this worker, every returned item is still FEFO-sorted, and a later run considers the skipped grants again after their owner commits. Workers must repeat run until the backlog preview is empty; an empty run response during concurrent processing does not by itself prove that no worker-owned due grants remain.
+
+After claiming, run reads the latest immutable capacity version in a separate statement while the grant locks remain held; concurrent capacity changes cannot leave the posting amount stale. Each claimed positive balance posts a debit to the grant account and credit to the original funding account. The ledger transaction, entries, `EXPIRATION` lineage, capacity version, balances, and snapshots share one database transaction.
 
 The reference format is `credit-grant-expiration:<grant-id>:<cumulative-expired-minor>`. A retry of the same state resolves to the existing posting. A later compensation can restore capacity after an earlier expiration; the higher cumulative amount creates a new deterministic reference and is re-expired inside the reversal or correction transaction before commit.
 

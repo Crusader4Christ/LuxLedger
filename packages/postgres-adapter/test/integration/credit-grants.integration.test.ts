@@ -1630,6 +1630,73 @@ describe('credit grants', () => {
     ).rejects.toThrow('later than database time');
   });
 
+  it('returns a short FEFO-sorted page when the earliest bounded grant is locked', async () => {
+    const tenantId = await createTenant(db, 'expiration-skip-locked-order');
+    const accounts = await setup(tenantId);
+    const firstExpiry = new Date(Date.now() + 120);
+    const first = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'skip-locked-first'),
+      expiresAt: firstExpiry,
+    });
+    const second = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'skip-locked-second'),
+      expiresAt: new Date(firstExpiry.getTime() + 1),
+    });
+    const third = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'skip-locked-third'),
+      expiresAt: new Date(firstExpiry.getTime() + 2),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 170));
+
+    const lockClient = createDbClient({ databaseUrl, max: 1 });
+    let reportLocked: () => void = () => {};
+    let releaseLock: () => void = () => {};
+    const locked = new Promise<void>((resolve) => {
+      reportLocked = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const lockTransaction = lockClient.runTenantTx(
+      tenantId,
+      'hold earliest grant lock',
+      async (tx) => {
+        await tx
+          .select({ id: creditGrants.id })
+          .from(creditGrants)
+          .where(eq(creditGrants.id, first.grant.id))
+          .for('update');
+        reportLocked();
+        await released;
+      },
+    );
+    void lockTransaction.catch(() => reportLocked());
+
+    try {
+      await locked;
+      const shortPage = await services.creditGrants.runExpirations({
+        tenantId,
+        asOf: new Date(Date.now() - 1),
+        limit: 3,
+      });
+      expect(shortPage.items.map((item) => item.grantId)).toEqual([
+        second.grant.id,
+        third.grant.id,
+      ]);
+    } finally {
+      releaseLock();
+      await lockTransaction;
+      await lockClient.sql.end({ timeout: 5 });
+    }
+
+    const nextPage = await services.creditGrants.runExpirations({
+      tenantId,
+      asOf: new Date(Date.now() - 1),
+      limit: 3,
+    });
+    expect(nextPage.items.map((item) => item.grantId)).toEqual([first.grant.id]);
+  });
+
   it('does not post zero-capacity grants and prevents full reversal after use or expiration', async () => {
     const tenantId = await createTenant(db, 'zero-capacity');
     const accounts = await setup(tenantId);
