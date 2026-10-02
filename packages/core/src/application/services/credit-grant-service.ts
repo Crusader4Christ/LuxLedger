@@ -6,8 +6,10 @@ import type {
   CreateCreditGrantInput,
   CreditBalance,
   CreditGrant,
+  CreditGrantExpirationResult,
   CreditGrantLineage,
   CreditGrantResult,
+  ProcessCreditGrantExpirationsInput,
   ReverseCreditGrantInput,
 } from '../types';
 
@@ -25,6 +27,9 @@ export class CreditGrantService {
       assertNonEmpty(value, `${name} is required`);
     if (input.externalReference != null) {
       assertNonEmpty(input.externalReference, 'externalReference must not be empty');
+    }
+    if (input.expiresAt && Number.isNaN(input.expiresAt.getTime())) {
+      throw new InvariantViolationError('expiresAt must be a valid timestamp');
     }
     validateCreditGrant(input);
     if (input.accountId === input.fundingAccountId) {
@@ -70,5 +75,29 @@ export class CreditGrantService {
     assertNonEmpty(tenantId, 'tenantId is required');
     assertNonEmpty(transactionId, 'transactionId is required');
     return this.repository.listLineageByTransaction(tenantId, transactionId);
+  }
+
+  public async previewExpirations(
+    input: ProcessCreditGrantExpirationsInput,
+  ): Promise<CreditGrantExpirationResult> {
+    this.validateExpirationInput(input);
+    return this.repository.previewExpirations(input);
+  }
+
+  public async runExpirations(
+    input: ProcessCreditGrantExpirationsInput,
+  ): Promise<CreditGrantExpirationResult> {
+    this.validateExpirationInput(input);
+    return this.repository.runExpirations(input);
+  }
+
+  private validateExpirationInput(input: ProcessCreditGrantExpirationsInput): void {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    if (Number.isNaN(input.asOf.getTime())) {
+      throw new InvariantViolationError('asOf must be a valid timestamp');
+    }
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+      throw new InvariantViolationError('limit must be an integer between 1 and 100');
+    }
   }
 }

@@ -99,6 +99,27 @@
       "when": 1790610101591,
       "tag": "0013_credit_grant_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790870180897,
+      "tag": "0014_2026-10-01-credit-grant-expiration",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790873763700,
+      "tag": "0015_prevent-expiring-grant-enabled-funding",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790942278167,
+      "tag": "0016_credit-grant-capacity-versions",
+      "breakpoints": true
     }
   ]
 }

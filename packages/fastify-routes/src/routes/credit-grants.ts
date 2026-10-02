@@ -4,14 +4,18 @@ import {
   type CreditGrantIdParams,
   createCreditGrantBodySchema,
   creditBalanceResponseSchema,
+  creditGrantExpirationResponseSchema,
   creditGrantIdParamsSchema,
   creditGrantLineageResponseSchema,
   creditGrantResponseSchema,
+  type ProcessCreditGrantExpirationsRequest,
+  processCreditGrantExpirationsBodySchema,
   type ReverseCreditGrantRequest,
   reverseCreditGrantBodySchema,
 } from '@luxledger/http/contracts';
 import {
   toCreditBalanceResponse,
+  toCreditGrantExpirationResponse,
   toCreditGrantLineageResponse,
   toCreditGrantResponse,
 } from '@luxledger/http/mappers';
@@ -43,10 +47,38 @@ export class CreditGrantRoutes extends BaseRoute {
             reference: body.reference,
             externalReference: body.external_reference,
             amountMinor: BigInt(body.amount_minor),
+            expiresAt: body.expires_at ? new Date(body.expires_at) : null,
           });
           return reply.status(result.created ? 201 : 200).send(toCreditGrantResponse(result.grant));
         }),
     );
+
+    for (const [path, run] of [
+      ['/v1/credit-grants/expiration/preview', false],
+      ['/v1/credit-grants/expiration/run', true],
+    ] as const) {
+      server.post<{ Body: ProcessCreditGrantExpirationsRequest }>(
+        path,
+        {
+          schema: {
+            body: processCreditGrantExpirationsBodySchema,
+            response: { 200: creditGrantExpirationResponseSchema },
+          },
+        },
+        async (request, reply) =>
+          this.handle(reply, async () => {
+            const input = {
+              tenantId: request.tenantId as string,
+              asOf: new Date(request.body.as_of),
+              limit: request.body.limit,
+            };
+            const result = run
+              ? await this.grants.runExpirations(input)
+              : await this.grants.previewExpirations(input);
+            return reply.status(200).send(toCreditGrantExpirationResponse(result));
+          }),
+      );
+    }
 
     server.get<{ Params: CreditGrantIdParams }>(
       '/v1/credit-grants/:id',

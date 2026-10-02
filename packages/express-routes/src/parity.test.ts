@@ -155,6 +155,7 @@ describe('express adapter parity with fastify adapter', () => {
           reference: string;
           externalReference?: string | null;
           amountMinor: bigint;
+          expiresAt?: Date | null;
         }) => {
           lastGrant = {
             id: '00000000-0000-4000-8000-000000000901',
@@ -168,6 +169,7 @@ describe('express adapter parity with fastify adapter', () => {
             amountMinor: input.amountMinor,
             transactionId: '00000000-0000-4000-8000-000000000902',
             createdAt: new Date('2026-01-01T00:00:00.000Z'),
+            expiresAt: input.expiresAt ?? null,
             reversedByTransactionId: null,
           };
           return { created: true, grant: lastGrant };
@@ -195,16 +197,20 @@ describe('express adapter parity with fastify adapter', () => {
               reference: 'parity-grant',
               externalReference: null,
               createdAt: new Date('2026-01-01T00:00:00.000Z'),
+              expiresAt: null,
               grantedMinor: 100n,
               reversedMinor: 0n,
               consumedMinor: 0n,
               compensatedMinor: 0n,
+              expiredMinor: 0n,
               remainingMinor: 100n,
             },
           ],
         }),
         listLineageByGrant: async () => [],
         listLineageByTransaction: async () => [],
+        previewExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
+        runExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
       },
       apiKeys: apiKeyService,
       balances: fakeLedgerService,
@@ -647,6 +653,7 @@ describe('express adapter parity with fastify adapter', () => {
       funding_account_id: '00000000-0000-4000-8000-000000000912',
       reference: 'parity-grant',
       amount_minor: '100',
+      expires_at: '2027-01-01T00:00:00.000Z',
     };
     const [fastifyCreate, expressCreate] = await Promise.all([
       requestFastify('POST', '/v1/credit-grants', payload),
@@ -679,5 +686,17 @@ describe('express adapter parity with fastify adapter', () => {
     ]);
     expect(fastifyLineage.status).toBe(200);
     expect(expressLineage).toEqual(fastifyLineage);
+    const expirationPayload = { as_of: '2027-01-01T00:00:00.000Z', limit: 10 };
+    for (const expirationPath of [
+      '/v1/credit-grants/expiration/preview',
+      '/v1/credit-grants/expiration/run',
+    ]) {
+      const [fastifyExpiration, expressExpiration] = await Promise.all([
+        requestFastify('POST', expirationPath, expirationPayload),
+        requestExpress('POST', expirationPath, expirationPayload),
+      ]);
+      expect(fastifyExpiration.status).toBe(200);
+      expect(expressExpiration).toEqual(fastifyExpiration);
+    }
   });
 });

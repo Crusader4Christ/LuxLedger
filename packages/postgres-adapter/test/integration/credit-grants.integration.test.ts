@@ -3,9 +3,11 @@ import { AccountSide, EntryDirection, InvalidCreditGrantError } from '@luxledger
 import { CreditGrantConflictError, CreditGrantNotFoundError } from '@luxledger/core/application';
 import { eq, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
-import { createDbClient } from '../../src/client';
+import { createDbClient, type DbClient, type DrizzleDatabase } from '../../src/client';
+import { DrizzleTransactionRepository } from '../../src/repositories/transaction-repository';
 import {
   accounts as accountRows,
+  creditGrantCapacityVersions,
   creditGrantEntries,
   creditGrants,
   entries,
@@ -16,6 +18,7 @@ import {
   createRepositoryTestClient,
   createRepositoryTestDatabase,
   createTenant,
+  databaseUrl,
   migrateTestDatabase,
   truncateTestDatabase,
 } from './repository-test-support';
@@ -223,6 +226,21 @@ describe('credit grants', () => {
     expect(
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(40n);
+
+    const firstGrantVersions = await db
+      .select({
+        version: creditGrantCapacityVersions.version,
+        consumedMinor: creditGrantCapacityVersions.consumedMinor,
+        remainingMinor: creditGrantCapacityVersions.remainingMinor,
+      })
+      .from(creditGrantCapacityVersions)
+      .where(eq(creditGrantCapacityVersions.grantId, first.grant.id))
+      .orderBy(creditGrantCapacityVersions.version);
+    expect(firstGrantVersions).toEqual([
+      { version: 1n, consumedMinor: 0n, remainingMinor: 100n },
+      { version: 2n, consumedMinor: 80n, remainingMinor: 20n },
+      { version: 3n, consumedMinor: 100n, remainingMinor: 0n },
+    ]);
   });
 
   it('allocates each grant-enabled account independently in one transaction', async () => {
@@ -881,6 +899,39 @@ describe('credit grants', () => {
           .where(eq(creditGrants.id, result.grant.id));
       })(),
     ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await db
+          .update(creditGrantCapacityVersions)
+          .set({ remainingMinor: 99n })
+          .where(eq(creditGrantCapacityVersions.grantId, result.grant.id));
+      })(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await db
+          .delete(creditGrantCapacityVersions)
+          .where(eq(creditGrantCapacityVersions.grantId, result.grant.id));
+      })(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await db.insert(creditGrantCapacityVersions).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: result.grant.id,
+          sourceEntryId: crypto.randomUUID(),
+          version: 99n,
+          grantedMinor: 100n,
+          reversedMinor: 0n,
+          consumedMinor: 0n,
+          compensatedMinor: 0n,
+          expiredMinor: 0n,
+          remainingMinor: 100n,
+        });
+      })(),
+    ).rejects.toThrow();
     expect(
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(100n);
@@ -1192,6 +1243,49 @@ describe('credit grants', () => {
     expect(result.grant.fundingAccountId).toBe(funding.id);
   });
 
+  it('rejects grant-enabled funding for expiring grants at application and SQL boundaries', async () => {
+    const tenantId = await createTenant(db, 'expiring-grant-funding');
+    const accounts = await setup(tenantId);
+    const fundingGrant = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'grant-enabled-funding'),
+    );
+    const target = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Expiring target',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    await expect(
+      services.creditGrants.create({
+        ...grantInput(tenantId, accounts, 'invalid-expiring-funding'),
+        accountId: target.id,
+        fundingAccountId: accounts.accountId,
+        expiresAt,
+      }),
+    ).rejects.toThrow('funding account cannot be grant-enabled');
+
+    await expect(
+      client.runTenantTx(tenantId, 'invalid direct grant funding', (tx) =>
+        tx.insert(creditGrants).values({
+          id: crypto.randomUUID(),
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: target.id,
+          fundingAccountId: accounts.accountId,
+          reference: 'invalid-direct-expiring-funding',
+          externalReference: null,
+          transactionId: fundingGrant.grant.transactionId,
+          expiresAt,
+        }),
+      ),
+    ).rejects.toThrow('data constraints violated');
+  });
+
   it('enforces entry attribution at the PostgreSQL boundary without changing account kind', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
@@ -1356,5 +1450,635 @@ describe('credit grants', () => {
     await expect(
       services.creditGrants.create(grantInput(tenantId, accounts, 'late-adoption')),
     ).rejects.toBeInstanceOf(CreditGrantConflictError);
+  });
+
+  it('validates expiration at issuance against PostgreSQL time and compares it on retry', async () => {
+    const tenantId = await createTenant(db, 'expiration-issuance');
+    const accounts = await setup(tenantId);
+    const future = new Date(Date.now() + 60_000);
+    const input = { ...grantInput(tenantId, accounts, 'expiring'), expiresAt: future };
+    const created = await services.creditGrants.create(input);
+    expect(created.grant.expiresAt).toEqual(future);
+    expect((await services.creditGrants.create(input)).created).toBeFalse();
+    await expect(
+      services.creditGrants.create({ ...input, expiresAt: new Date(future.getTime() + 1) }),
+    ).rejects.toBeInstanceOf(CreditGrantConflictError);
+    await expect(
+      services.creditGrants.create({
+        ...grantInput(tenantId, accounts, 'already-expired'),
+        expiresAt: new Date(Date.now() - 1),
+      }),
+    ).rejects.toBeInstanceOf(CreditGrantConflictError);
+    const perpetual = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'no-expiration'),
+    );
+    expect(perpetual.grant.expiresAt).toBeNull();
+  });
+
+  it('allocates FEFO with stable ties and keeps non-expiring grants last', async () => {
+    const tenantId = await createTenant(db, 'fefo');
+    const accounts = await setup(tenantId);
+    const later = new Date(Date.now() + 120_000);
+    const sooner = new Date(Date.now() + 60_000);
+    const perpetual = await services.creditGrants.create(grantInput(tenantId, accounts, 'never'));
+    const laterGrant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'later'),
+      expiresAt: later,
+    });
+    const tiedFirst = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'tied-first'),
+      expiresAt: sooner,
+    });
+    const tiedSecond = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'tied-second'),
+      expiresAt: sooner,
+    });
+    await consume(tenantId, accounts, 'fefo-spend', 350n);
+    const lots = (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots;
+    const consumed = new Map(lots.map((lot) => [lot.grantId, lot.consumedMinor]));
+    expect(consumed.get(tiedFirst.grant.id)).toBe(100n);
+    expect(consumed.get(tiedSecond.grant.id)).toBe(100n);
+    expect(consumed.get(laterGrant.grant.id)).toBe(100n);
+    expect(consumed.get(perpetual.grant.id)).toBe(50n);
+  });
+
+  it('enforces effective-at and database-time eligibility including backdated submissions', async () => {
+    const tenantId = await createTenant(db, 'eligibility');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 120);
+    await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'effective-window'),
+      expiresAt,
+    });
+    await expect(
+      services.transactions.create({
+        tenantId,
+        ledgerId: accounts.ledgerId,
+        reference: 'future-effective',
+        currency: 'USD',
+        effectiveAt: expiresAt,
+        entries: [
+          {
+            accountId: accounts.accountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+          {
+            accountId: accounts.fundingAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toThrow('insufficient credit grant capacity');
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    await expect(
+      services.transactions.create({
+        tenantId,
+        ledgerId: accounts.ledgerId,
+        reference: 'backdated-after-expiry',
+        currency: 'USD',
+        effectiveAt: new Date(expiresAt.getTime() - 1),
+        entries: [
+          {
+            accountId: accounts.accountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+          {
+            accountId: accounts.fundingAccountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toThrow('insufficient credit grant capacity');
+  });
+
+  it('previews and runs bounded expirations deterministically and idempotently', async () => {
+    const tenantId = await createTenant(db, 'expiration-run');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 120);
+    const first = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'due-first'),
+      expiresAt,
+    });
+    const second = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'due-second'),
+      expiresAt,
+    });
+    const third = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'due-third'),
+      expiresAt: new Date(expiresAt.getTime() + 1),
+    });
+    await consume(tenantId, accounts, 'partial-before-expiry', 40n);
+    const futurePreview = await services.creditGrants.previewExpirations({
+      tenantId,
+      asOf: new Date(expiresAt.getTime() + 10),
+      limit: 2,
+    });
+    expect(futurePreview.items.map((item) => item.grantId)).toEqual([
+      first.grant.id,
+      second.grant.id,
+    ]);
+    expect(futurePreview.items.every((item) => item.transactionId === null)).toBeTrue();
+    await new Promise((resolve) => setTimeout(resolve, 170));
+    const asOf = new Date();
+    const preview = await services.creditGrants.previewExpirations({ tenantId, asOf, limit: 2 });
+    expect(preview.items.map((item) => item.grantId)).toEqual([first.grant.id, second.grant.id]);
+    expect(preview.items.map((item) => item.amountMinor)).toEqual([60n, 100n]);
+    expect(preview.items.every((item) => item.transactionId === null)).toBeTrue();
+    const pageOne = await services.creditGrants.runExpirations({
+      tenantId,
+      asOf: new Date(Date.now() - 1),
+      limit: 2,
+    });
+    expect(pageOne.items).toHaveLength(2);
+    const pageTwo = await services.creditGrants.runExpirations({
+      tenantId,
+      asOf: new Date(Date.now() - 1),
+      limit: 2,
+    });
+    expect(pageTwo.items.map((item) => item.grantId)).toEqual([third.grant.id]);
+    expect(
+      await services.creditGrants.runExpirations({
+        tenantId,
+        asOf: new Date(Date.now() - 1),
+        limit: 2,
+      }),
+    ).toMatchObject({ items: [] });
+    const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+    expect(balance.remainingMinor).toBe(0n);
+    expect(balance.lots.map((lot) => lot.expiredMinor)).toEqual([60n, 100n, 100n]);
+    await expect(
+      services.creditGrants.reverse({
+        tenantId,
+        grantId: first.grant.id,
+        reference: 'reverse-expired',
+      }),
+    ).rejects.toBeInstanceOf(CreditGrantConflictError);
+    await expect(
+      services.creditGrants.runExpirations({
+        tenantId,
+        asOf: new Date(Date.now() + 60_000),
+        limit: 1,
+      }),
+    ).rejects.toThrow('later than database time');
+  });
+
+  it('returns a short FEFO-sorted page when the earliest bounded grant is locked', async () => {
+    const tenantId = await createTenant(db, 'expiration-skip-locked-order');
+    const accounts = await setup(tenantId);
+    const firstExpiry = new Date(Date.now() + 120);
+    const first = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'skip-locked-first'),
+      expiresAt: firstExpiry,
+    });
+    const second = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'skip-locked-second'),
+      expiresAt: new Date(firstExpiry.getTime() + 1),
+    });
+    const third = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'skip-locked-third'),
+      expiresAt: new Date(firstExpiry.getTime() + 2),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 170));
+
+    const lockClient = createDbClient({ databaseUrl, max: 1 });
+    let reportLocked: () => void = () => {};
+    let releaseLock: () => void = () => {};
+    const locked = new Promise<void>((resolve) => {
+      reportLocked = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const lockTransaction = lockClient.runTenantTx(
+      tenantId,
+      'hold earliest grant lock',
+      async (tx) => {
+        await tx
+          .select({ id: creditGrants.id })
+          .from(creditGrants)
+          .where(eq(creditGrants.id, first.grant.id))
+          .for('update');
+        reportLocked();
+        await released;
+      },
+    );
+    void lockTransaction.catch(() => reportLocked());
+
+    try {
+      await locked;
+      const shortPage = await services.creditGrants.runExpirations({
+        tenantId,
+        asOf: new Date(Date.now() - 1),
+        limit: 3,
+      });
+      expect(shortPage.items.map((item) => item.grantId)).toEqual([
+        second.grant.id,
+        third.grant.id,
+      ]);
+    } finally {
+      releaseLock();
+      await lockTransaction;
+      await lockClient.sql.end({ timeout: 5 });
+    }
+
+    const nextPage = await services.creditGrants.runExpirations({
+      tenantId,
+      asOf: new Date(Date.now() - 1),
+      limit: 3,
+    });
+    expect(nextPage.items.map((item) => item.grantId)).toEqual([first.grant.id]);
+  });
+
+  it('does not post zero-capacity grants and prevents full reversal after use or expiration', async () => {
+    const tenantId = await createTenant(db, 'zero-capacity');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 100);
+    const consumed = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'fully-consumed'),
+      expiresAt,
+    });
+    await consume(tenantId, accounts, 'consume-all', 100n);
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    expect(
+      (await services.creditGrants.previewExpirations({ tenantId, asOf: new Date(), limit: 10 }))
+        .items,
+    ).toEqual([]);
+    await expect(
+      services.creditGrants.reverse({
+        tenantId,
+        grantId: consumed.grant.id,
+        reference: 'too-late',
+      }),
+    ).rejects.toBeInstanceOf(CreditGrantConflictError);
+  });
+
+  it('rolls back an expiration whose deterministic reference has a changed payload', async () => {
+    const tenantId = await createTenant(db, 'expiration-conflict');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 120);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'conflicting-expiration'),
+      expiresAt,
+    });
+    const otherFunding = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Other funding',
+      side: AccountSide.CREDIT,
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    await services.transactions.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: `credit-grant-expiration:${grant.grant.id}:100`,
+      currency: 'USD',
+      entries: [
+        {
+          accountId: accounts.fundingAccountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+        {
+          accountId: otherFunding.id,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 1n,
+          currency: 'USD',
+        },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    await expect(
+      services.creditGrants.runExpirations({
+        tenantId,
+        asOf: new Date(Date.now() - 1),
+        limit: 10,
+      }),
+    ).rejects.toThrow('reference payload mismatch');
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0],
+    ).toMatchObject({ expiredMinor: 0n, remainingMinor: 100n });
+  });
+
+  it('re-expires late reversal and correction capacity atomically', async () => {
+    const tenantId = await createTenant(db, 'late-compensation');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 120);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'late-grant'),
+      expiresAt,
+    });
+    const consumed = await consume(tenantId, accounts, 'late-consumption', 80n);
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    await services.transactions.reverse({
+      tenantId,
+      transactionId: consumed.transactionId,
+      reference: 'late-reversal',
+    });
+    const lot = (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0];
+    expect(lot).toMatchObject({
+      consumedMinor: 80n,
+      compensatedMinor: 80n,
+      expiredMinor: 100n,
+      remainingMinor: 0n,
+    });
+    const lineage = await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id);
+    expect(lineage.map((item) => item.kind)).toEqual(['CONSUMPTION', 'COMPENSATION', 'EXPIRATION']);
+
+    const correctionTenantId = await createTenant(db, 'late-correction');
+    const correctionAccounts = await setup(correctionTenantId);
+    const correctionExpiry = new Date(Date.now() + 120);
+    const expiring = await services.creditGrants.create({
+      ...grantInput(correctionTenantId, correctionAccounts, 'correction-expiring'),
+      expiresAt: correctionExpiry,
+    });
+    const perpetual = await services.creditGrants.create(
+      grantInput(correctionTenantId, correctionAccounts, 'correction-perpetual'),
+    );
+    const original = await consume(
+      correctionTenantId,
+      correctionAccounts,
+      'correction-original',
+      80n,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    await services.transactions.correct({
+      tenantId: correctionTenantId,
+      transactionId: original.transactionId,
+      reversalReference: 'correction-reversal',
+      correctedReference: 'correction-replacement',
+      entries: [
+        {
+          accountId: correctionAccounts.accountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: 70n,
+          currency: 'USD',
+        },
+        {
+          accountId: correctionAccounts.fundingAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: 70n,
+          currency: 'USD',
+        },
+      ],
+    });
+    const correctedLots = (
+      await services.creditGrants.getBalance(correctionTenantId, correctionAccounts.accountId)
+    ).lots;
+    expect(correctedLots.find((item) => item.grantId === expiring.grant.id)).toMatchObject({
+      compensatedMinor: 80n,
+      expiredMinor: 100n,
+      remainingMinor: 0n,
+    });
+    expect(correctedLots.find((item) => item.grantId === perpetual.grant.id)).toMatchObject({
+      consumedMinor: 70n,
+      remainingMinor: 30n,
+    });
+  });
+
+  it('serializes concurrent expiration workers and spending without duplicate expiration', async () => {
+    const tenantId = await createTenant(db, 'expiration-concurrency');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 100);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'concurrent-expiry'),
+      expiresAt,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    const secondClient = createDbClient({ databaseUrl, max: 2 });
+    try {
+      const other = createApplicationServices(secondClient);
+      const asOf = new Date(Date.now() - 1);
+      const [first, second, spend] = await Promise.allSettled([
+        services.creditGrants.runExpirations({ tenantId, asOf, limit: 10 }),
+        other.creditGrants.runExpirations({ tenantId, asOf, limit: 10 }),
+        consume(tenantId, accounts, 'concurrent-spend', 1n),
+      ]);
+      expect([first, second].filter((result) => result.status === 'fulfilled')).toHaveLength(2);
+      expect(spend.status).toBe('rejected');
+      const expiration = (
+        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
+      ).filter((item) => item.kind === 'EXPIRATION');
+      expect(expiration).toHaveLength(1);
+      expect(expiration[0]?.amountMinor).toBe(100n);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('serializes a late reversal against an expiration worker without capacity drift', async () => {
+    const tenantId = await createTenant(db, 'late-reversal-concurrency');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 100);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'late-reversal-concurrent-grant'),
+      expiresAt,
+    });
+    const consumed = await consume(tenantId, accounts, 'late-reversal-concurrent-spend', 80n);
+    await new Promise((resolve) => setTimeout(resolve, 140));
+
+    const secondClient = createDbClient({ databaseUrl, max: 2 });
+    try {
+      const other = createApplicationServices(secondClient);
+      const [run, reversal] = await Promise.all([
+        services.creditGrants.runExpirations({
+          tenantId,
+          asOf: new Date(Date.now() - 1),
+          limit: 10,
+        }),
+        other.transactions.reverse({
+          tenantId,
+          transactionId: consumed.transactionId,
+          reference: 'late-reversal-concurrent-reversal',
+        }),
+      ]);
+      expect(run.items.length).toBeLessThanOrEqual(1);
+      expect(reversal.created).toBeTrue();
+
+      const lot = (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0];
+      expect(lot).toMatchObject({
+        consumedMinor: 80n,
+        compensatedMinor: 80n,
+        expiredMinor: 100n,
+        remainingMinor: 0n,
+      });
+      const expiration = (
+        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
+      ).filter((item) => item.kind === 'EXPIRATION');
+      expect(expiration.reduce((sum, item) => sum + item.amountMinor, 0n)).toBe(100n);
+      expect(new Set(expiration.map((item) => item.transactionId)).size).toBe(expiration.length);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('re-derives expiration capacity after claiming the grant lock', async () => {
+    const tenantId = await createTenant(db, 'expiration-locked-capacity');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 100);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'locked-capacity'),
+      expiresAt,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 140));
+
+    const hookedBaseClient = createDbClient({ databaseUrl, max: 1 });
+    const transactionRepository = new DrizzleTransactionRepository(hookedBaseClient);
+    let injectedExpiration = false;
+    const hookedClient: DbClient = {
+      ...hookedBaseClient,
+      runTenantTx: async <T>(
+        scopedTenantId: string,
+        operation: string,
+        action: (tx: DrizzleDatabase) => Promise<T>,
+      ): Promise<T> =>
+        hookedBaseClient.runTenantTx(scopedTenantId, operation, async (tx) => {
+          if (operation !== 'run credit grant expirations') return action(tx);
+          let executeCount = 0;
+          const hookedTx = new Proxy(tx, {
+            get(target, property) {
+              if (property === 'execute') {
+                const execute = target.execute.bind(target);
+                return async (...args: Parameters<typeof execute>) => {
+                  const result = await execute(...args);
+                  executeCount += 1;
+                  if (executeCount !== 2 || injectedExpiration) return result;
+
+                  injectedExpiration = true;
+                  const posted = await transactionRepository.postCreditGrantExpirationInTx(target, {
+                    tenantId,
+                    ledgerId: accounts.ledgerId,
+                    reference: `test-partial-expiration:${grant.grant.id}`,
+                    currency: 'USD',
+                    effectiveAt: expiresAt,
+                    entries: [
+                      {
+                        accountId: accounts.accountId,
+                        direction: EntryDirection.DEBIT,
+                        amountMinor: 40n,
+                        currency: 'USD',
+                      },
+                      {
+                        accountId: accounts.fundingAccountId,
+                        direction: EntryDirection.CREDIT,
+                        amountMinor: 40n,
+                        currency: 'USD',
+                      },
+                    ],
+                  });
+                  const [walletEntry] = await target
+                    .select({ id: entries.id })
+                    .from(entries)
+                    .where(
+                      sql`${entries.tenantId} = ${tenantId} and ${entries.transactionId} = ${posted.transactionId} and ${entries.accountId} = ${accounts.accountId}`,
+                    )
+                    .limit(1);
+                  if (!walletEntry) throw new Error('Missing injected expiration entry');
+                  await target.insert(creditGrantEntries).values({
+                    tenantId,
+                    ledgerId: accounts.ledgerId,
+                    accountId: accounts.accountId,
+                    grantId: grant.grant.id,
+                    entryId: walletEntry.id,
+                    kind: 'EXPIRATION',
+                    amountMinor: 40n,
+                  });
+                  return result;
+                };
+              }
+              const value = Reflect.get(target, property, target);
+              return typeof value === 'function' ? value.bind(target) : value;
+            },
+          }) as DrizzleDatabase;
+          return action(hookedTx);
+        }),
+    };
+
+    try {
+      const hookedServices = createApplicationServices(hookedClient);
+      const result = await hookedServices.creditGrants.runExpirations({
+        tenantId,
+        asOf: new Date(Date.now() - 1),
+        limit: 10,
+      });
+      expect(injectedExpiration).toBeTrue();
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.amountMinor).toBe(60n);
+      const expiration = (
+        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
+      ).filter((item) => item.kind === 'EXPIRATION');
+      expect(expiration.map((item) => item.amountMinor)).toEqual([40n, 60n]);
+      expect(
+        (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0],
+      ).toMatchObject({ expiredMinor: 100n, remainingMinor: 0n });
+    } finally {
+      await hookedBaseClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('rejects direct-SQL expiration before the strict database-time boundary', async () => {
+    const tenantId = await createTenant(db, 'direct-expiration');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'future-direct-expiration'),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await expect(
+      client.runTenantTx(tenantId, 'invalid direct expiration', async (tx) => {
+        const [transaction] = await tx
+          .insert(transactions)
+          .values({
+            tenantId,
+            ledgerId: accounts.ledgerId,
+            assetId: accounts.assetId,
+            reference: 'invalid-direct-expiration',
+            currency: 'USD',
+          })
+          .returning({ id: transactions.id });
+        const inserted = await tx
+          .insert(entries)
+          .values([
+            {
+              tenantId,
+              transactionId: transaction.id,
+              accountId: accounts.accountId,
+              direction: EntryDirection.DEBIT,
+              amountMinor: 100n,
+              currency: 'USD',
+              assetId: accounts.assetId,
+            },
+            {
+              tenantId,
+              transactionId: transaction.id,
+              accountId: accounts.fundingAccountId,
+              direction: EntryDirection.CREDIT,
+              amountMinor: 100n,
+              currency: 'USD',
+              assetId: accounts.assetId,
+            },
+          ])
+          .returning({ id: entries.id, accountId: entries.accountId });
+        const walletEntry = inserted.find((entry) => entry.accountId === accounts.accountId);
+        if (!walletEntry) throw new Error('Missing wallet entry');
+        await tx.insert(creditGrantEntries).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: grant.grant.id,
+          entryId: walletEntry.id,
+          kind: 'EXPIRATION',
+          amountMinor: 100n,
+        });
+      }),
+    ).rejects.toThrow('data constraints violated');
   });
 });

@@ -2,11 +2,14 @@ import type { ApplicationServices } from '@luxledger/core/application';
 import {
   type CreateCreditGrantRequest,
   createCreditGrantBodySchema,
+  type ProcessCreditGrantExpirationsRequest,
+  processCreditGrantExpirationsBodySchema,
   type ReverseCreditGrantRequest,
   reverseCreditGrantBodySchema,
 } from '@luxledger/http/contracts';
 import {
   toCreditBalanceResponse,
+  toCreditGrantExpirationResponse,
   toCreditGrantLineageResponse,
   toCreditGrantResponse,
 } from '@luxledger/http/mappers';
@@ -37,10 +40,35 @@ export const registerCreditGrantRoutes = (
         reference: body.reference,
         externalReference: body.external_reference,
         amountMinor: BigInt(body.amount_minor),
+        expiresAt: body.expires_at ? new Date(body.expires_at) : null,
       });
       res.status(result.created ? 201 : 200).json(toCreditGrantResponse(result.grant));
     }),
   );
+
+  for (const [path, run] of [
+    ['/v1/credit-grants/expiration/preview', false],
+    ['/v1/credit-grants/expiration/run', true],
+  ] as const) {
+    app.post(path, async (req: RequestWithContext, res: Response) =>
+      withDomainErrorHandling(res, async () => {
+        const body = validate<ProcessCreditGrantExpirationsRequest>(
+          processCreditGrantExpirationsBodySchema,
+          req.body,
+        );
+        if (!body) {
+          sendInvalidInput(res, 'Invalid request body');
+          return;
+        }
+        const { tenantId } = requireContext(req);
+        const input = { tenantId, asOf: new Date(body.as_of), limit: body.limit };
+        const result = run
+          ? await services.creditGrants.runExpirations(input)
+          : await services.creditGrants.previewExpirations(input);
+        res.status(200).json(toCreditGrantExpirationResponse(result));
+      }),
+    );
+  }
 
   app.get('/v1/credit-grants/:id', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {

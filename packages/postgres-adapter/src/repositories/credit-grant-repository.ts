@@ -1,17 +1,21 @@
-import { creditGrantRemaining, EntryDirection } from '@luxledger/core';
+import { EntryDirection } from '@luxledger/core';
 import {
   AccountNotFoundError,
   type CreateCreditGrantInput,
   type CreditBalance,
   type CreditGrant,
   CreditGrantConflictError,
+  type CreditGrantExpirationItem,
+  type CreditGrantExpirationResult,
   type CreditGrantLineage,
   CreditGrantNotFoundError,
   type CreditGrantRepository,
   type CreditGrantResult,
+  InvariantViolationError,
+  type ProcessCreditGrantExpirationsInput,
   type ReverseCreditGrantInput,
 } from '@luxledger/core/application';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
@@ -19,6 +23,11 @@ import { DrizzleTransactionRepository } from './transaction-repository';
 
 type GrantRow = typeof schema.creditGrants.$inferSelect;
 type Tx = DrizzleDatabase;
+type ExpirationCandidate = CreditGrantExpirationItem & {
+  ledgerId: string;
+  currency: string;
+  createdAt: Date;
+};
 
 export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   private readonly transactions: DrizzleTransactionRepository;
@@ -55,6 +64,15 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         return { grant, created: false };
       }
 
+      if (input.expiresAt) {
+        const [clock] = await tx.execute<{ databaseNow: Date }>(
+          sql`select transaction_timestamp() as "databaseNow"`,
+        );
+        if (!clock || input.expiresAt.getTime() <= new Date(clock.databaseNow).getTime()) {
+          throw new CreditGrantConflictError('Grant expiration must be strictly in the future');
+        }
+      }
+
       const account = await this.assertIssuanceAccountInTx(tx, input);
       await this.assertFundingAccountInTx(tx, input, account);
       const id = generateUuidV7();
@@ -89,6 +107,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           reference: input.reference,
           externalReference: input.externalReference ?? null,
           transactionId: posted.transactionId,
+          expiresAt: input.expiresAt ?? null,
         })
         .returning();
       if (!row) throw new CreditGrantConflictError('Grant insert failed');
@@ -135,6 +154,20 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         return { grant: await this.toGrant(tx, row), created: false };
       }
       const grant = await this.toGrant(tx, row);
+      const [priorUse] = await tx
+        .select({ entryId: schema.creditGrantEntries.entryId })
+        .from(schema.creditGrantEntries)
+        .where(
+          and(
+            eq(schema.creditGrantEntries.tenantId, input.tenantId),
+            eq(schema.creditGrantEntries.grantId, row.id),
+            sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'EXPIRATION')`,
+          ),
+        )
+        .limit(1);
+      if (priorUse) {
+        throw new CreditGrantConflictError('Consumed or expired grant cannot be fully reversed');
+      }
       const balance = await this.balanceInTx(tx, input.tenantId, row.accountId);
       const lot = balance.lots.find((candidate) => candidate.grantId === row.id);
       if (!lot || lot.remainingMinor !== grant.amountMinor) {
@@ -207,6 +240,198 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     );
   }
 
+  public previewExpirations(
+    input: ProcessCreditGrantExpirationsInput,
+  ): Promise<CreditGrantExpirationResult> {
+    return this.client.runTenantTx(
+      input.tenantId,
+      'preview credit grant expirations',
+      async (tx) => ({
+        asOf: input.asOf,
+        items: await this.findExpirationCandidates(tx, input, false),
+      }),
+    );
+  }
+
+  public runExpirations(
+    input: ProcessCreditGrantExpirationsInput,
+  ): Promise<CreditGrantExpirationResult> {
+    return this.client.runTenantTx(input.tenantId, 'run credit grant expirations', async (tx) => {
+      const [clock] = await tx.execute<{ databaseNow: Date }>(
+        sql`select transaction_timestamp() as "databaseNow"`,
+      );
+      if (!clock || input.asOf.getTime() > new Date(clock.databaseNow).getTime()) {
+        throw new InvariantViolationError('Expiration asOf cannot be later than database time');
+      }
+      const candidates = await this.findExpirationCandidates(tx, input, true);
+      const items: CreditGrantExpirationItem[] = [];
+      for (const candidate of candidates) {
+        const posted = await this.postExpirationInTx(tx, candidate);
+        items.push({ ...candidate, transactionId: posted.transactionId });
+      }
+      return { asOf: input.asOf, items };
+    });
+  }
+
+  private async findExpirationCandidates(
+    tx: Tx,
+    input: ProcessCreditGrantExpirationsInput,
+    lock: boolean,
+  ): Promise<ExpirationCandidate[]> {
+    type GrantCandidateRow = {
+      grantId: string;
+      accountId: string;
+      fundingAccountId: string;
+      ledgerId: string;
+      expiresAt: Date;
+      currency: string;
+      createdAt: Date;
+    };
+    type CandidateRow = GrantCandidateRow & {
+      remainingMinor: string;
+      expiredMinor: string;
+    };
+    const dueCte = sql`
+      with due as materialized (
+        select g.id as "grantId", g.account_id as "accountId",
+          g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
+          g.expires_at as "expiresAt", g.created_at as "createdAt",
+          capacity.remaining_minor::text as "remainingMinor",
+          capacity.expired_minor::text as "expiredMinor", a.currency
+        from credit_grants g
+        join lateral (
+          select v.remaining_minor, v.expired_minor
+          from credit_grant_capacity_versions v
+          where v.tenant_id = g.tenant_id and v.grant_id = g.id
+          order by v.version desc
+          limit 1
+        ) capacity on true
+        join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
+          and a.id = g.account_id
+        where g.tenant_id = ${input.tenantId}
+          and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
+          and capacity.remaining_minor > 0
+        order by g.expires_at asc, g.created_at asc, g.id asc
+        limit ${input.limit}
+      )`;
+    let rows: CandidateRow[];
+    if (lock) {
+      // The bounded window is selected by business FEFO above. Acquire its grant locks by
+      // account first to preserve the LL-91 multi-account lock hierarchy, then restore FEFO
+      // before returning candidates. SKIP LOCKED may therefore produce a short page.
+      const lockedGrants = await tx.execute<GrantCandidateRow>(sql`${dueCte}
+        select d."grantId", d."accountId", d."fundingAccountId", d."ledgerId",
+          d."expiresAt", d."createdAt", d.currency
+        from due d
+        join credit_grants g on g.tenant_id = ${input.tenantId} and g.id = d."grantId"
+        order by g.account_id asc, g.expires_at asc, g.created_at asc, g.id asc
+        for update of g skip locked
+      `);
+      if (lockedGrants.length === 0) return [];
+
+      const currentCapacities = await tx
+        .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
+          grantId: schema.creditGrantCapacityVersions.grantId,
+          remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
+          expiredMinor: schema.creditGrantCapacityVersions.expiredMinor,
+        })
+        .from(schema.creditGrantCapacityVersions)
+        .where(
+          and(
+            eq(schema.creditGrantCapacityVersions.tenantId, input.tenantId),
+            inArray(
+              schema.creditGrantCapacityVersions.grantId,
+              lockedGrants.map((grant) => grant.grantId),
+            ),
+          ),
+        )
+        .orderBy(
+          schema.creditGrantCapacityVersions.grantId,
+          desc(schema.creditGrantCapacityVersions.version),
+        );
+      const capacityByGrant = new Map(
+        currentCapacities.map((capacity) => [capacity.grantId, capacity]),
+      );
+      rows = lockedGrants.flatMap((grant) => {
+        const capacity = capacityByGrant.get(grant.grantId);
+        if (!capacity || capacity.remainingMinor <= 0n) return [];
+        return [
+          {
+            ...grant,
+            remainingMinor: capacity.remainingMinor.toString(),
+            expiredMinor: capacity.expiredMinor.toString(),
+          },
+        ];
+      });
+    } else {
+      rows = await tx.execute<CandidateRow>(sql`${dueCte}
+        select * from due
+        order by "expiresAt" asc, "createdAt" asc, "grantId" asc
+      `);
+    }
+    const candidates = rows.map((row) => ({
+      grantId: row.grantId,
+      accountId: row.accountId,
+      fundingAccountId: row.fundingAccountId,
+      ledgerId: row.ledgerId,
+      expiresAt: new Date(row.expiresAt),
+      amountMinor: BigInt(row.remainingMinor),
+      cumulativeExpiredMinor: BigInt(row.expiredMinor) + BigInt(row.remainingMinor),
+      currency: row.currency,
+      createdAt: new Date(row.createdAt),
+      transactionId: null,
+    }));
+    return candidates.sort(
+      (left, right) =>
+        left.expiresAt.getTime() - right.expiresAt.getTime() ||
+        left.createdAt.getTime() - right.createdAt.getTime() ||
+        left.grantId.localeCompare(right.grantId),
+    );
+  }
+
+  private async postExpirationInTx(
+    tx: Tx,
+    candidate: ExpirationCandidate,
+  ): Promise<{ transactionId: string }> {
+    const reference = `credit-grant-expiration:${candidate.grantId}:${candidate.cumulativeExpiredMinor}`;
+    const posted = await this.transactions.postCreditGrantExpirationInTx(tx, {
+      tenantId: (await this.requireGrantRow(tx, candidate.grantId)).tenantId,
+      ledgerId: candidate.ledgerId,
+      reference,
+      currency: candidate.currency,
+      effectiveAt: candidate.expiresAt,
+      entries: [
+        {
+          accountId: candidate.accountId,
+          direction: EntryDirection.DEBIT,
+          amountMinor: candidate.amountMinor,
+          currency: candidate.currency,
+        },
+        {
+          accountId: candidate.fundingAccountId,
+          direction: EntryDirection.CREDIT,
+          amountMinor: candidate.amountMinor,
+          currency: candidate.currency,
+        },
+      ],
+    });
+    if (posted.created) {
+      const row = await this.requireGrantRow(tx, candidate.grantId);
+      await this.linkWalletEntry(tx, row, posted.transactionId, 'EXPIRATION');
+    }
+    return { transactionId: posted.transactionId };
+  }
+
+  private async requireGrantRow(tx: Tx, grantId: string): Promise<GrantRow> {
+    const [row] = await tx
+      .select()
+      .from(schema.creditGrants)
+      .where(eq(schema.creditGrants.id, grantId))
+      .limit(1);
+    if (!row) throw new CreditGrantNotFoundError(grantId);
+    return row;
+  }
+
   private async lockCreditAccount(tx: Tx, tenantId: string, accountId: string) {
     const [account] = await tx
       .select()
@@ -257,6 +482,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     }
     if (fundingAccount.currency !== grantAccount.currency) {
       throw new CreditGrantConflictError('Funding account currency mismatch');
+    }
+    if (input.expiresAt && (await this.hasGrantInTx(tx, input.tenantId, input.fundingAccountId))) {
+      throw new CreditGrantConflictError(
+        'Expiring credit grant funding account cannot be grant-enabled',
+      );
     }
   }
 
@@ -355,6 +585,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         externalReference: schema.creditGrants.externalReference,
         transactionId: schema.creditGrants.transactionId,
         createdAt: schema.creditGrants.createdAt,
+        expiresAt: schema.creditGrants.expiresAt,
       })
       .from(schema.creditGrants)
       .where(
@@ -364,95 +595,50 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         ),
       )
       .orderBy(schema.creditGrants.createdAt, schema.creditGrants.id);
-    const linked = await tx
-      .select({
-        grantId: schema.creditGrantEntries.grantId,
-        linkKind: schema.creditGrantEntries.kind,
-        linkedAmountMinor: schema.creditGrantEntries.amountMinor,
-        entryTransactionId: schema.entries.transactionId,
-        entryDirection: schema.entries.direction,
-        entryAssetId: schema.entries.assetId,
-        transactionLedgerId: schema.transactions.ledgerId,
-        transactionAssetId: schema.transactions.assetId,
-        transactionRelationType: schema.transactions.relationType,
-        relatedTransactionId: schema.transactions.relatedTransactionId,
+    if (rows.length === 0) {
+      return {
+        accountId,
+        assetId: account.assetId,
+        ledgerBalanceMinor: await this.ledgerTotalInTx(tx, tenantId, accountId),
+        remainingMinor: 0n,
+        lots: [],
+      };
+    }
+    const capacities = await tx
+      .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
+        grantId: schema.creditGrantCapacityVersions.grantId,
+        grantedMinor: schema.creditGrantCapacityVersions.grantedMinor,
+        reversedMinor: schema.creditGrantCapacityVersions.reversedMinor,
+        consumedMinor: schema.creditGrantCapacityVersions.consumedMinor,
+        compensatedMinor: schema.creditGrantCapacityVersions.compensatedMinor,
+        expiredMinor: schema.creditGrantCapacityVersions.expiredMinor,
+        remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
       })
-      .from(schema.creditGrantEntries)
-      .innerJoin(
-        schema.entries,
-        and(
-          eq(schema.creditGrantEntries.entryId, schema.entries.id),
-          eq(schema.creditGrantEntries.tenantId, schema.entries.tenantId),
-          eq(schema.creditGrantEntries.accountId, schema.entries.accountId),
-        ),
-      )
-      .innerJoin(
-        schema.transactions,
-        and(
-          eq(schema.entries.transactionId, schema.transactions.id),
-          eq(schema.creditGrantEntries.tenantId, schema.transactions.tenantId),
-          eq(schema.creditGrantEntries.ledgerId, schema.transactions.ledgerId),
-        ),
-      )
+      .from(schema.creditGrantCapacityVersions)
       .where(
         and(
-          eq(schema.creditGrantEntries.tenantId, tenantId),
-          eq(schema.creditGrantEntries.ledgerId, account.ledgerId),
-          eq(schema.creditGrantEntries.accountId, accountId),
+          eq(schema.creditGrantCapacityVersions.tenantId, tenantId),
+          eq(schema.creditGrantCapacityVersions.ledgerId, account.ledgerId),
+          eq(schema.creditGrantCapacityVersions.accountId, accountId),
+          inArray(
+            schema.creditGrantCapacityVersions.grantId,
+            rows.map((row) => row.id),
+          ),
         ),
+      )
+      .orderBy(
+        schema.creditGrantCapacityVersions.grantId,
+        desc(schema.creditGrantCapacityVersions.version),
       );
-    const byGrant = new Map<string, typeof linked>();
-    for (const movement of linked) {
-      const list = byGrant.get(movement.grantId) ?? [];
-      list.push(movement);
-      byGrant.set(movement.grantId, list);
-    }
+    const capacityByGrant = new Map(capacities.map((capacity) => [capacity.grantId, capacity]));
     const lots: CreditBalance['lots'] = [];
     let total = 0n;
     for (const row of rows) {
       if (row.ledgerId !== account.ledgerId) {
         throw new CreditGrantConflictError('Grant account ledger mismatch');
       }
-      let grantedMinor = 0n;
-      let reversedMinor = 0n;
-      let consumedMinor = 0n;
-      let compensatedMinor = 0n;
-      let issuanceCount = 0;
-      for (const movement of byGrant.get(row.id) ?? []) {
-        if (
-          movement.entryAssetId !== account.assetId ||
-          movement.transactionAssetId !== account.assetId ||
-          movement.transactionLedgerId !== row.ledgerId
-        ) {
-          throw new CreditGrantConflictError('Credit entry scope mismatch');
-        }
-        if (
-          movement.linkKind === 'ISSUANCE' &&
-          movement.entryTransactionId === row.transactionId &&
-          movement.entryDirection === 'CREDIT'
-        ) {
-          grantedMinor += movement.linkedAmountMinor;
-          issuanceCount++;
-        } else if (
-          movement.linkKind === 'REVERSAL' &&
-          movement.relatedTransactionId === row.transactionId &&
-          movement.transactionRelationType === 'REVERSAL' &&
-          movement.entryDirection === 'DEBIT'
-        ) {
-          reversedMinor += movement.linkedAmountMinor;
-        } else if (movement.linkKind === 'CONSUMPTION' && movement.entryDirection === 'DEBIT') {
-          consumedMinor += movement.linkedAmountMinor;
-        } else if (
-          movement.linkKind === 'COMPENSATION' &&
-          movement.transactionRelationType === 'REVERSAL' &&
-          movement.entryDirection === 'CREDIT'
-        ) {
-          compensatedMinor += movement.linkedAmountMinor;
-        } else {
-          throw new CreditGrantConflictError('Unsupported credit lot movement');
-        }
-      }
-      if (issuanceCount !== 1 || grantedMinor <= 0n) {
+      const capacity = capacityByGrant.get(row.id);
+      if (!capacity || capacity.grantedMinor <= 0n) {
         throw new CreditGrantConflictError('Grant issuance entry is missing');
       }
       const lot: CreditBalance['lots'][number] = {
@@ -460,13 +646,14 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         reference: row.reference,
         externalReference: row.externalReference,
         createdAt: row.createdAt,
-        grantedMinor,
-        reversedMinor,
-        consumedMinor,
-        compensatedMinor,
-        remainingMinor: 0n,
+        expiresAt: row.expiresAt,
+        grantedMinor: capacity.grantedMinor,
+        reversedMinor: capacity.reversedMinor,
+        consumedMinor: capacity.consumedMinor,
+        compensatedMinor: capacity.compensatedMinor,
+        expiredMinor: capacity.expiredMinor,
+        remainingMinor: capacity.remainingMinor,
       };
-      lot.remainingMinor = creditGrantRemaining(lot);
       lots.push(lot);
       total += lot.remainingMinor;
     }
@@ -492,7 +679,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   ): Promise<CreditGrantLineage[]> {
     const predicates = [
       eq(schema.creditGrantEntries.tenantId, tenantId),
-      sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION')`,
+      sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION', 'EXPIRATION')`,
     ];
     if (filter.grantId) predicates.push(eq(schema.creditGrantEntries.grantId, filter.grantId));
     if (filter.transactionId)
@@ -520,7 +707,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     tx: Tx,
     row: GrantRow,
     transactionId: string,
-    kind: 'ISSUANCE' | 'REVERSAL',
+    kind: 'ISSUANCE' | 'REVERSAL' | 'EXPIRATION',
   ): Promise<void> {
     const walletEntries = await tx
       .select({ id: schema.entries.id, amountMinor: schema.entries.amountMinor })
@@ -589,6 +776,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       amountMinor: issuance.amountMinor,
       transactionId: row.transactionId,
       createdAt: row.createdAt,
+      expiresAt: row.expiresAt,
       reversedByTransactionId: reversal?.id ?? null,
     };
   }
@@ -597,7 +785,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return (
       grant.fundingAccountId === input.fundingAccountId &&
       grant.amountMinor === input.amountMinor &&
-      grant.externalReference === (input.externalReference ?? null)
+      grant.externalReference === (input.externalReference ?? null) &&
+      (grant.expiresAt?.getTime() ?? null) === (input.expiresAt?.getTime() ?? null)
     );
   }
 

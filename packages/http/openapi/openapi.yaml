@@ -806,6 +806,46 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+  /v1/credit-grants/expiration/preview:
+    post:
+      summary: Preview due credit grant expirations without posting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessCreditGrantExpirationsRequest'
+      responses:
+        '200':
+          description: Deterministic bounded FEFO preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantExpirationResult'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /v1/credit-grants/expiration/run:
+    post:
+      summary: Claim and atomically post due credit grant expirations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessCreditGrantExpirationsRequest'
+      responses:
+        '200':
+          description: Expirations posted by this worker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantExpirationResult'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
   /v1/credit-grants/{id}/reversal:
     post:
       summary: Fully compensate an unconsumed grant
@@ -992,6 +1032,7 @@ components:
         reference: { type: string, minLength: 1 }
         external_reference: { type: string, minLength: 1 }
         amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+        expires_at: { type: string, format: date-time }
     ReverseCreditGrantRequest:
       type: object
       additionalProperties: false
@@ -1001,7 +1042,7 @@ components:
     CreditGrant:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, account_id, funding_account_id, asset_id, reference, external_reference, amount_minor, transaction_id, created_at, reversed_by_transaction_id]
+      required: [id, tenant_id, ledger_id, account_id, funding_account_id, asset_id, reference, external_reference, amount_minor, transaction_id, created_at, expires_at, reversed_by_transaction_id]
       properties:
         id: { type: string, format: uuid }
         tenant_id: { type: string, format: uuid }
@@ -1014,20 +1055,23 @@ components:
         amount_minor: { type: string, pattern: '^[0-9]+$' }
         transaction_id: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time, nullable: true }
         reversed_by_transaction_id: { type: string, format: uuid, nullable: true }
     CreditGrantLot:
       type: object
       additionalProperties: false
-      required: [grant_id, reference, external_reference, created_at, granted_minor, reversed_minor, consumed_minor, compensated_minor, remaining_minor]
+      required: [grant_id, reference, external_reference, created_at, expires_at, granted_minor, reversed_minor, consumed_minor, compensated_minor, expired_minor, remaining_minor]
       properties:
         grant_id: { type: string, format: uuid }
         reference: { type: string }
         external_reference: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time, nullable: true }
         granted_minor: { type: string, pattern: '^[0-9]+$' }
         reversed_minor: { type: string, pattern: '^[0-9]+$' }
         consumed_minor: { type: string, pattern: '^[0-9]+$' }
         compensated_minor: { type: string, pattern: '^[0-9]+$' }
+        expired_minor: { type: string, pattern: '^[0-9]+$' }
         remaining_minor: { type: string, pattern: '^[0-9]+$' }
     CreditBalance:
       type: object
@@ -1057,9 +1101,36 @@ components:
               grant_id: { type: string, format: uuid }
               entry_id: { type: string, format: uuid }
               transaction_id: { type: string, format: uuid }
-              kind: { type: string, enum: [CONSUMPTION, COMPENSATION] }
+              kind: { type: string, enum: [CONSUMPTION, COMPENSATION, EXPIRATION] }
               amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
               created_at: { type: string, format: date-time }
+    ProcessCreditGrantExpirationsRequest:
+      type: object
+      additionalProperties: false
+      required: [as_of, limit]
+      properties:
+        as_of: { type: string, format: date-time }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+    CreditGrantExpirationResult:
+      type: object
+      additionalProperties: false
+      required: [as_of, items]
+      properties:
+        as_of: { type: string, format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [grant_id, account_id, funding_account_id, expires_at, amount_minor, cumulative_expired_minor, transaction_id]
+            properties:
+              grant_id: { type: string, format: uuid }
+              account_id: { type: string, format: uuid }
+              funding_account_id: { type: string, format: uuid }
+              expires_at: { type: string, format: date-time }
+              amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+              cumulative_expired_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+              transaction_id: { type: string, format: uuid, nullable: true }
     ErrorResponse:
       type: object
       required: [error, message]

@@ -55,4 +55,23 @@ describe('credit grant invariants', () => {
       }),
     ).toThrow(InvalidCreditGrantError);
   });
+
+  it('subtracts immutable expiration lineage from restored capacity', () => {
+    expect(
+      creditGrantRemaining({
+        grantedMinor: 100n,
+        reversedMinor: 0n,
+        consumedMinor: 80n,
+        compensatedMinor: 80n,
+        expiredMinor: 100n,
+      }),
+    ).toBe(0n);
+    expect(() =>
+      creditGrantRemaining({
+        grantedMinor: 100n,
+        reversedMinor: 0n,
+        expiredMinor: 101n,
+      }),
+    ).toThrow(InvalidCreditGrantError);
+  });
 });
