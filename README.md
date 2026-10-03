@@ -12,6 +12,8 @@ Financial core infrastructure: double-entry ledger domain packages, transport co
 4. Migrate the local database:
    `bun run db:migrate`
 
+The current pre-production database contract is a clean-install baseline. `drizzle/0000_initial-schema.sql` is intentionally the only migration; databases created from the former multi-migration history must be reset instead of upgraded in place.
+
 The [reference API demo](https://github.com/Crusader4Christ/LuxLedger-demo) is maintained separately so this repository can stay focused on reusable packages. Start with the [product overview](docs/product/overview.md), then use the [integration guide](docs/integration/README.md) before running the demo.
 
 ## Test strategy
