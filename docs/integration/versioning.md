@@ -4,11 +4,13 @@
 
 LuxLedger packages are versioned independently. A host should pin compatible released versions of core, HTTP, route adapter, and PostgreSQL adapter rather than mixing arbitrary ranges. The OpenAPI `info.version` identifies the HTTP contract version; it is not a substitute for package versions.
 
+The current database history is explicitly pre-production and clean-install only. `0000_initial-schema.sql` replaces the former incremental migrations and snapshots. Existing development databases from that history must be reset; no in-place data-preserving upgrade is provided. Once durable user data exists, this exception ends and the baseline must remain immutable.
+
 ## Upgrade procedure
 
 1. Read release notes and compare the canonical OpenAPI contract.
 2. Upgrade all related LuxLedger packages together in a test environment.
-3. Generate or inspect the required Drizzle migration and back up the database.
+3. Generate or inspect the required Drizzle migration and back up any durable database.
 4. Apply migrations before starting code that depends on the new schema.
 5. Run contract verification, type checking, unit tests, and real-PostgreSQL integration tests.
 6. Exercise authentication, idempotent posting, trial balance, reversal/correction, holds, and reconciliation as applicable.
