@@ -26,10 +26,8 @@ Idempotency remains keyed by `(tenant_id, reference)` and compares the existing 
 
 ## Migration and deployment
 
-1. For a populated pre-production database, run the migration preflight. It aborts before changing schema when existing transaction/hold entries disagree with their account/parent, or when an unknown code lacks a reviewed scale mapping. Review and extend the mapping only after confirming what one stored minor unit means for that code.
-2. Apply `0011_tenant_assets.sql` in one migration transaction. It creates tenant assets from distinct codes, backfills all five financial tables, verifies the links, then installs `NOT NULL`, tenant-scoped FKs, and write guards. It neither changes minor-unit values nor deletes history.
-3. Deploy the updated packages after migration. Older package writes using known codes remain supported by the database resolver. For a fresh empty pre-production database, run all migrations and create CREDIT through `AssetService` before opening the SaaS tenant. There is no production data requiring a preservation window today.
+Assets are part of the single clean-install baseline. There is no legacy currency-to-asset backfill or in-place upgrade path because the project has no database state that must be preserved. Reset databases created from the former migration history, apply `0000_initial-schema.sql`, and create each tenant's assets through `AssetService` before creating accounts or posting.
 
-Roll forward by repairing a failed preflight or scale mapping and rerunning the migration. Before activation, rollback is a test database reset. After activation, prefer a code rollback with this additive schema retained; removing asset columns would discard the new identity and is deliberately not provided as an automatic down migration.
+Once durable user data exists, future asset changes require additive migrations and an explicit rollback or restore plan. The baseline must not be rewritten after that point.
 
 Future multi-asset workflows need an explicit conversion model with rates, rounding, and separate balanced postings per asset. Grant lot issuance remains LL-84; allocation and fund lineage remain LL-66, and expiration remains LL-85.
