@@ -61,6 +61,7 @@ export class CreateTransactionUseCase {
       currency: command.currency,
       assetId: command.assetId,
       description: command.description ?? null,
+      metadata: command.metadata,
       entries,
     });
 

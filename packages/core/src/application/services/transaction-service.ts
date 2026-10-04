@@ -1,5 +1,6 @@
 import type { EntryEntity } from '../../entry/entity';
 import type { TransactionEntity } from '../../transaction/entity';
+import { createTransactionMetadata } from '../../transaction/metadata';
 import { assertNonEmpty } from '../../utils';
 import { BulkTransactionError, InvariantViolationError, TransactionNotFoundError } from '../errors';
 import { validatePaginationQuery } from '../pagination-query';
@@ -116,6 +117,9 @@ export class TransactionService {
       (!(input.effectiveAt instanceof Date) || Number.isNaN(input.effectiveAt.getTime()))
     ) {
       throw new InvariantViolationError('effectiveAt must be a valid ISO-8601 timestamp');
+    }
+    if (input.metadata !== undefined) {
+      createTransactionMetadata(input.metadata);
     }
   }
 }

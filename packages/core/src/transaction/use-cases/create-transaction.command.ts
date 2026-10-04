@@ -1,4 +1,5 @@
 import type { TransactionEntryInput } from '../../entry/input.interface';
+import type { TransactionMetadata } from '../metadata';
 
 export interface CreateTransactionCommand {
   tenantId: string;
@@ -9,5 +10,6 @@ export interface CreateTransactionCommand {
   assetId?: string | null;
   description?: string | null;
   effectiveAt?: Date | null;
+  metadata?: TransactionMetadata;
   entries: TransactionEntryInput[];
 }

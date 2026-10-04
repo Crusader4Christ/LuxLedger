@@ -51,6 +51,12 @@ export class InvalidTransactionRelationError extends DomainError {
   }
 }
 
+export class InvalidTransactionMetadataError extends DomainError {
+  public constructor(message: string) {
+    super(message, 'INVALID_TRANSACTION_METADATA');
+  }
+}
+
 export class AccountNotFoundError extends DomainError {
   public constructor(accountId: string) {
     super(`account not found: ${accountId}`, 'ACCOUNT_NOT_FOUND');

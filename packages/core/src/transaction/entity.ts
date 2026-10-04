@@ -1,6 +1,7 @@
 import type { LedgerId, TransactionId } from '../base/id';
 import type { EntryEntity } from '../entry/entity';
 import { AssetMismatchError, InvalidTransactionRelationError } from './errors';
+import { createTransactionMetadata, type TransactionMetadata } from './metadata';
 import {
   validateDoubleEntry,
   validateEntryAmounts,
@@ -20,6 +21,7 @@ export class TransactionEntity {
   public readonly relationType: 'REVERSAL' | 'CORRECTION' | null;
   public readonly createdAt: Date | null;
   public readonly effectiveAt: Date | null;
+  public readonly metadata: TransactionMetadata | undefined;
   public readonly entries: EntryEntity[];
 
   public constructor(input: {
@@ -34,6 +36,7 @@ export class TransactionEntity {
     relationType?: 'REVERSAL' | 'CORRECTION' | null;
     createdAt?: Date | null;
     effectiveAt?: Date | null;
+    metadata?: TransactionMetadata;
     entries: EntryEntity[];
   }) {
     this.id = input.id;
@@ -47,6 +50,8 @@ export class TransactionEntity {
     this.relationType = input.relationType ?? null;
     this.createdAt = input.createdAt ?? null;
     this.effectiveAt = input.effectiveAt ?? null;
+    this.metadata =
+      input.metadata === undefined ? undefined : createTransactionMetadata(input.metadata);
     this.entries = input.entries;
 
     this.assertInvariants();

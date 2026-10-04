@@ -5,6 +5,7 @@ import {
   AccountId,
   AccountSide,
   EntryEntity,
+  InvalidTransactionMetadataError,
   LedgerId,
   Money,
   TransactionEntity,
@@ -92,6 +93,7 @@ class InMemoryLedgerRepository {
       currency: input.currency,
       assetId: null,
       description: input.description ?? null,
+      metadata: input.metadata,
       createdAt: new Date(),
       entries: input.entries.map(
         (entry) =>
@@ -525,6 +527,56 @@ describe('application services', () => {
     });
 
     expect(repository.createTransactionCalls[0]?.effectiveAt).toBe(effectiveAt);
+  });
+
+  it('createTransaction validates metadata before repository write', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const services = createServices(repository);
+
+    await expect(
+      services.transactions.create({
+        tenantId: 'tenant-1',
+        ledgerId: 'ledger-1',
+        reference: 'ref-invalid-metadata',
+        currency: 'USD',
+        metadata: { value: undefined } as never,
+        entries: [],
+      }),
+    ).rejects.toBeInstanceOf(InvalidTransactionMetadataError);
+    expect(repository.createTransactionCalls).toHaveLength(0);
+  });
+
+  it('returns transaction metadata as an immutable DTO snapshot', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const services = createServices(repository);
+    const metadata = { provider: { id: 'external-1' } };
+
+    const created = await services.transactions.create({
+      tenantId: 'tenant-1',
+      ledgerId: 'ledger-1',
+      reference: 'ref-metadata',
+      currency: 'USD',
+      metadata,
+      entries: [
+        {
+          accountId: 'account-1',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-2',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+    metadata.provider.id = 'changed';
+
+    const transaction = await services.transactions.getById('tenant-1', created.transactionId);
+    expect(transaction.metadata).toEqual({ provider: { id: 'external-1' } });
+    expect(Object.isFrozen(transaction.metadata?.provider)).toBe(true);
   });
 
   it('createTransactionsBulk rejects duplicate references before repository write', async () => {
