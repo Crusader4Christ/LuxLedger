@@ -38,7 +38,10 @@ await import('@luxledger/http/route-core');
 await import('@luxledger/http/route-specs');
 await import('@luxledger/http/test/harness');
 await import('@luxledger/http/validation-utils');
-await import('@luxledger/postgres-adapter');
+const postgresAdapter = await import('@luxledger/postgres-adapter');
+if (typeof postgresAdapter.createPostgresUnitOfWork !== 'function') {
+  throw new Error('Missing createPostgresUnitOfWork public export');
+}
 await import('@luxledger/postgres-adapter/drizzle-config');
 await import('@luxledger/postgres-adapter/schema');
 await import('@luxledger/fastify-routes');
