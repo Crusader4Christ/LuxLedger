@@ -22,6 +22,10 @@ Every contract-affecting release must update runtime contracts, OpenAPI, example
 
 The reference demo copies the released OpenAPI contract for local Swagger UI. Its release process must verify that copy is byte-for-byte aligned with this repository and record the package versions used by the demo.
 
+## 0.2.1 coordinated release
+
+All public LuxLedger packages and the OpenAPI contract ship as `0.2.1`. This release adds deterministic OSS release-readiness gates without changing ledger semantics or the clean-install-only database compatibility policy. Follow the [0.2.1 release notes](../releases/0.2.1.md).
+
 ## 0.2.0 coordinated release
 
 All public LuxLedger packages ship as `0.2.0` for this breaking compatibility set. The trial-balance account contract removes `is_contra` and adds `balance_side`; account responses also add the required, nullable `code` field. Upgrade the packages together and follow the [0.2.0 migration guide](../releases/0.2.0.md).
