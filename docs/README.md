@@ -10,6 +10,7 @@
 - [Integration Guide](./integration/README.md)
 - [Versioning, Migrations, and Publication](./integration/versioning.md)
 - [Release 0.2.0 and migration guide](./releases/0.2.0.md)
+- [Release 0.2.1 coordinated readiness](./releases/0.2.1.md)
 
 ## Governance
 

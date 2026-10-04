@@ -23,8 +23,8 @@ jobs:
             exit 1
           fi
 
-  unit:
-    name: Unit and Typecheck
+  quality:
+    name: Quality and Release Readiness
     runs-on: ubuntu-latest
 
     steps:
@@ -42,8 +42,23 @@ jobs:
       - name: Run unit tests
         run: bun run test:unit
 
+      - name: Run lint
+        run: bun run lint
+
       - name: Run typecheck
         run: bun run typecheck
+
+      - name: Build public packages
+        run: bun run build
+
+      - name: Verify HTTP contract
+        run: bun run contract:verify
+
+      - name: Verify coordinated release metadata
+        run: bun run release:verify
+
+      - name: Verify clean-install package consumption
+        run: bun run pack:verify
 
   integration:
     name: Integration (PostgreSQL)
@@ -91,6 +106,9 @@ jobs:
 
       - name: Run integration tests
         run: bun test --max-concurrency=1 $(find packages -type f -path '*/test/integration/*.test.ts' | sort)
+
+      - name: Verify clean migration and backup restore
+        run: bun run migration:verify
 
   openapi-contract-governance:
     name: OpenAPI Contract Governance
