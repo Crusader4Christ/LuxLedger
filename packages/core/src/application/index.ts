@@ -7,3 +7,4 @@ export * from './pagination-query';
 export * from './repositories.interface';
 export * from './services';
 export * from './types';
+export * from './unit-of-work';

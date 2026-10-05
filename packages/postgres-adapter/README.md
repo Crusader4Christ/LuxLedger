@@ -15,6 +15,32 @@ PostgreSQL 16 is the supported persistence model.
 
 State-changing repository operations use explicit PostgreSQL transactions. The adapter enforces persistence-level tenant scoping, atomicity, and transaction-reference idempotency required by the repository [invariants guide](../../docs/product/invariants.md).
 
+## Host-composable unit of work
+
+Use `createUnitOfWork` when a host row or outbox record must commit atomically with LuxLedger operations:
+
+```ts
+import { TenantId } from '@luxledger/core';
+import { createDbClient, createUnitOfWork } from '@luxledger/postgres-adapter';
+import { purchaseOutbox } from './db/schema';
+
+const client = createDbClient({ hostSchema: { purchaseOutbox } });
+const unitOfWork = createUnitOfWork(client);
+
+await unitOfWork.run(new TenantId(tenantId), async ({ tx, services }) => {
+  await tx.insert(purchaseOutbox).values({
+    tenantId,
+    purchaseId,
+    eventType: 'purchase.created',
+  });
+  await services.transactions.create(posting);
+});
+```
+
+The callback's Drizzle `tx` and tenant-scoped services share one transaction and RLS context. Register host tables through `hostSchema` to use the typed relational API such as `tx.query.purchaseOutbox`; use `tx.execute(sql\`...\`)` for raw parameterized SQL. A callback failure rolls back every write. Do not retain `tx` after the callback completes. Nested unit-of-work calls, cross-tenant service inputs, and unscoped service operations are rejected. Existing repository/service calls outside this API keep their current transaction behavior.
+
+Hosts must preserve the documented account/grant lock order when doing their own locking before ledger calls. The unit of work does not retry transactions or provide distributed transaction/outbox delivery.
+
 ### Credit-grant allocation locking
 
 Transaction posting groups inserted entries by account and processes accounts in account-ID order. For each distinct account it performs one `SELECT ... FOR UPDATE` of that account's grants, ordered by `expires_at ASC NULLS LAST, created_at ASC, id ASC`. An account with no grants stops after that lookup. A grant-enabled account with debit entries loads one latest immutable capacity version per grant and updates that in-memory projection after every allocation so later entries in the same transaction observe earlier allocations. Each new lineage row appends its next cumulative version in the same transaction; versions are rebuildable from authoritative ledger entries and lineage and cannot be updated or deleted. Reversals load the original transaction lineage once per grant-enabled account and copy each original entry's exact grant split.
