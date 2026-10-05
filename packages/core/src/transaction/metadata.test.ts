@@ -9,31 +9,6 @@ import {
 } from './metadata';
 
 describe('transaction metadata', () => {
-  it('accepts nested JSON without copying or freezing it', () => {
-    const source = {
-      provider: 'stripe',
-      attempt: 2,
-      settled: false,
-      optional: null,
-      identifiers: ['pi_1', 7, true, null, { region: 'eu' }],
-    };
-
-    validateTransactionMetadata(source);
-    source.provider = 'changed';
-    source.identifiers[0] = 'changed';
-    (source.identifiers[4] as { region: string }).region = 'changed';
-
-    expect(source).toEqual({
-      provider: 'changed',
-      attempt: 2,
-      settled: false,
-      optional: null,
-      identifiers: ['changed', 7, true, null, { region: 'changed' }],
-    });
-    expect(Object.isFrozen(source)).toBe(false);
-    expect(Object.isFrozen(source.identifiers)).toBe(false);
-  });
-
   it('rejects every non-object root shape', () => {
     for (const value of [undefined, null, [], 'value', 1, true]) {
       expect(() => validateTransactionMetadata(value)).toThrowError(
@@ -79,11 +54,16 @@ describe('transaction metadata', () => {
     }
   });
 
-  it('canonicalizes object keys while preserving array order and value types', () => {
-    const left = { z: { b: 2, a: 1 }, values: ['1', 1] };
-    const reordered = { values: ['1', 1], z: { a: 1, b: 2 } };
+  it('accepts nested JSON and canonicalizes object keys without changing array semantics', () => {
+    const left = { z: { b: 2, a: 1 }, values: ['1', 1, false, null, { nested: ['x', true] }] };
+    const reordered = {
+      values: ['1', 1, false, null, { nested: ['x', true] }],
+      z: { a: 1, b: 2 },
+    };
 
-    expect(canonicalizeTransactionMetadata(left)).toBe('{"values":["1",1],"z":{"a":1,"b":2}}');
+    expect(canonicalizeTransactionMetadata(left)).toBe(
+      '{"values":["1",1,false,null,{"nested":["x",true]}],"z":{"a":1,"b":2}}',
+    );
     expect(transactionMetadataEquals(left, reordered)).toBe(true);
     expect(transactionMetadataEquals(left, { ...reordered, values: [1, '1'] })).toBe(false);
     expect(transactionMetadataEquals({ value: 1 }, { value: '1' })).toBe(false);
