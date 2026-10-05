@@ -25,6 +25,15 @@ describe('db client module', () => {
     }
   });
 
+  it('rejects host schema keys that shadow LuxLedger schema', () => {
+    expect(() =>
+      createDbClient({
+        databaseUrl: 'postgresql://unused:unused@127.0.0.1:1/unused',
+        hostSchema: { transactions: {} },
+      }),
+    ).toThrow('hostSchema must not redefine LuxLedger schema key: transactions');
+  });
+
   it('execute preserves domain errors', async () => {
     const client = createDbClient({ databaseUrl: 'postgresql://unused:unused@127.0.0.1:1/unused' });
     const error = new InvariantViolationError('domain failure');

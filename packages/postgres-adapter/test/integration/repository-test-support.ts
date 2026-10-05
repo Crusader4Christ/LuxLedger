@@ -34,7 +34,8 @@ export const createRepositoryTestClient = (): DbClient =>
     connectTimeoutSeconds: 5,
   });
 
-export const createRepositoryTestDatabase = (client: DbClient) => drizzle(client.sql, { schema });
+export const createRepositoryTestDatabase = (client: Pick<DbClient, 'sql'>) =>
+  drizzle(client.sql, { schema });
 
 export type RepositoryTestDatabase = ReturnType<typeof createRepositoryTestDatabase>;
 

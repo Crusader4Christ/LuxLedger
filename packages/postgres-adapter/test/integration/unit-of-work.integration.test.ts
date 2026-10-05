@@ -1,22 +1,44 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { AccountSide, EntryDirection, TenantId } from '@luxledger/core';
-import { createUnitOfWork } from '@luxledger/postgres-adapter';
+import { createDbClient, createUnitOfWork } from '@luxledger/postgres-adapter';
 import { sql } from 'drizzle-orm';
+import { pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { transactions } from '../../src/schema';
 import {
-  createRepositoryTestClient,
   createRepositoryTestDatabase,
   createTenant,
+  databaseUrl,
   migrateTestDatabase,
   truncateTestDatabase,
 } from './repository-test-support';
 
-const client = createRepositoryTestClient();
+const hostOutbox = pgTable(
+  'host_outbox',
+  {
+    tenantId: uuid('tenant_id').notNull(),
+    reference: text('reference').notNull(),
+    payload: text('payload').notNull(),
+  },
+  (table) => ({
+    tenantReferenceUq: uniqueIndex('host_outbox_tenant_reference_uq').on(
+      table.tenantId,
+      table.reference,
+    ),
+  }),
+);
+
+const client = createDbClient({
+  databaseUrl,
+  max: 2,
+  idleTimeoutSeconds: 5,
+  connectTimeoutSeconds: 5,
+  hostSchema: { hostOutbox },
+});
 const db = createRepositoryTestDatabase(client);
 const unitOfWork = createUnitOfWork(client);
 
 const createPosting = async (tenantId: TenantId, reference: string, outboxPayload: string) =>
-  unitOfWork.run(tenantId, async ({ query, services }) => {
+  unitOfWork.run(tenantId, async ({ tx, services }) => {
     const ledger = await services.ledgers.create({ tenantId: tenantId.value, name: 'Host ledger' });
     const debit = await services.accounts.create({
       tenantId: tenantId.value,
@@ -32,10 +54,18 @@ const createPosting = async (tenantId: TenantId, reference: string, outboxPayloa
       side: AccountSide.CREDIT,
       currency: 'USD',
     });
-    await query`
-      insert into host_outbox (tenant_id, reference, payload)
-      values (${tenantId.value}, ${reference}, ${outboxPayload})
-    `;
+    await tx.insert(hostOutbox).values({
+      tenantId: tenantId.value,
+      reference,
+      payload: outboxPayload,
+    });
+    const storedOutbox = await tx.query.hostOutbox.findFirst({
+      where: (outbox, { and, eq }) =>
+        and(eq(outbox.tenantId, tenantId.value), eq(outbox.reference, reference)),
+    });
+    if (!storedOutbox) {
+      throw new Error('Host outbox row was not visible inside the unit of work');
+    }
     return services.transactions.create({
       tenantId: tenantId.value,
       ledgerId: ledger.id,
@@ -60,11 +90,10 @@ const createPosting = async (tenantId: TenantId, reference: string, outboxPayloa
 
 const readOutbox = (tenantId: string) =>
   client.runTenantTx(tenantId, 'read host outbox', (tx) =>
-    tx.execute(
-      sql<{ reference: string; payload: string }>`
-        select reference, payload from host_outbox order by reference
-      `,
-    ),
+    tx.query.hostOutbox.findMany({
+      columns: { reference: true, payload: true },
+      orderBy: (outbox, { asc }) => [asc(outbox.reference)],
+    }),
   );
 
 describe('PostgresUnitOfWork', () => {
@@ -121,11 +150,12 @@ describe('PostgresUnitOfWork', () => {
     const tenantId = new TenantId(await createTenant(db, 'Ledger failure tenant'));
 
     await expect(
-      unitOfWork.run(tenantId, async ({ query, services }) => {
-        await query`
-          insert into host_outbox (tenant_id, reference, payload)
-          values (${tenantId.value}, ${'ledger-failure'}, ${'must roll back'})
-        `;
+      unitOfWork.run(tenantId, async ({ tx, services }) => {
+        await tx.insert(hostOutbox).values({
+          tenantId: tenantId.value,
+          reference: 'ledger-failure',
+          payload: 'must roll back',
+        });
         await services.transactions.create({
           tenantId: tenantId.value,
           ledgerId: 'missing-ledger',
@@ -164,12 +194,15 @@ describe('PostgresUnitOfWork', () => {
     });
 
     const attempt = () =>
-      unitOfWork.run(tenantId, async ({ query, services }) => {
-        await query`
-          insert into host_outbox (tenant_id, reference, payload)
-          values (${tenantId.value}, ${'host-retry'}, ${'first attempt'})
-          on conflict (tenant_id, reference) do nothing
-        `;
+      unitOfWork.run(tenantId, async ({ tx, services }) => {
+        await tx
+          .insert(hostOutbox)
+          .values({
+            tenantId: tenantId.value,
+            reference: 'host-retry',
+            payload: 'first attempt',
+          })
+          .onConflictDoNothing({ target: [hostOutbox.tenantId, hostOutbox.reference] });
         return services.transactions.create({
           tenantId: tenantId.value,
           ledgerId: setup.ledgerId,
@@ -222,10 +255,10 @@ describe('PostgresUnitOfWork', () => {
   it('provides tenant RLS context to host SQL and rejects unscoped service work', async () => {
     const tenantId = new TenantId(await createTenant(db, 'RLS tenant'));
 
-    const contextTenantId = await unitOfWork.run(tenantId, async ({ query }) => {
-      const [row] = await query<{ tenantId: string }>`
-        select current_setting('app.tenant_id') as "tenantId"
-      `;
+    const contextTenantId = await unitOfWork.run(tenantId, async ({ tx }) => {
+      const [row] = await tx.execute(
+        sql<{ tenantId: string }>`select current_setting('app.tenant_id') as "tenantId"`,
+      );
       return row?.tenantId;
     });
 
@@ -249,11 +282,12 @@ describe('PostgresUnitOfWork', () => {
 
     const references = await Promise.all(
       ['concurrent-a', 'concurrent-b'].map((reference) =>
-        unitOfWork.run(tenantId, async ({ query }) => {
-          await query`
-            insert into host_outbox (tenant_id, reference, payload)
-            values (${tenantId.value}, ${reference}, ${'concurrent'})
-          `;
+        unitOfWork.run(tenantId, async ({ tx }) => {
+          await tx.insert(hostOutbox).values({
+            tenantId: tenantId.value,
+            reference,
+            payload: 'concurrent',
+          });
           return reference;
         }),
       ),

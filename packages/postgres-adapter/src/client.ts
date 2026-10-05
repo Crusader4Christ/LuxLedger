@@ -5,9 +5,13 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import type { DatabaseErrorLike } from './repository-types';
-import * as schema from './schema';
+import * as luxLedgerSchema from './schema';
 
-export type DrizzleDatabase = PostgresJsDatabase<typeof schema>;
+type EmptyHostSchema = Record<never, never>;
+type LuxLedgerSchema = typeof luxLedgerSchema;
+
+export type DrizzleDatabase<THostSchema extends Record<string, unknown> = EmptyHostSchema> =
+  PostgresJsDatabase<LuxLedgerSchema & THostSchema>;
 
 const CONSTRAINT_VIOLATION_CODES = new Set([
   '22001',
@@ -65,25 +69,33 @@ const parsePositiveInt = (value: string | undefined, fallback: number, name: str
   return parsed;
 };
 
-export interface CreateDbClientOptions {
+export interface CreateDbClientOptions<
+  THostSchema extends Record<string, unknown> = EmptyHostSchema,
+> {
   databaseUrl?: string;
   max?: number;
   idleTimeoutSeconds?: number;
   connectTimeoutSeconds?: number;
+  hostSchema?: THostSchema;
 }
 
-export interface DbClient {
+export interface DbClient<THostSchema extends Record<string, unknown> = EmptyHostSchema> {
   sql: Sql;
-  execute<T>(operation: string, action: (db: DrizzleDatabase) => Promise<T>): Promise<T>;
-  runTx<T>(operation: string, action: (tx: DrizzleDatabase) => Promise<T>): Promise<T>;
+  execute<T>(
+    operation: string,
+    action: (db: DrizzleDatabase<THostSchema>) => Promise<T>,
+  ): Promise<T>;
+  runTx<T>(operation: string, action: (tx: DrizzleDatabase<THostSchema>) => Promise<T>): Promise<T>;
   runTenantTx<T>(
     tenantId: string,
     operation: string,
-    action: (tx: DrizzleDatabase) => Promise<T>,
+    action: (tx: DrizzleDatabase<THostSchema>) => Promise<T>,
   ): Promise<T>;
 }
 
-export const createDbClient = (options: CreateDbClientOptions = {}): DbClient => {
+export const createDbClient = <THostSchema extends Record<string, unknown> = EmptyHostSchema>(
+  options: CreateDbClientOptions<THostSchema> = {},
+): DbClient<THostSchema> => {
   const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
 
   if (!databaseUrl) {
@@ -97,6 +109,11 @@ export const createDbClient = (options: CreateDbClientOptions = {}): DbClient =>
   const connectTimeoutSeconds =
     options.connectTimeoutSeconds ??
     parsePositiveInt(process.env.DB_CONNECT_TIMEOUT, 10, 'DB_CONNECT_TIMEOUT');
+  const hostSchema = options.hostSchema ?? {};
+  const conflictingSchemaKey = Object.keys(hostSchema).find((key) => key in luxLedgerSchema);
+  if (conflictingSchemaKey) {
+    throw new Error(`hostSchema must not redefine LuxLedger schema key: ${conflictingSchemaKey}`);
+  }
 
   const sql = postgres(databaseUrl, {
     max,
@@ -104,11 +121,15 @@ export const createDbClient = (options: CreateDbClientOptions = {}): DbClient =>
     connect_timeout: connectTimeoutSeconds,
   });
 
+  const schema = {
+    ...luxLedgerSchema,
+    ...hostSchema,
+  } as LuxLedgerSchema & THostSchema;
   const db = drizzle(sql, { schema });
 
   const execute = async <T>(
     operation: string,
-    action: (database: DrizzleDatabase) => Promise<T>,
+    action: (database: DrizzleDatabase<THostSchema>) => Promise<T>,
   ): Promise<T> => {
     try {
       return await action(db);
@@ -117,13 +138,15 @@ export const createDbClient = (options: CreateDbClientOptions = {}): DbClient =>
     }
   };
 
-  const runTx = <T>(operation: string, action: (tx: DrizzleDatabase) => Promise<T>): Promise<T> =>
-    execute(operation, (database) => database.transaction(action));
+  const runTx = <T>(
+    operation: string,
+    action: (tx: DrizzleDatabase<THostSchema>) => Promise<T>,
+  ): Promise<T> => execute(operation, (database) => database.transaction(action));
 
   const runTenantTx = <T>(
     tenantId: string,
     operation: string,
-    action: (tx: DrizzleDatabase) => Promise<T>,
+    action: (tx: DrizzleDatabase<THostSchema>) => Promise<T>,
   ): Promise<T> =>
     runTx(operation, async (tx) => {
       await tx.execute(drizzleSql`select set_config('app.tenant_id', ${tenantId}, true)`);

@@ -1,13 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDomainError } from '@luxledger/core';
-import type {
-  ApplicationUnitOfWork,
-  ApplicationUnitOfWorkContext,
-  TransactionQuery,
-} from '@luxledger/core/application';
+import type { ApplicationUnitOfWorkContext } from '@luxledger/core/application';
 import { InvariantViolationError, RepositoryError } from '@luxledger/core/application';
-import type { TenantId } from '@luxledger/core/base';
-import { sql } from 'drizzle-orm';
+import type { TenantId, UnitOfWork } from '@luxledger/core/base';
 import { createApplicationServices } from './application-services';
 import type { DbClient, DrizzleDatabase } from './client';
 
@@ -21,47 +16,48 @@ class UnitOfWorkCallbackFailure extends Error {
   }
 }
 
-const createTransactionQuery =
-  (client: DbClient, transaction: DrizzleDatabase): TransactionQuery =>
-  async <Row extends Record<string, unknown> = Record<string, unknown>>(
-    strings: TemplateStringsArray,
-    ...values: unknown[]
-  ): Promise<readonly Row[]> => {
-    const chunks = strings.flatMap((part, index) =>
-      index < values.length ? [sql.raw(part), sql`${values[index]}`] : [sql.raw(part)],
-    );
-    return client.execute(
-      'execute host unit of work query',
-      async () => (await transaction.execute(sql.join(chunks))) as unknown as readonly Row[],
-    );
-  };
-
-const createTransactionClient = (
-  client: DbClient,
-  transaction: DrizzleDatabase,
+const createTransactionClient = <THostSchema extends Record<string, unknown>>(
+  client: DbClient<THostSchema>,
+  transaction: DrizzleDatabase<THostSchema>,
   tenantId: string,
-): DbClient => ({
-  sql: client.sql,
-  execute: (operation, action) => client.execute(operation, () => action(transaction)),
-  runTx: async () => {
-    throw new InvariantViolationError(UNSCOPED_OPERATION_MESSAGE);
-  },
-  runTenantTx: async (operationTenantId, _operation, action) => {
-    if (operationTenantId !== tenantId) {
-      throw new InvariantViolationError(TENANT_MISMATCH_MESSAGE);
-    }
-    return client.execute(_operation, () => action(transaction));
-  },
-});
+): DbClient => {
+  // The combined transaction always contains the complete LuxLedger schema.
+  // Repositories receive only the narrower package-owned schema view.
+  const ledgerTransaction = transaction as unknown as DrizzleDatabase;
+  return {
+    sql: client.sql,
+    execute: (operation, action) => client.execute(operation, () => action(ledgerTransaction)),
+    runTx: async () => {
+      throw new InvariantViolationError(UNSCOPED_OPERATION_MESSAGE);
+    },
+    runTenantTx: async (operationTenantId, _operation, action) => {
+      if (operationTenantId !== tenantId) {
+        throw new InvariantViolationError(TENANT_MISMATCH_MESSAGE);
+      }
+      return client.execute(_operation, () => action(ledgerTransaction));
+    },
+  };
+};
 
-export class PostgresUnitOfWork implements ApplicationUnitOfWork {
+export interface UnitOfWorkContext<
+  THostSchema extends Record<string, unknown> = Record<never, never>,
+> extends ApplicationUnitOfWorkContext {
+  readonly tx: DrizzleDatabase<THostSchema>;
+}
+
+export type AdapterUnitOfWork<THostSchema extends Record<string, unknown> = Record<never, never>> =
+  UnitOfWork<UnitOfWorkContext<THostSchema>>;
+
+export class PostgresUnitOfWork<THostSchema extends Record<string, unknown> = Record<never, never>>
+  implements AdapterUnitOfWork<THostSchema>
+{
   private readonly active = new AsyncLocalStorage<boolean>();
 
-  public constructor(private readonly client: DbClient) {}
+  public constructor(private readonly client: DbClient<THostSchema>) {}
 
   public run<T>(
     tenantId: TenantId,
-    work: (context: ApplicationUnitOfWorkContext) => Promise<T>,
+    work: (context: UnitOfWorkContext<THostSchema>) => Promise<T>,
   ): Promise<T> {
     if (this.active.getStore()) {
       throw new InvariantViolationError(NESTED_UNIT_OF_WORK_MESSAGE);
@@ -79,7 +75,7 @@ export class PostgresUnitOfWork implements ApplicationUnitOfWork {
             return await work({
               tenantId,
               services: createApplicationServices(transactionClient),
-              query: createTransactionQuery(this.client, transaction),
+              tx: transaction,
             });
           } catch (error) {
             if (isDomainError(error)) throw error;
@@ -96,5 +92,6 @@ export class PostgresUnitOfWork implements ApplicationUnitOfWork {
   }
 }
 
-export const createUnitOfWork = (client: DbClient): ApplicationUnitOfWork =>
-  new PostgresUnitOfWork(client);
+export const createUnitOfWork = <THostSchema extends Record<string, unknown>>(
+  client: DbClient<THostSchema>,
+): AdapterUnitOfWork<THostSchema> => new PostgresUnitOfWork(client);

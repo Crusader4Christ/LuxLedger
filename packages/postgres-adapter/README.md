@@ -22,19 +22,22 @@ Use `createUnitOfWork` when a host row or outbox record must commit atomically w
 ```ts
 import { TenantId } from '@luxledger/core';
 import { createDbClient, createUnitOfWork } from '@luxledger/postgres-adapter';
+import { purchaseOutbox } from './db/schema';
 
-const unitOfWork = createUnitOfWork(createDbClient());
+const client = createDbClient({ hostSchema: { purchaseOutbox } });
+const unitOfWork = createUnitOfWork(client);
 
-await unitOfWork.run(new TenantId(tenantId), async ({ query, services }) => {
-  await query`
-    insert into purchase_outbox (tenant_id, purchase_id, event_type)
-    values (${tenantId}, ${purchaseId}, ${'purchase.created'})
-  `;
+await unitOfWork.run(new TenantId(tenantId), async ({ tx, services }) => {
+  await tx.insert(purchaseOutbox).values({
+    tenantId,
+    purchaseId,
+    eventType: 'purchase.created',
+  });
   await services.transactions.create(posting);
 });
 ```
 
-Interpolated values are always PostgreSQL parameters; table and column names must remain static in the template. The callback's host SQL and tenant-scoped services share one transaction and RLS context. A callback failure rolls back every write. Nested unit-of-work calls, cross-tenant service inputs, and unscoped service operations are rejected. Existing repository/service calls outside this API keep their current transaction behavior.
+The callback's Drizzle `tx` and tenant-scoped services share one transaction and RLS context. Register host tables through `hostSchema` to use the typed relational API such as `tx.query.purchaseOutbox`; use `tx.execute(sql\`...\`)` for raw parameterized SQL. A callback failure rolls back every write. Do not retain `tx` after the callback completes. Nested unit-of-work calls, cross-tenant service inputs, and unscoped service operations are rejected. Existing repository/service calls outside this API keep their current transaction behavior.
 
 Hosts must preserve the documented account/grant lock order when doing their own locking before ledger calls. The unit of work does not retry transactions or provide distributed transaction/outbox delivery.
 
