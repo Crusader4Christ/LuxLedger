@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import type { AccountId } from '../../base/id';
 import { EntryDirection } from '../../entry/entity';
-import { InvalidDirectionError } from '../errors';
+import { InvalidDirectionError, InvalidTransactionMetadataError } from '../errors';
 import type { TransactionAccountSnapshot, TransactionRepository } from '../repository.interface';
 import { CreateTransactionUseCase } from './create-transaction.use-case';
 
@@ -79,5 +79,30 @@ describe('CreateTransactionUseCase', () => {
         ],
       }),
     ).rejects.toBeInstanceOf(InvalidDirectionError);
+  });
+
+  it('rejects invalid metadata before repository lookup', async () => {
+    let repositoryCalled = false;
+    const repository: TransactionRepository = {
+      findAccounts: async (): Promise<TransactionAccountSnapshot[]> => {
+        repositoryCalled = true;
+        return [];
+      },
+    };
+
+    const useCase = new CreateTransactionUseCase(repository);
+
+    await expect(
+      useCase.execute({
+        tenantId: 'tenant-1',
+        id: 'tx-1',
+        ledgerId: 'ledger-1',
+        reference: 'ref-1',
+        currency: 'USD',
+        metadata: { value: undefined } as never,
+        entries: [],
+      }),
+    ).rejects.toBeInstanceOf(InvalidTransactionMetadataError);
+    expect(repositoryCalled).toBe(false);
   });
 });

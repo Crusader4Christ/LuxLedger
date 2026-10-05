@@ -3,13 +3,13 @@ import { describe, expect, it } from 'bun:test';
 import { InvalidTransactionMetadataError } from './errors';
 import {
   canonicalizeTransactionMetadata,
-  createTransactionMetadata,
   type TransactionMetadata,
   transactionMetadataEquals,
+  validateTransactionMetadata,
 } from './metadata';
 
 describe('transaction metadata', () => {
-  it('accepts nested JSON and returns a deeply frozen snapshot', () => {
+  it('accepts nested JSON without copying or freezing it', () => {
     const source = {
       provider: 'stripe',
       attempt: 2,
@@ -18,26 +18,27 @@ describe('transaction metadata', () => {
       identifiers: ['pi_1', 7, true, null, { region: 'eu' }],
     };
 
-    const metadata = createTransactionMetadata(source);
+    validateTransactionMetadata(source);
     source.provider = 'changed';
     source.identifiers[0] = 'changed';
     (source.identifiers[4] as { region: string }).region = 'changed';
 
-    expect(metadata).toEqual({
-      provider: 'stripe',
+    expect(source).toEqual({
+      provider: 'changed',
       attempt: 2,
       settled: false,
       optional: null,
-      identifiers: ['pi_1', 7, true, null, { region: 'eu' }],
+      identifiers: ['changed', 7, true, null, { region: 'changed' }],
     });
-    expect(Object.isFrozen(metadata)).toBe(true);
-    expect(Object.isFrozen(metadata.identifiers)).toBe(true);
-    expect(Object.isFrozen((metadata.identifiers as readonly unknown[])[4])).toBe(true);
+    expect(Object.isFrozen(source)).toBe(false);
+    expect(Object.isFrozen(source.identifiers)).toBe(false);
   });
 
   it('rejects every non-object root shape', () => {
     for (const value of [undefined, null, [], 'value', 1, true]) {
-      expect(() => createTransactionMetadata(value)).toThrowError(InvalidTransactionMetadataError);
+      expect(() => validateTransactionMetadata(value)).toThrowError(
+        InvalidTransactionMetadataError,
+      );
     }
   });
 
@@ -72,7 +73,9 @@ describe('transaction metadata', () => {
       withSymbolKey,
       withAccessor,
     ]) {
-      expect(() => createTransactionMetadata(value)).toThrowError(InvalidTransactionMetadataError);
+      expect(() => validateTransactionMetadata(value)).toThrowError(
+        InvalidTransactionMetadataError,
+      );
     }
   });
 

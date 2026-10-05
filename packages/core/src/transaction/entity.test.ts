@@ -40,7 +40,7 @@ describe('TransactionEntity', () => {
     expect(transaction.entries).toHaveLength(2);
   });
 
-  it('keeps omitted metadata distinct from an immutable empty object', () => {
+  it('keeps omitted metadata distinct from an empty object', () => {
     const entries = [
       buildEntry({ accountId: 'a-1', direction: EntryDirection.DEBIT, amountMinor: 100n }),
       buildEntry({ accountId: 'a-2', direction: EntryDirection.CREDIT, amountMinor: 100n }),
@@ -63,30 +63,6 @@ describe('TransactionEntity', () => {
 
     expect(omitted.metadata).toBeUndefined();
     expect(empty.metadata).toEqual({});
-    expect(Object.isFrozen(empty.metadata)).toBe(true);
-  });
-
-  it('stores metadata as an immutable snapshot', () => {
-    const source = { provider: { id: 'external-1' } };
-    const transaction = new TransactionEntity({
-      id: new TransactionId('tx-1'),
-      ledgerId: new LedgerId('ledger-1'),
-      reference: 'ref-1',
-      currency: 'USD',
-      metadata: source,
-      entries: [
-        buildEntry({ accountId: 'a-1', direction: EntryDirection.DEBIT, amountMinor: 100n }),
-        buildEntry({ accountId: 'a-2', direction: EntryDirection.CREDIT, amountMinor: 100n }),
-      ],
-    });
-
-    source.provider.id = 'changed';
-    expect(transaction.metadata).toEqual({ provider: { id: 'external-1' } });
-    expect(Object.isFrozen(transaction.metadata?.provider)).toBe(true);
-    expect(() => {
-      (transaction.metadata?.provider as { id: string }).id = 'changed';
-    }).toThrow();
-    expect(transaction.metadata).toEqual({ provider: { id: 'external-1' } });
   });
 
   it('throws for less than two entries', () => {

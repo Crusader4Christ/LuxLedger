@@ -9,6 +9,7 @@ import {
   CrossLedgerAccountError,
   CurrencyMismatchError,
 } from '../errors';
+import { validateTransactionMetadata } from '../metadata';
 import type { CreateTransactionCommand } from './create-transaction.command';
 import type { CreateTransactionResult } from './create-transaction.result';
 
@@ -20,6 +21,9 @@ export class CreateTransactionUseCase {
   }
 
   public async execute(command: CreateTransactionCommand): Promise<CreateTransactionResult> {
+    if (command.metadata !== undefined) {
+      validateTransactionMetadata(command.metadata);
+    }
     const ledgerId = new LedgerId(command.ledgerId);
     const entries = command.entries.map(
       (entry) =>

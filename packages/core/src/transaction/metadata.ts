@@ -3,34 +3,33 @@ import { InvalidTransactionMetadataError } from './errors';
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 export interface JsonObject {
-  readonly [key: string]: JsonValue;
+  [key: string]: JsonValue;
 }
-export interface JsonArray extends ReadonlyArray<JsonValue> {}
+export type JsonArray = JsonValue[];
 
 export type TransactionMetadata = JsonObject;
 
-const invalidMetadata = (path: string, reason: string): never => {
-  throw new InvalidTransactionMetadataError(`${path} ${reason}`);
-};
+const invalidMetadata = (path: string, reason: string): InvalidTransactionMetadataError =>
+  new InvalidTransactionMetadataError(`${path} ${reason}`);
 
-const copyJsonValue = (value: unknown, path: string, ancestors: WeakSet<object>): JsonValue => {
+const validateJsonValue = (value: unknown, path: string, ancestors: WeakSet<object>): void => {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-    return value;
+    return;
   }
 
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      return invalidMetadata(path, 'must be a finite number');
+      throw invalidMetadata(path, 'must be a finite number');
     }
-    return value;
+    return;
   }
 
   if (typeof value !== 'object') {
-    return invalidMetadata(path, 'must contain JSON values only');
+    throw invalidMetadata(path, 'must contain JSON values only');
   }
 
   if (ancestors.has(value)) {
-    return invalidMetadata(path, 'must not contain circular references');
+    throw invalidMetadata(path, 'must not contain circular references');
   }
 
   const prototype = Object.getPrototypeOf(value);
@@ -38,7 +37,7 @@ const copyJsonValue = (value: unknown, path: string, ancestors: WeakSet<object>)
   if (
     isArray ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null
   ) {
-    return invalidMetadata(path, 'must contain plain objects and arrays only');
+    throw invalidMetadata(path, 'must contain plain objects and arrays only');
   }
 
   ancestors.add(value);
@@ -58,47 +57,44 @@ const copyJsonValue = (value: unknown, path: string, ancestors: WeakSet<object>)
           return !Number.isSafeInteger(index) || index >= input.length || String(index) !== key;
         })
       ) {
-        return invalidMetadata(path, 'must not contain non-JSON array properties');
+        throw invalidMetadata(path, 'must not contain non-JSON array properties');
       }
 
-      const result: JsonValue[] = [];
       for (let index = 0; index < input.length; index += 1) {
         if (!Object.hasOwn(input, index)) {
-          return invalidMetadata(`${path}[${index}]`, 'must not be sparse');
+          throw invalidMetadata(`${path}[${index}]`, 'must not be sparse');
         }
         const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
         if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) {
-          return invalidMetadata(`${path}[${index}]`, 'must be an enumerable data value');
+          throw invalidMetadata(`${path}[${index}]`, 'must be an enumerable data value');
         }
-        result.push(copyJsonValue(descriptor.value, `${path}[${index}]`, ancestors));
+        validateJsonValue(descriptor.value, `${path}[${index}]`, ancestors);
       }
-      return Object.freeze(result);
+      return;
     }
 
-    const result: Record<string, JsonValue> = Object.create(null);
     const keys = Reflect.ownKeys(value);
     for (const key of keys) {
       if (typeof key !== 'string') {
-        return invalidMetadata(path, 'must not contain symbol keys');
+        throw invalidMetadata(path, 'must not contain symbol keys');
       }
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) {
-        return invalidMetadata(`${path}.${key}`, 'must be an enumerable data value');
+        throw invalidMetadata(`${path}.${key}`, 'must be an enumerable data value');
       }
-      result[key] = copyJsonValue(descriptor.value, `${path}.${key}`, ancestors);
+      validateJsonValue(descriptor.value, `${path}.${key}`, ancestors);
     }
-    return Object.freeze(result);
   } finally {
     ancestors.delete(value);
   }
 };
 
-export const createTransactionMetadata = (value: unknown): TransactionMetadata => {
+export function validateTransactionMetadata(value: unknown): asserts value is TransactionMetadata {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return invalidMetadata('metadata', 'must be a non-null JSON object');
+    throw invalidMetadata('metadata', 'must be a non-null JSON object');
   }
-  return copyJsonValue(value, 'metadata', new WeakSet()) as TransactionMetadata;
-};
+  validateJsonValue(value, 'metadata', new WeakSet());
+}
 
 const canonicalizeJsonValue = (value: JsonValue): string => {
   if (Array.isArray(value)) {
@@ -114,8 +110,10 @@ const canonicalizeJsonValue = (value: JsonValue): string => {
   return JSON.stringify(value);
 };
 
-export const canonicalizeTransactionMetadata = (metadata: TransactionMetadata): string =>
-  canonicalizeJsonValue(createTransactionMetadata(metadata));
+export const canonicalizeTransactionMetadata = (metadata: TransactionMetadata): string => {
+  validateTransactionMetadata(metadata);
+  return canonicalizeJsonValue(metadata);
+};
 
 export const transactionMetadataEquals = (
   left: TransactionMetadata | undefined,

@@ -1,7 +1,7 @@
 import type { LedgerId, TransactionId } from '../base/id';
 import type { EntryEntity } from '../entry/entity';
 import { AssetMismatchError, InvalidTransactionRelationError } from './errors';
-import { createTransactionMetadata, type TransactionMetadata } from './metadata';
+import type { TransactionMetadata } from './metadata';
 import {
   validateDoubleEntry,
   validateEntryAmounts,
@@ -50,8 +50,7 @@ export class TransactionEntity {
     this.relationType = input.relationType ?? null;
     this.createdAt = input.createdAt ?? null;
     this.effectiveAt = input.effectiveAt ?? null;
-    this.metadata =
-      input.metadata === undefined ? undefined : createTransactionMetadata(input.metadata);
+    this.metadata = input.metadata;
     this.entries = input.entries;
 
     this.assertInvariants();

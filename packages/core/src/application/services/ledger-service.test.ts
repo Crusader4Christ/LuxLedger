@@ -546,7 +546,7 @@ describe('application services', () => {
     expect(repository.createTransactionCalls).toHaveLength(0);
   });
 
-  it('returns transaction metadata as an immutable DTO snapshot', async () => {
+  it('returns transaction metadata through the application contract', async () => {
     const repository = new InMemoryLedgerRepository();
     const services = createServices(repository);
     const metadata = { provider: { id: 'external-1' } };
@@ -572,11 +572,8 @@ describe('application services', () => {
         },
       ],
     });
-    metadata.provider.id = 'changed';
-
     const transaction = await services.transactions.getById('tenant-1', created.transactionId);
     expect(transaction.metadata).toEqual({ provider: { id: 'external-1' } });
-    expect(Object.isFrozen(transaction.metadata?.provider)).toBe(true);
   });
 
   it('createTransactionsBulk rejects duplicate references before repository write', async () => {

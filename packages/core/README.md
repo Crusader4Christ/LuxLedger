@@ -59,10 +59,11 @@ Credit grant posting and lot reconciliation are documented in the [credit grants
 ### Transaction metadata
 
 `CreateTransactionInput` accepts optional `metadata`, a JSON object for host identifiers and
-other immutable transaction context. `TransactionEntity` stores a deeply frozen snapshot.
-Use `transactionMetadataEquals` for idempotency comparisons: object key order is ignored,
-while array order and JSON value types remain significant. Omitted metadata is distinct from
-an empty object. Persistence and HTTP exposure are adapter concerns.
+other transaction context. Core validates metadata without cloning it. Use
+`transactionMetadataEquals` for idempotency comparisons: object key order is ignored, while
+array order and JSON value types remain significant. Omitted metadata is distinct from an
+empty object. Storage immutability is enforced by the persistence adapter; returned DTOs are
+ordinary local values. Persistence and HTTP exposure are adapter concerns.
 
 ## Example
 
