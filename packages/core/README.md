@@ -24,7 +24,7 @@ Domain-first ledger library for LuxLedger.
 - `src/account`
   - Account model contracts.
 - `src/transaction`
-  - Transaction invariants, immutable JSON metadata, and create transaction use-case.
+  - Transaction invariants, JSON metadata contracts, and create transaction use-case.
 - `src/credit-grant`
   - Grant issuance plus immutable consumption/compensation lineage and derived capacity invariants.
 - `src/entry`
@@ -58,12 +58,10 @@ Credit grant posting and lot reconciliation are documented in the [credit grants
 
 ### Transaction metadata
 
-`CreateTransactionInput` accepts optional `metadata`, a JSON object for host identifiers and
-other transaction context. Core validates metadata without cloning it. Use
-`transactionMetadataEquals` for idempotency comparisons: object key order is ignored, while
-array order and JSON value types remain significant. Omitted metadata is distinct from an
-empty object. Storage immutability is enforced by the persistence adapter; returned DTOs are
-ordinary local values. Persistence and HTTP exposure are adapter concerns.
+`CreateTransactionInput` accepts optional `metadata`, a typed JSON object for host identifiers
+and other transaction context. Core passes metadata through without cloning, freezing, or
+runtime normalization. Persistence, serialization, idempotency comparison, and HTTP exposure
+are adapter concerns. Omitted metadata remains distinct from an empty object.
 
 ## Example
 

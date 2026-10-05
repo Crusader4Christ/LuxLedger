@@ -5,7 +5,6 @@ import {
   AccountId,
   AccountSide,
   EntryEntity,
-  InvalidTransactionMetadataError,
   LedgerId,
   Money,
   TransactionEntity,
@@ -527,23 +526,6 @@ describe('application services', () => {
     });
 
     expect(repository.createTransactionCalls[0]?.effectiveAt).toBe(effectiveAt);
-  });
-
-  it('createTransaction validates metadata before repository write', async () => {
-    const repository = new InMemoryLedgerRepository();
-    const services = createServices(repository);
-
-    await expect(
-      services.transactions.create({
-        tenantId: 'tenant-1',
-        ledgerId: 'ledger-1',
-        reference: 'ref-invalid-metadata',
-        currency: 'USD',
-        metadata: { value: undefined } as never,
-        entries: [],
-      }),
-    ).rejects.toBeInstanceOf(InvalidTransactionMetadataError);
-    expect(repository.createTransactionCalls).toHaveLength(0);
   });
 
   it('returns transaction metadata through the application contract', async () => {
