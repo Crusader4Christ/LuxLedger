@@ -2,7 +2,7 @@ import type { AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
-import type { UnknownRecord } from '../base/json';
+import type { UnknownRecord } from '../base/object';
 import type { EntryDirection } from '../entry/entity';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';

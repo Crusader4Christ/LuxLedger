@@ -1,4 +1,4 @@
-import type { UnknownRecord } from '../base/json';
+import type { UnknownRecord } from '../base/object';
 import type { TransactionEntity } from '../transaction/entity';
 
 export type ReconStrategy = 'one_to_one';

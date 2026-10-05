@@ -4,5 +4,3 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 export type JsonArray = JsonValue[];
-
-export type UnknownRecord = Record<string, unknown>;
