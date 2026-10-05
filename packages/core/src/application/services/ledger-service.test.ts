@@ -92,6 +92,7 @@ class InMemoryLedgerRepository {
       currency: input.currency,
       assetId: null,
       description: input.description ?? null,
+      metadata: input.metadata,
       createdAt: new Date(),
       entries: input.entries.map(
         (entry) =>
@@ -525,6 +526,36 @@ describe('application services', () => {
     });
 
     expect(repository.createTransactionCalls[0]?.effectiveAt).toBe(effectiveAt);
+  });
+
+  it('returns transaction metadata through the application contract', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const services = createServices(repository);
+    const metadata = { provider: { id: 'external-1' } };
+
+    const created = await services.transactions.create({
+      tenantId: 'tenant-1',
+      ledgerId: 'ledger-1',
+      reference: 'ref-metadata',
+      currency: 'USD',
+      metadata,
+      entries: [
+        {
+          accountId: 'account-1',
+          direction: EntryDirection.DEBIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+        {
+          accountId: 'account-2',
+          direction: EntryDirection.CREDIT,
+          amountMinor: 100n,
+          currency: 'USD',
+        },
+      ],
+    });
+    const transaction = await services.transactions.getById('tenant-1', created.transactionId);
+    expect(transaction.metadata).toEqual({ provider: { id: 'external-1' } });
   });
 
   it('createTransactionsBulk rejects duplicate references before repository write', async () => {

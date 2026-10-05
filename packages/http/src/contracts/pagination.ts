@@ -1,3 +1,4 @@
+import type { UnknownRecord } from '@luxledger/core/base';
 import type { InferSchema } from '../schema-types';
 import { isRecord } from '../validation-utils';
 
@@ -23,13 +24,10 @@ export const paginationQuerySchema = {
 
 export type PaginationQuery = InferSchema<typeof paginationQuerySchema>;
 
-type JsonSchema = Readonly<Record<string, unknown>>;
+type JsonSchema = Readonly<UnknownRecord>;
 
-const deepMerge = (
-  base: Record<string, unknown>,
-  extra: Record<string, unknown>,
-): Record<string, unknown> => {
-  const merged: Record<string, unknown> = { ...base };
+const deepMerge = (base: UnknownRecord, extra: UnknownRecord): UnknownRecord => {
+  const merged: UnknownRecord = { ...base };
   for (const [key, value] of Object.entries(extra)) {
     const existing = merged[key];
     merged[key] = isRecord(existing) && isRecord(value) ? deepMerge(existing, value) : value;

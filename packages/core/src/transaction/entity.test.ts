@@ -40,6 +40,31 @@ describe('TransactionEntity', () => {
     expect(transaction.entries).toHaveLength(2);
   });
 
+  it('keeps omitted metadata distinct from an empty object', () => {
+    const entries = [
+      buildEntry({ accountId: 'a-1', direction: EntryDirection.DEBIT, amountMinor: 100n }),
+      buildEntry({ accountId: 'a-2', direction: EntryDirection.CREDIT, amountMinor: 100n }),
+    ];
+    const omitted = new TransactionEntity({
+      id: new TransactionId('tx-omitted'),
+      ledgerId: new LedgerId('ledger-1'),
+      reference: 'ref-omitted',
+      currency: 'USD',
+      entries,
+    });
+    const empty = new TransactionEntity({
+      id: new TransactionId('tx-empty'),
+      ledgerId: new LedgerId('ledger-1'),
+      reference: 'ref-empty',
+      currency: 'USD',
+      metadata: {},
+      entries,
+    });
+
+    expect(omitted.metadata).toBeUndefined();
+    expect(empty.metadata).toEqual({});
+  });
+
   it('throws for less than two entries', () => {
     expect(
       () =>

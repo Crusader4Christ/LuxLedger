@@ -1,3 +1,4 @@
+import type { UnknownRecord } from '@luxledger/core';
 import { InvariantViolationError, type PaginationQuery } from '@luxledger/core/application';
 import type { AnyColumn } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, lt, or, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
@@ -101,7 +102,7 @@ const parseCursor = <Row>(
     throw new InvariantViolationError('Invalid cursor');
   }
 
-  const payload = decoded as Record<string, unknown>;
+  const payload = decoded as UnknownRecord;
   const cursorValues = new Map<string, CursorComparable>();
 
   for (const field of order) {
@@ -119,7 +120,7 @@ const encodeCursor = <Row>(
   row: Row,
   order: [CursorOrderField<Row>, ...CursorOrderField<Row>[]],
 ): string => {
-  const payload: Record<string, unknown> = {};
+  const payload: UnknownRecord = {};
 
   for (const field of order) {
     payload[field.key] = serializeCursorValue(field.getValue(row), field.type);

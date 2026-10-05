@@ -5,6 +5,7 @@ import {
   type ApplicationServices,
   type CreditGrant,
 } from '@luxledger/core/application';
+import type { UnknownRecord } from '@luxledger/core/base';
 import { registerLedgerAdapter as registerFastifyLedgerAdapter } from '@luxledger/fastify-routes';
 import { createContractHarness } from '@luxledger/http/test/harness';
 import express, { type Application } from 'express';
@@ -287,7 +288,7 @@ describe('express adapter parity with fastify adapter', () => {
     const response = (await fastifyServer.inject({
       method,
       url,
-      payload: payload as Record<string, unknown> | undefined,
+      payload: payload as UnknownRecord | undefined,
     })) as { statusCode: number; body: unknown };
     const textBody =
       typeof response.body === 'string' ? response.body : JSON.stringify(response.body);

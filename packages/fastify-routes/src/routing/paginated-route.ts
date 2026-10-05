@@ -1,10 +1,9 @@
 import type { PaginatedResult } from '@luxledger/core/application';
+import type { UnknownRecord } from '@luxledger/core/base';
 import type { PaginationQuery } from '@luxledger/http/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
 import { BaseEntityRoute } from './base-route';
-
-type JsonRecord = Record<string, unknown>;
 
 export type PaginatedRequest<Query extends PaginationQuery = PaginationQuery> = FastifyRequest<{
   Querystring: Query;
@@ -23,11 +22,11 @@ export abstract class BasePaginatedRoute<
     return resolvePaginationLimit(value);
   }
 
-  protected querystringSchema(extra: JsonRecord = {}) {
+  protected querystringSchema(extra: UnknownRecord = {}) {
     return createPaginationQuerySchema(extra);
   }
 
-  protected abstract responseSchema(): JsonRecord;
+  protected abstract responseSchema(): UnknownRecord;
 
   public register(server: FastifyInstance): void {
     server.get<{ Querystring: Query }>(

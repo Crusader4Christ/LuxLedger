@@ -1,4 +1,4 @@
-import { isDomainError } from '@luxledger/core';
+import { isDomainError, type UnknownRecord } from '@luxledger/core';
 import { InvariantViolationError, RepositoryError } from '@luxledger/core/application';
 import { sql as drizzleSql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -24,7 +24,7 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
   'P0001',
 ]);
 
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+const isObjectRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null;
 
 const extractDatabaseCode = (error: unknown): string | null => {

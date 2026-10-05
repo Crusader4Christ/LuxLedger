@@ -1,4 +1,4 @@
-import { AccountSide, EntryDirection } from '@luxledger/core';
+import { AccountSide, EntryDirection, type UnknownRecord } from '@luxledger/core';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -604,7 +604,7 @@ export const reconRecords = pgTable(
     reference: text('reference').notNull(),
     description: text('description'),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
-    raw: jsonb('raw').$type<Record<string, unknown> | null>(),
+    raw: jsonb('raw').$type<UnknownRecord | null>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
