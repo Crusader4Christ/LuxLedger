@@ -1,4 +1,6 @@
-type SchemaProperties = Readonly<Record<string, unknown>>;
+import type { UnknownRecord } from '@luxledger/core/base';
+
+type SchemaProperties = Readonly<UnknownRecord>;
 
 type RequiredPropertyNames<Schema, Properties extends SchemaProperties> = Schema extends {
   readonly required: readonly (infer Name)[];
@@ -36,7 +38,7 @@ type InferNonNullableSchema<Schema> = Schema extends {
                   readonly type: 'object';
                   readonly additionalProperties: true;
                 }
-              ? Record<string, unknown>
+              ? UnknownRecord
               : unknown;
 
 export type InferSchema<Schema> = Schema extends { readonly nullable: true }

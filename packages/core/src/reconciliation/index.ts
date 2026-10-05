@@ -1,3 +1,4 @@
+import type { UnknownRecord } from '../base/json';
 import type { TransactionEntity } from '../transaction/entity';
 
 export type ReconStrategy = 'one_to_one';
@@ -22,7 +23,7 @@ export interface ReconRecord {
   reference: string;
   description: string | null;
   occurredAt: Date;
-  raw: Record<string, unknown> | null;
+  raw: UnknownRecord | null;
 }
 
 export interface ReconMatchCriterion {

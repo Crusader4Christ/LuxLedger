@@ -1,9 +1,9 @@
-import { type DomainError, isDomainError } from '@luxledger/core/base';
+import { type DomainError, isDomainError, type UnknownRecord } from '@luxledger/core/base';
 
 export type ErrorResponse = {
   error: string;
   message: string;
-  details?: Record<string, unknown>;
+  details?: UnknownRecord;
 };
 
 export const errorResponseSchema = {
@@ -24,7 +24,7 @@ export type HttpErrorDto = {
   statusCode: number;
   code: string;
   message: string;
-  details?: Record<string, unknown>;
+  details?: UnknownRecord;
 };
 
 const codeToStatus: Record<string, number> = {
@@ -44,17 +44,17 @@ export function mapDomainErrorToHttp(error: DomainError): HttpErrorDto {
   };
 }
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+const asRecord = (value: unknown): UnknownRecord | null =>
+  typeof value === 'object' && value !== null ? (value as UnknownRecord) : null;
 
-const extractDetails = (error: unknown): Record<string, unknown> | undefined => {
+const extractDetails = (error: unknown): UnknownRecord | undefined => {
   const record = asRecord(error);
   return asRecord(record?.details) ?? undefined;
 };
 
 export const toHttpErrorPayload = (
   error: unknown,
-): { statusCode: number; error: string; message: string; details?: Record<string, unknown> } => {
+): { statusCode: number; error: string; message: string; details?: UnknownRecord } => {
   if (isDomainError(error)) {
     return {
       statusCode: error.httpStatus,
