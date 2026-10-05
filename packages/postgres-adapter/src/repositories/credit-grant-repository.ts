@@ -19,6 +19,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
+import { lockAccountsForMutation } from './account-mutation-lock';
 import { DrizzleTransactionRepository } from './transaction-repository';
 
 type GrantRow = typeof schema.creditGrants.$inferSelect;
@@ -73,8 +74,20 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         }
       }
 
-      const account = await this.assertIssuanceAccountInTx(tx, input);
-      await this.assertFundingAccountInTx(tx, input, account);
+      const lockedAccounts = await lockAccountsForMutation(tx, input.tenantId, [
+        input.accountId,
+        input.fundingAccountId,
+      ]);
+      const account = await this.adoptIssuanceAccountInTx(
+        tx,
+        input,
+        lockedAccounts.find((candidate) => candidate.id === input.accountId),
+      );
+      await this.assertFundingAccountInTx(
+        input,
+        account,
+        lockedAccounts.find((candidate) => candidate.id === input.fundingAccountId),
+      );
       const id = generateUuidV7();
       const posted = await this.transactions.postCreditGrantInTx(tx, {
         tenantId: input.tenantId,
@@ -119,6 +132,21 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   public reverse(input: ReverseCreditGrantInput): Promise<CreditGrantResult> {
     return this.client.runTenantTx(input.tenantId, 'reverse credit grant', async (tx) => {
       const reference = `credit-grant-reversal:${input.reference}`;
+      const [candidate] = await tx
+        .select()
+        .from(schema.creditGrants)
+        .where(
+          and(
+            eq(schema.creditGrants.tenantId, input.tenantId),
+            eq(schema.creditGrants.id, input.grantId),
+          ),
+        )
+        .limit(1);
+      if (!candidate) throw new CreditGrantNotFoundError(input.grantId);
+      await lockAccountsForMutation(tx, input.tenantId, [
+        candidate.accountId,
+        candidate.fundingAccountId,
+      ]);
       const [row] = await tx
         .select()
         .from(schema.creditGrants)
@@ -316,6 +344,16 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       )`;
     let rows: CandidateRow[];
     if (lock) {
+      const dueAccounts = await tx.execute<GrantCandidateRow>(sql`${dueCte}
+        select d."grantId", d."accountId", d."fundingAccountId", d."ledgerId",
+          d."expiresAt", d."createdAt", d.currency
+        from due d
+      `);
+      await lockAccountsForMutation(
+        tx,
+        input.tenantId,
+        dueAccounts.flatMap((grant) => [grant.accountId, grant.fundingAccountId]),
+      );
       // The bounded window is selected by business FEFO above. Acquire its grant locks by
       // account first to preserve the LL-91 multi-account lock hierarchy, then restore FEFO
       // before returning candidates. SKIP LOCKED may therefore produce a short page.
@@ -432,16 +470,6 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return row;
   }
 
-  private async lockCreditAccount(tx: Tx, tenantId: string, accountId: string) {
-    const [account] = await tx
-      .select()
-      .from(schema.accounts)
-      .where(and(eq(schema.accounts.tenantId, tenantId), eq(schema.accounts.id, accountId)))
-      .for('update')
-      .limit(1);
-    return this.assertCreditAccount(account, accountId);
-  }
-
   private async findCreditAccount(tx: Tx, tenantId: string, accountId: string) {
     const [account] = await tx
       .select()
@@ -452,27 +480,13 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   }
 
   private async assertFundingAccountInTx(
-    tx: Tx,
     input: CreateCreditGrantInput,
     grantAccount: typeof schema.accounts.$inferSelect,
+    fundingAccount: typeof schema.accounts.$inferSelect | undefined,
   ): Promise<void> {
     if (input.fundingAccountId === input.accountId) {
       throw new CreditGrantConflictError('Grant account and funding account must differ');
     }
-    const [fundingAccount] = await tx
-      .select({
-        ledgerId: schema.accounts.ledgerId,
-        assetId: schema.accounts.assetId,
-        currency: schema.accounts.currency,
-      })
-      .from(schema.accounts)
-      .where(
-        and(
-          eq(schema.accounts.tenantId, input.tenantId),
-          eq(schema.accounts.id, input.fundingAccountId),
-        ),
-      )
-      .limit(1);
     if (!fundingAccount) throw new AccountNotFoundError(input.fundingAccountId);
     if (fundingAccount.ledgerId !== input.ledgerId) {
       throw new CreditGrantConflictError('Funding account ledger mismatch');
@@ -483,7 +497,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     if (fundingAccount.currency !== grantAccount.currency) {
       throw new CreditGrantConflictError('Funding account currency mismatch');
     }
-    if (input.expiresAt && (await this.hasGrantInTx(tx, input.tenantId, input.fundingAccountId))) {
+    if (input.expiresAt && fundingAccount.grantEnabled) {
       throw new CreditGrantConflictError(
         'Expiring credit grant funding account cannot be grant-enabled',
       );
@@ -516,21 +530,17 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return BigInt(result?.posted ?? '0');
   }
 
-  private async assertIssuanceAccountInTx(tx: Tx, input: CreateCreditGrantInput) {
-    const account = await this.findCreditAccount(tx, input.tenantId, input.accountId);
+  private async adoptIssuanceAccountInTx(
+    tx: Tx,
+    input: CreateCreditGrantInput,
+    candidate: typeof schema.accounts.$inferSelect | undefined,
+  ) {
+    const account = this.assertCreditAccount(candidate, input.accountId);
     if (account.ledgerId !== input.ledgerId) {
       throw new CreditGrantConflictError('Grant account ledger mismatch');
     }
-    if (await this.hasGrantInTx(tx, input.tenantId, input.accountId)) {
+    if (account.grantEnabled) {
       return account;
-    }
-
-    const lockedAccount = await this.lockCreditAccount(tx, input.tenantId, input.accountId);
-    if (lockedAccount.ledgerId !== input.ledgerId) {
-      throw new CreditGrantConflictError('Grant account ledger mismatch');
-    }
-    if (await this.hasGrantInTx(tx, input.tenantId, input.accountId)) {
-      return lockedAccount;
     }
 
     const [priorEntry] = await tx
@@ -558,21 +568,15 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         'Grant-enabled account must have no prior ledger or hold history',
       );
     }
-    return lockedAccount;
-  }
-
-  private async hasGrantInTx(tx: Tx, tenantId: string, accountId: string): Promise<boolean> {
-    const [existingGrant] = await tx
-      .select({ id: schema.creditGrants.id })
-      .from(schema.creditGrants)
+    const [adopted] = await tx
+      .update(schema.accounts)
+      .set({ grantEnabled: true, updatedAt: sql`now()` })
       .where(
-        and(
-          eq(schema.creditGrants.tenantId, tenantId),
-          eq(schema.creditGrants.accountId, accountId),
-        ),
+        and(eq(schema.accounts.tenantId, input.tenantId), eq(schema.accounts.id, input.accountId)),
       )
-      .limit(1);
-    return existingGrant !== undefined;
+      .returning();
+    if (!adopted) throw new AccountNotFoundError(input.accountId);
+    return adopted;
   }
 
   private async balanceInTx(tx: Tx, tenantId: string, accountId: string): Promise<CreditBalance> {

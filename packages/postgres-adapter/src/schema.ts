@@ -113,6 +113,7 @@ export const accounts = pgTable(
     inflightCreditMinor: bigint('inflight_credit_minor', { mode: 'bigint' })
       .notNull()
       .default(sql`0`),
+    grantEnabled: boolean('grant_enabled').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
