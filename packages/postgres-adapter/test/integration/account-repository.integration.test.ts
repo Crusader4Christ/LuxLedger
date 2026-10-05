@@ -168,6 +168,34 @@ describe('Drizzle account repository', () => {
     expect(row?.overdraftPolicy).toBe('DISALLOW');
   });
 
+  it('creates grant-enabled accounts explicitly and enforces their shape in PostgreSQL', async () => {
+    const tenantId = await createTenant('Tenant A');
+    const ledgerId = await createLedger(tenantId, 'Main');
+
+    const created = await accountRepository.create({
+      tenantId,
+      ledgerId,
+      name: 'Promotional balance',
+      side: EntryDirection.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      grantEnabled: true,
+      currency: 'USD',
+    });
+    expect(created.grantEnabled).toBeTrue();
+
+    await expect(
+      accountRepository.create({
+        tenantId,
+        ledgerId,
+        name: 'Invalid promotional balance',
+        side: EntryDirection.DEBIT,
+        overdraftPolicy: 'DISALLOW',
+        grantEnabled: true,
+        currency: 'USD',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
   it('createAccount throws LedgerNotFoundError when ledger is missing for tenant', async () => {
     const tenantId = await createTenant('Tenant A');
 

@@ -138,6 +138,10 @@ export const accounts = pgTable(
       'accounts_inflight_credit_nonnegative_chk',
       sql`${table.inflightCreditMinor} >= 0`,
     ),
+    accountsGrantEnabledShapeChk: check(
+      'accounts_grant_enabled_shape_chk',
+      sql`not ${table.grantEnabled} or (${table.side} = 'CREDIT' and ${table.overdraftPolicy} = 'DISALLOW')`,
+    ),
     accountsLedgerCodeUq: uniqueIndex('accounts_ledger_code_uq')
       .on(table.tenantId, table.ledgerId, table.code)
       .where(sql`${table.code} is not null`),

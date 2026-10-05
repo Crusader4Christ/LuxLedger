@@ -12,8 +12,8 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1791200322465,
-      "tag": "0001_grant_account_adoption",
+      "when": 1791205624306,
+      "tag": "0001_grant_account_capability",
       "breakpoints": true
     }
   ]

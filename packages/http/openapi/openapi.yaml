@@ -1352,6 +1352,10 @@ components:
         overdraft_policy:
           type: string
           enum: [ALLOW, DISALLOW]
+        grant_enabled:
+          type: boolean
+          default: false
+          description: Immutable capability. Grant-enabled accounts must use CREDIT side and DISALLOW overdraft.
         currency:
           type: string
           pattern: '^(?=.*\S).+$'
@@ -1361,11 +1365,12 @@ components:
         name: Cash
         side: DEBIT
         overdraft_policy: ALLOW
+        grant_enabled: false
         currency: USD
     Account:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, code, name, side, overdraft_policy, currency, balance_minor, created_at]
+      required: [id, tenant_id, ledger_id, code, name, side, overdraft_policy, grant_enabled, currency, balance_minor, created_at]
       properties:
         id:
           type: string
@@ -1387,6 +1392,8 @@ components:
         overdraft_policy:
           type: string
           enum: [ALLOW, DISALLOW]
+        grant_enabled:
+          type: boolean
         currency:
           type: string
         balance_minor:
@@ -1402,6 +1409,7 @@ components:
         name: Cash
         side: DEBIT
         overdraft_policy: ALLOW
+        grant_enabled: false
         currency: USD
         balance_minor: '100'
         created_at: '2026-01-01T00:00:00.000Z'

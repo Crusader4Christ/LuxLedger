@@ -1,5 +1,5 @@
 {
-  "id": "3ab50c5a-74af-46e1-8297-d6eacd3a8f5b",
+  "id": "f4f72841-6c94-4c5f-a9d4-d460b834f0c8",
   "prevId": "d31da8d3-2186-45bf-934a-2e4a8944beab",
   "version": "7",
   "dialect": "postgresql",
@@ -250,6 +250,10 @@
         "accounts_inflight_credit_nonnegative_chk": {
           "name": "accounts_inflight_credit_nonnegative_chk",
           "value": "\"accounts\".\"inflight_credit_minor\" >= 0"
+        },
+        "accounts_grant_enabled_shape_chk": {
+          "name": "accounts_grant_enabled_shape_chk",
+          "value": "not \"accounts\".\"grant_enabled\" or (\"accounts\".\"side\" = 'CREDIT' and \"accounts\".\"overdraft_policy\" = 'DISALLOW')"
         }
       },
       "isRLSEnabled": false

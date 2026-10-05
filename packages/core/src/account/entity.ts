@@ -23,6 +23,7 @@ export class AccountEntity {
   public readonly name: string;
   public readonly side: AccountSide;
   public readonly overdraftPolicy: OverdraftPolicy;
+  public readonly grantEnabled: boolean;
   public readonly currency: string;
   public readonly assetId: string | null;
   public readonly balanceMinor: bigint;
@@ -36,6 +37,7 @@ export class AccountEntity {
     name: string;
     side: AccountSide;
     overdraftPolicy?: OverdraftPolicy;
+    grantEnabled?: boolean;
     currency: string;
     assetId?: string | null;
     balanceMinor: bigint;
@@ -54,6 +56,7 @@ export class AccountEntity {
     this.name = input.name;
     this.side = input.side;
     this.overdraftPolicy = input.overdraftPolicy ?? OverdraftPolicy.ALLOW;
+    this.grantEnabled = input.grantEnabled ?? false;
     this.currency = input.currency;
     this.assetId = input.assetId ?? null;
     this.balanceMinor = input.balanceMinor;

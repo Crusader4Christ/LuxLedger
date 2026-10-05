@@ -41,6 +41,7 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
         name: body.name,
         side: body.side === 'DEBIT' ? AccountSide.DEBIT : AccountSide.CREDIT,
         overdraftPolicy: body.overdraft_policy,
+        grantEnabled: body.grant_enabled,
         currency: body.currency,
       });
       res.status(201).json(toAccountResponse(account));

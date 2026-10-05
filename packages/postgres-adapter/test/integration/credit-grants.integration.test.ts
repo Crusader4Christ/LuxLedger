@@ -37,6 +37,7 @@ const setup = async (tenantId: string) => {
     name: 'Wallet',
     side: AccountSide.CREDIT,
     overdraftPolicy: 'DISALLOW',
+    grantEnabled: true,
     currency: 'USD',
     assetId: asset.id,
   });
@@ -252,6 +253,7 @@ describe('credit grants', () => {
       name: 'Second wallet',
       side: AccountSide.CREDIT,
       overdraftPolicy: 'DISALLOW',
+      grantEnabled: true,
       currency: 'USD',
       assetId: accounts.assetId,
     });
@@ -762,6 +764,7 @@ describe('credit grants', () => {
       name: 'Bonus lots',
       side: AccountSide.CREDIT,
       overdraftPolicy: 'DISALLOW',
+      grantEnabled: true,
       currency: 'BONUS',
       assetId: bonusAsset.id,
     });
@@ -843,7 +846,7 @@ describe('credit grants', () => {
     ).rejects.toThrow();
   });
 
-  it('serializes concurrent adoption and duplicate grants and records one compensation', async () => {
+  it('serializes concurrent grant issuance and duplicate references', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const input = grantInput(tenantId, accounts, 'concurrent');
@@ -856,8 +859,8 @@ describe('credit grants', () => {
     try {
       const other = createApplicationServices(secondClient);
       const firstAdoption = await Promise.all([
-        services.creditGrants.create({ ...input, reference: 'first-adoption-a' }),
-        other.creditGrants.create({ ...input, reference: 'first-adoption-b' }),
+        services.creditGrants.create({ ...input, reference: 'first-grant-a' }),
+        other.creditGrants.create({ ...input, reference: 'first-grant-b' }),
       ]);
       expect(firstAdoption.every((item) => item.created)).toBeTrue();
       const [a, b] = await Promise.all([
@@ -913,99 +916,14 @@ describe('credit grants', () => {
     }
   });
 
-  it('makes first-grant adoption atomic against ordinary postings and holds', async () => {
-    const tenantId = await createTenant(db, 'adoption-races');
-    const postingAccounts = await setup(tenantId);
-    const holdAccounts = await setup(tenantId);
-    const secondClient = createDbClient({ databaseUrl, max: 2 });
-    try {
-      const other = createApplicationServices(secondClient);
-      const postingRace = await Promise.allSettled([
-        services.creditGrants.create(grantInput(tenantId, postingAccounts, 'posting-race-grant')),
-        other.transactions.create({
-          tenantId,
-          ledgerId: postingAccounts.ledgerId,
-          reference: 'posting-race-ordinary',
-          currency: 'USD',
-          entries: [
-            {
-              accountId: postingAccounts.fundingAccountId,
-              direction: EntryDirection.DEBIT,
-              amountMinor: 1n,
-              currency: 'USD',
-            },
-            {
-              accountId: postingAccounts.accountId,
-              direction: EntryDirection.CREDIT,
-              amountMinor: 1n,
-              currency: 'USD',
-            },
-          ],
-        }),
-      ]);
-      expect(postingRace.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-      expect(postingRace.filter((result) => result.status === 'rejected')).toHaveLength(1);
-
-      const holdRace = await Promise.allSettled([
-        services.creditGrants.create(grantInput(tenantId, holdAccounts, 'hold-race-grant')),
-        other.holds.create({
-          tenantId,
-          ledgerId: holdAccounts.ledgerId,
-          reference: 'hold-race-ordinary',
-          currency: 'USD',
-          entries: [
-            {
-              accountId: holdAccounts.fundingAccountId,
-              direction: EntryDirection.DEBIT,
-              amountMinor: 1n,
-              currency: 'USD',
-            },
-            {
-              accountId: holdAccounts.accountId,
-              direction: EntryDirection.CREDIT,
-              amountMinor: 1n,
-              currency: 'USD',
-            },
-          ],
-        }),
-      ]);
-      expect(holdRace.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-      expect(holdRace.filter((result) => result.status === 'rejected')).toHaveLength(1);
-    } finally {
-      await secondClient.sql.end({ timeout: 5 });
-    }
-  });
-
-  it('rolls back capability adoption with a failed first grant', async () => {
-    const tenantId = await createTenant(db, 'adoption-rollback');
+  it('rejects unattributed postings and ordinary holds before the first grant', async () => {
+    const tenantId = await createTenant(db, 'empty-grant-account');
     const accounts = await setup(tenantId);
-    const otherAsset = await services.assets.create({ tenantId, code: 'BONUS', scale: 0 });
-    const wrongFunding = await services.accounts.create({
-      tenantId,
-      ledgerId: accounts.ledgerId,
-      name: 'Wrong funding asset',
-      side: AccountSide.DEBIT,
-      currency: 'BONUS',
-      assetId: otherAsset.id,
-    });
-
-    await expect(
-      services.creditGrants.create({
-        ...grantInput(tenantId, accounts, 'failed-adoption'),
-        fundingAccountId: wrongFunding.id,
-      }),
-    ).rejects.toThrow('Funding account asset mismatch');
-    const [account] = await db
-      .select({ grantEnabled: accountRows.grantEnabled })
-      .from(accountRows)
-      .where(eq(accountRows.id, accounts.accountId));
-    expect(account?.grantEnabled).toBeFalse();
-
     await expect(
       services.transactions.create({
         tenantId,
         ledgerId: accounts.ledgerId,
-        reference: 'ordinary-after-adoption-rollback',
+        reference: 'unattributed-before-first-grant',
         currency: 'USD',
         entries: [
           {
@@ -1022,57 +940,84 @@ describe('credit grants', () => {
           },
         ],
       }),
-    ).resolves.toMatchObject({ created: true });
+    ).rejects.toThrow();
+    await expect(
+      services.holds.create({
+        tenantId,
+        ledgerId: accounts.ledgerId,
+        reference: 'hold-before-first-grant',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: accounts.fundingAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+          {
+            accountId: accounts.accountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toThrow('Grant-enabled account holds require grant allocation');
   });
 
-  it('enforces complete adoption and history checks for direct SQL', async () => {
-    const tenantId = await createTenant(db, 'direct-adoption');
-    const clean = await setup(tenantId);
-    await expect(
-      db.transaction(async (tx) => {
-        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
-        await tx
-          .update(accountRows)
-          .set({ grantEnabled: true })
-          .where(eq(accountRows.id, clean.accountId));
-      }),
-    ).rejects.toThrow('adoption requires a credit grant');
-
-    const historical = await setup(tenantId);
-    await services.transactions.create({
+  it('rejects grants on ordinary accounts and keeps the capability immutable', async () => {
+    const tenantId = await createTenant(db, 'immutable-grant-capability');
+    const grantAccounts = await setup(tenantId);
+    const ordinaryAccount = await services.accounts.create({
       tenantId,
-      ledgerId: historical.ledgerId,
-      reference: 'direct-adoption-history',
+      ledgerId: grantAccounts.ledgerId,
+      name: 'Ordinary credit account',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
       currency: 'USD',
-      entries: [
-        {
-          accountId: historical.fundingAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 1n,
-          currency: 'USD',
-        },
-        {
-          accountId: historical.accountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 1n,
-          currency: 'USD',
-        },
-      ],
+      assetId: grantAccounts.assetId,
     });
     await expect(
+      services.creditGrants.create({
+        ...grantInput(tenantId, grantAccounts, 'ordinary-account-grant'),
+        accountId: ordinaryAccount.id,
+      }),
+    ).rejects.toThrow('Credit grants require a grant-enabled account');
+
+    await expect(
+      client.runTenantTx(tenantId, 'invalid direct grant account', (tx) =>
+        tx.insert(creditGrants).values({
+          id: crypto.randomUUID(),
+          tenantId,
+          ledgerId: grantAccounts.ledgerId,
+          accountId: ordinaryAccount.id,
+          fundingAccountId: grantAccounts.fundingAccountId,
+          reference: 'invalid-direct-ordinary-grant',
+          externalReference: null,
+          transactionId: crypto.randomUUID(),
+          expiresAt: null,
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
       db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
         await tx
           .update(accountRows)
           .set({ grantEnabled: true })
-          .where(eq(accountRows.id, historical.accountId));
+          .where(eq(accountRows.id, ordinaryAccount.id));
       }),
     ).rejects.toThrow();
-    const [notAdopted] = await db
-      .select({ grantEnabled: accountRows.grantEnabled })
-      .from(accountRows)
-      .where(eq(accountRows.id, historical.accountId));
-    expect(notAdopted?.grantEnabled).toBeFalse();
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        await tx
+          .update(accountRows)
+          .set({ grantEnabled: false })
+          .where(eq(accountRows.id, grantAccounts.accountId));
+      }),
+    ).rejects.toThrow();
   });
 
   it('rejects an untracked ledger posting and preserves the reconciled balance', async () => {
@@ -1347,6 +1292,15 @@ describe('credit grants', () => {
     const accounts = await setup(tenantId);
     const anotherLedger = await setup(tenantId);
     const otherTenant = await setup(otherTenantId);
+    const ordinaryAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Ordinary account',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
     const posting = await services.transactions.create({
       tenantId,
       ledgerId: accounts.ledgerId,
@@ -1360,7 +1314,7 @@ describe('credit grants', () => {
           currency: 'USD',
         },
         {
-          accountId: accounts.accountId,
+          accountId: ordinaryAccount.id,
           direction: EntryDirection.CREDIT,
           amountMinor: 1n,
           currency: 'USD',
@@ -1478,6 +1432,7 @@ describe('credit grants', () => {
       name: 'Expiring target',
       side: AccountSide.CREDIT,
       overdraftPolicy: 'DISALLOW',
+      grantEnabled: true,
       currency: 'USD',
       assetId: accounts.assetId,
     });
@@ -1642,9 +1597,18 @@ describe('credit grants', () => {
     ).toHaveLength(1);
   });
 
-  it('does not adopt a zero-balance account with prior ledger history', async () => {
+  it('does not allow a historically used ordinary account to receive grants', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
+    const ordinaryAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Previously used ordinary account',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
     const posted = await services.transactions.create({
       tenantId,
       ledgerId: accounts.ledgerId,
@@ -1658,7 +1622,7 @@ describe('credit grants', () => {
           currency: 'USD',
         },
         {
-          accountId: accounts.accountId,
+          accountId: ordinaryAccount.id,
           direction: EntryDirection.CREDIT,
           amountMinor: 1n,
           currency: 'USD',
@@ -1671,7 +1635,10 @@ describe('credit grants', () => {
       reference: 'old-posting-reversal',
     });
     await expect(
-      services.creditGrants.create(grantInput(tenantId, accounts, 'late-adoption')),
+      services.creditGrants.create({
+        ...grantInput(tenantId, accounts, 'late-grant'),
+        accountId: ordinaryAccount.id,
+      }),
     ).rejects.toBeInstanceOf(CreditGrantConflictError);
   });
 

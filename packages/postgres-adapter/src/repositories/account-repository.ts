@@ -53,6 +53,7 @@ export class DrizzleAccountRepository implements AccountRepository {
           name: input.name,
           side: input.side,
           overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
+          grantEnabled: input.grantEnabled ?? false,
           currency: input.currency,
           assetId: asset.id,
         })

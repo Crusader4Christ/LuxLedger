@@ -30,6 +30,7 @@ class FakeLedgerService {
     name: string;
     side: 'DEBIT' | 'CREDIT';
     overdraftPolicy?: 'ALLOW' | 'DISALLOW';
+    grantEnabled?: boolean;
     currency: string;
   }) {
     return {
@@ -40,6 +41,7 @@ class FakeLedgerService {
       name: input.name,
       side: input.side,
       overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
+      grantEnabled: input.grantEnabled ?? false,
       currency: input.currency,
       balanceMinor: 0n,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),

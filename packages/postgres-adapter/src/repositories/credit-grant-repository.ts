@@ -78,8 +78,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         input.accountId,
         input.fundingAccountId,
       ]);
-      const account = await this.adoptIssuanceAccountInTx(
-        tx,
+      const account = this.assertIssuanceAccount(
         input,
         lockedAccounts.find((candidate) => candidate.id === input.accountId),
       );
@@ -530,8 +529,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     return BigInt(result?.posted ?? '0');
   }
 
-  private async adoptIssuanceAccountInTx(
-    tx: Tx,
+  private assertIssuanceAccount(
     input: CreateCreditGrantInput,
     candidate: typeof schema.accounts.$inferSelect | undefined,
   ) {
@@ -539,44 +537,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     if (account.ledgerId !== input.ledgerId) {
       throw new CreditGrantConflictError('Grant account ledger mismatch');
     }
-    if (account.grantEnabled) {
-      return account;
+    if (!account.grantEnabled) {
+      throw new CreditGrantConflictError('Credit grants require a grant-enabled account');
     }
-
-    const [priorEntry] = await tx
-      .select({ id: schema.entries.id })
-      .from(schema.entries)
-      .where(
-        and(
-          eq(schema.entries.tenantId, input.tenantId),
-          eq(schema.entries.accountId, input.accountId),
-        ),
-      )
-      .limit(1);
-    const [priorHold] = await tx
-      .select({ id: schema.holdEntries.id })
-      .from(schema.holdEntries)
-      .where(
-        and(
-          eq(schema.holdEntries.tenantId, input.tenantId),
-          eq(schema.holdEntries.accountId, input.accountId),
-        ),
-      )
-      .limit(1);
-    if (priorEntry || priorHold) {
-      throw new CreditGrantConflictError(
-        'Grant-enabled account must have no prior ledger or hold history',
-      );
-    }
-    const [adopted] = await tx
-      .update(schema.accounts)
-      .set({ grantEnabled: true, updatedAt: sql`now()` })
-      .where(
-        and(eq(schema.accounts.tenantId, input.tenantId), eq(schema.accounts.id, input.accountId)),
-      )
-      .returning();
-    if (!adopted) throw new AccountNotFoundError(input.accountId);
-    return adopted;
+    return account;
   }
 
   private async balanceInTx(tx: Tx, tenantId: string, accountId: string): Promise<CreditBalance> {

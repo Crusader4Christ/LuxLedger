@@ -23,6 +23,17 @@ export class AccountService {
     ) {
       throw new InvariantViolationError('overdraft policy must be ALLOW or DISALLOW');
     }
+    if (input.grantEnabled !== undefined && typeof input.grantEnabled !== 'boolean') {
+      throw new InvariantViolationError('grantEnabled must be a boolean');
+    }
+    if (
+      input.grantEnabled === true &&
+      (input.side !== AccountSide.CREDIT || input.overdraftPolicy !== OverdraftPolicy.DISALLOW)
+    ) {
+      throw new InvariantViolationError(
+        'grant-enabled account must use CREDIT side and DISALLOW overdraft',
+      );
+    }
     return this.repository.create(input);
   }
 
