@@ -96,5 +96,5 @@ export class PostgresUnitOfWork implements ApplicationUnitOfWork {
   }
 }
 
-export const createPostgresUnitOfWork = (client: DbClient): ApplicationUnitOfWork =>
+export const createUnitOfWork = (client: DbClient): ApplicationUnitOfWork =>
   new PostgresUnitOfWork(client);

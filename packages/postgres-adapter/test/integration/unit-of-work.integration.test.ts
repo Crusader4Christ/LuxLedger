@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { AccountSide, EntryDirection, TenantId } from '@luxledger/core';
-import { createPostgresUnitOfWork } from '@luxledger/postgres-adapter';
+import { createUnitOfWork } from '@luxledger/postgres-adapter';
 import { sql } from 'drizzle-orm';
 import { transactions } from '../../src/schema';
 import {
@@ -13,7 +13,7 @@ import {
 
 const client = createRepositoryTestClient();
 const db = createRepositoryTestDatabase(client);
-const unitOfWork = createPostgresUnitOfWork(client);
+const unitOfWork = createUnitOfWork(client);
 
 const createPosting = async (tenantId: TenantId, reference: string, outboxPayload: string) =>
   unitOfWork.run(tenantId, async ({ query, services }) => {

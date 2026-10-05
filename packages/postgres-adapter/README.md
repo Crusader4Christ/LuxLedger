@@ -17,13 +17,13 @@ State-changing repository operations use explicit PostgreSQL transactions. The a
 
 ## Host-composable unit of work
 
-Use `createPostgresUnitOfWork` when a host row or outbox record must commit atomically with LuxLedger operations:
+Use `createUnitOfWork` when a host row or outbox record must commit atomically with LuxLedger operations:
 
 ```ts
 import { TenantId } from '@luxledger/core';
-import { createDbClient, createPostgresUnitOfWork } from '@luxledger/postgres-adapter';
+import { createDbClient, createUnitOfWork } from '@luxledger/postgres-adapter';
 
-const unitOfWork = createPostgresUnitOfWork(createDbClient());
+const unitOfWork = createUnitOfWork(createDbClient());
 
 await unitOfWork.run(new TenantId(tenantId), async ({ query, services }) => {
   await query`
