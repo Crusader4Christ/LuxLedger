@@ -19,7 +19,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
-import { lockAccountsForMutation } from './account-mutation-lock';
+import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { DrizzleTransactionRepository } from './transaction-repository';
 
 type GrantRow = typeof schema.creditGrants.$inferSelect;
@@ -74,19 +74,41 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         }
       }
 
-      const lockedAccounts = await lockAccountsForMutation(tx, input.tenantId, [
+      const [candidateAccount] = await tx
+        .select()
+        .from(schema.accounts)
+        .where(
+          and(
+            eq(schema.accounts.tenantId, input.tenantId),
+            eq(schema.accounts.id, input.accountId),
+          ),
+        )
+        .limit(1);
+      const validatedCandidate = this.assertCreditAccount(candidateAccount, input.accountId);
+      if (validatedCandidate.ledgerId !== input.ledgerId) {
+        throw new CreditGrantConflictError('Grant account ledger mismatch');
+      }
+      if (!validatedCandidate.grantEnabled) {
+        throw new CreditGrantConflictError('Credit grants require a grant-enabled account');
+      }
+      const lockedAccounts = await lockGrantEnabledAccountsForMutation(tx, input.tenantId, [
         input.accountId,
-        input.fundingAccountId,
       ]);
       const account = this.assertIssuanceAccount(
         input,
         lockedAccounts.find((candidate) => candidate.id === input.accountId),
       );
-      await this.assertFundingAccountInTx(
-        input,
-        account,
-        lockedAccounts.find((candidate) => candidate.id === input.fundingAccountId),
-      );
+      const [fundingAccount] = await tx
+        .select()
+        .from(schema.accounts)
+        .where(
+          and(
+            eq(schema.accounts.tenantId, input.tenantId),
+            eq(schema.accounts.id, input.fundingAccountId),
+          ),
+        )
+        .limit(1);
+      await this.assertFundingAccountInTx(input, account, fundingAccount);
       const id = generateUuidV7();
       const posted = await this.transactions.postCreditGrantInTx(tx, {
         tenantId: input.tenantId,
@@ -142,10 +164,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         )
         .limit(1);
       if (!candidate) throw new CreditGrantNotFoundError(input.grantId);
-      await lockAccountsForMutation(tx, input.tenantId, [
-        candidate.accountId,
-        candidate.fundingAccountId,
-      ]);
+      await lockGrantEnabledAccountsForMutation(tx, input.tenantId, [candidate.accountId]);
       const [row] = await tx
         .select()
         .from(schema.creditGrants)
@@ -348,10 +367,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           d."expiresAt", d."createdAt", d.currency
         from due d
       `);
-      await lockAccountsForMutation(
+      await lockGrantEnabledAccountsForMutation(
         tx,
         input.tenantId,
-        dueAccounts.flatMap((grant) => [grant.accountId, grant.fundingAccountId]),
+        dueAccounts.map((grant) => grant.accountId),
       );
       // The bounded window is selected by business FEFO above. Acquire its grant locks by
       // account first to preserve the LL-91 multi-account lock hierarchy, then restore FEFO

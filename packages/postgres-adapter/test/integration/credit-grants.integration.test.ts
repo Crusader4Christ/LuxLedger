@@ -693,7 +693,7 @@ describe('credit grants', () => {
     expect(balances.find((row) => row.id === creditAccount.id)?.balanceMinor).toBe(50n);
   });
 
-  it('uses one account lock order for opposite concurrent postings', async () => {
+  it('updates ordinary accounts in stable order for opposite concurrent postings', async () => {
     const tenantId = await createTenant(db, 'posting-lock-order');
     const accounts = await setup(tenantId);
     const firstAccount = await services.accounts.create({
@@ -1868,6 +1868,13 @@ describe('credit grants', () => {
   it('returns a short FEFO-sorted page when the earliest bounded grant is locked', async () => {
     const tenantId = await createTenant(db, 'expiration-skip-locked-order');
     const accounts = await setup(tenantId);
+    const readDatabaseTime = async () => {
+      const [clock] = await db.execute<{ databaseNow: Date }>(
+        sql`select transaction_timestamp() as "databaseNow"`,
+      );
+      if (!clock) throw new Error('Unable to read database time');
+      return new Date(clock.databaseNow);
+    };
     const firstExpiry = new Date(Date.now() + 120);
     const first = await services.creditGrants.create({
       ...grantInput(tenantId, accounts, 'skip-locked-first'),
@@ -1911,7 +1918,7 @@ describe('credit grants', () => {
       await locked;
       const shortPage = await services.creditGrants.runExpirations({
         tenantId,
-        asOf: new Date(Date.now() - 1),
+        asOf: await readDatabaseTime(),
         limit: 3,
       });
       expect(shortPage.items.map((item) => item.grantId)).toEqual([
@@ -1926,7 +1933,7 @@ describe('credit grants', () => {
 
     const nextPage = await services.creditGrants.runExpirations({
       tenantId,
-      asOf: new Date(Date.now() - 1),
+      asOf: await readDatabaseTime(),
       limit: 3,
     });
     expect(nextPage.items.map((item) => item.grantId)).toEqual([first.grant.id]);

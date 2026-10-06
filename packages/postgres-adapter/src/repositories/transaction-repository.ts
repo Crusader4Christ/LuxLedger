@@ -30,7 +30,7 @@ import { toEntryEntity } from '../mappers/entry-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
-import { lockAccountsForMutation } from './account-mutation-lock';
+import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
 import { validatePosting, validatePostingEntries } from './posting-validation';
@@ -382,7 +382,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
     await validatePosting(tx, input);
-    await lockAccountsForMutation(
+    await lockGrantEnabledAccountsForMutation(
       tx,
       input.tenantId,
       input.entries.map((entry) => entry.accountId),
@@ -566,7 +566,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
   ): Promise<string> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
     await validatePosting(tx, input);
-    await lockAccountsForMutation(
+    await lockGrantEnabledAccountsForMutation(
       tx,
       input.tenantId,
       input.entries.map((entry) => entry.accountId),
