@@ -273,8 +273,7 @@ export interface HistoricalBalance {
   accountId: string;
   at: Date;
   postedMinor: bigint;
-  inflightDebitMinor: bigint;
-  inflightCreditMinor: bigint;
+  reservedDeltaMinor: bigint;
   availableMinor: bigint;
 }
 
@@ -286,8 +285,7 @@ export interface BalanceSnapshotEvent {
   eventType: 'TX_APPLIED' | 'HOLD_CREATED' | 'HOLD_COMMITTED' | 'HOLD_VOIDED' | 'ADJUSTMENT';
   sourceId: string;
   postedMinor: bigint;
-  inflightDebitMinor: bigint;
-  inflightCreditMinor: bigint;
+  reservedDeltaMinor: bigint;
   effectiveAt: Date;
   createdAt: Date;
 }

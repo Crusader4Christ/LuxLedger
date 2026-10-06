@@ -658,8 +658,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           side: schema.accounts.side,
           overdraftPolicy: schema.accounts.overdraftPolicy,
           balanceMinor: schema.accounts.balanceMinor,
-          inflightDebitMinor: schema.accounts.inflightDebitMinor,
-          inflightCreditMinor: schema.accounts.inflightCreditMinor,
+          reservedDeltaMinor: schema.accounts.reservedDeltaMinor,
         });
       if (!updatedAccount) {
         throw new InvariantViolationError(
@@ -686,8 +685,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         accountId: updatedAccount.id,
         ledgerId: updatedAccount.ledgerId,
         postedMinor: (previousSnapshot?.postedMinor ?? 0n) + delta,
-        inflightDebitMinor: updatedAccount.inflightDebitMinor,
-        inflightCreditMinor: updatedAccount.inflightCreditMinor,
+        reservedDeltaMinor: updatedAccount.reservedDeltaMinor,
         effectiveAt,
       });
       await tx

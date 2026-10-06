@@ -67,9 +67,8 @@ const setup = async (policy: 'ALLOW' | 'DISALLOW' = 'DISALLOW') => {
     const [account] = await db.select().from(accounts).where(eq(accounts.id, spendId));
     return {
       posted: account.balanceMinor,
-      debit: account.inflightDebitMinor,
-      credit: account.inflightCreditMinor,
-      available: account.balanceMinor + account.inflightDebitMinor - account.inflightCreditMinor,
+      reserved: account.reservedDeltaMinor,
+      available: account.balanceMinor + account.reservedDeltaMinor,
     };
   };
   const counts = async () => ({
@@ -112,18 +111,55 @@ describe('DISALLOW available balance across holds and postings', () => {
     const f = await setup();
     const first = await holdRepository.create(f.request('hold-1', 70n));
     expect(first.created).toBeTrue();
-    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: -70n, available: 30n });
     const before = await f.counts();
     await expect(holdRepository.create(f.request('hold-2', 40n))).rejects.toBeInstanceOf(
       OverdraftPolicyViolationError,
     );
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: -70n, available: 30n });
     expect(await holdRepository.create(f.request('hold-1', 70n))).toMatchObject({
       holdId: first.holdId,
       created: false,
     });
     expect(await f.counts()).toEqual(before);
+  });
+
+  it('uses the opposite reservation sign for CREDIT-normal accounts', async () => {
+    const tenantId = await createTenant(db, 'Credit availability');
+    const ledgerId = await createLedger(db, tenantId, 'Ledger');
+    const creditId = await createAccount(db, {
+      tenantId,
+      ledgerId,
+      name: 'Credit capacity',
+      currency: 'USD',
+      side: 'CREDIT',
+      overdraftPolicy: 'DISALLOW',
+      balanceMinor: -100n,
+    });
+    const counterpartId = await createAccount(db, {
+      tenantId,
+      ledgerId,
+      name: 'Counterpart',
+      currency: 'USD',
+    });
+    const request = (reference: string, amountMinor: bigint) => ({
+      tenantId,
+      ledgerId,
+      reference,
+      currency: 'USD',
+      entries: [
+        { accountId: creditId, signedAmountMinor: amountMinor, currency: 'USD' },
+        { accountId: counterpartId, signedAmountMinor: -amountMinor, currency: 'USD' },
+      ],
+    });
+
+    await holdRepository.create(request('credit-hold', 70n));
+    const [credit] = await db.select().from(accounts).where(eq(accounts.id, creditId));
+    expect(credit).toMatchObject({ balanceMinor: -100n, reservedDeltaMinor: 70n });
+    await expect(holdRepository.create(request('credit-overdraft', 40n))).rejects.toBeInstanceOf(
+      OverdraftPolicyViolationError,
+    );
   });
 
   it('prevents ordinary posting from spending held capacity and preserves posting retry', async () => {
@@ -139,7 +175,25 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect((await transactionRepository.create(f.request('fits', 30n))).transactionId).toBe(
       posted.transactionId,
     );
-    expect(await f.state()).toEqual({ posted: 70n, debit: 0n, credit: 70n, available: 0n });
+    expect(await f.state()).toEqual({ posted: 70n, reserved: -70n, available: 0n });
+  });
+
+  it('does not make incoming held funds spendable before commit', async () => {
+    const f = await setup();
+    const incoming = await holdRepository.create({
+      ...f.request('incoming', 100n),
+      entries: [
+        { accountId: f.spendId, signedAmountMinor: 100n, currency: 'USD' },
+        { accountId: f.receiveId, signedAmountMinor: -100n, currency: 'USD' },
+      ],
+    });
+
+    expect(await f.state()).toEqual({ posted: 100n, reserved: 0n, available: 100n });
+    await expect(
+      transactionRepository.create(f.request('cannot-spend-incoming', 150n)),
+    ).rejects.toBeInstanceOf(OverdraftPolicyViolationError);
+    await holdRepository.void({ tenantId: f.tenantId, holdId: incoming.holdId });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: 0n, available: 100n });
   });
 
   it('commits its own reservation partially, then voids the rest', async () => {
@@ -152,7 +206,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       amountMinor: 30n,
     });
     expect(committed).toMatchObject({ created: true, state: 'HELD', remainingAmountMinor: 50n });
-    expect(await f.state()).toEqual({ posted: 70n, debit: 0n, credit: 50n, available: 20n });
+    expect(await f.state()).toEqual({ posted: 70n, reserved: -50n, available: 20n });
     expect(
       await holdRepository.commit({
         tenantId: f.tenantId,
@@ -173,7 +227,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect(
       (await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId })).voided,
     ).toBeFalse();
-    expect(await f.state()).toEqual({ posted: 70n, debit: 0n, credit: 0n, available: 70n });
+    expect(await f.state()).toEqual({ posted: 70n, reserved: 0n, available: 70n });
     expect((await transactionRepository.create(f.request('released', 70n))).created).toBeTrue();
   });
 
@@ -236,12 +290,11 @@ describe('DISALLOW available balance across holds and postings', () => {
       reference: 'partial',
       amountMinor: 2n,
     });
-    expect(await f.state()).toEqual({ posted: 99n, debit: 2n, credit: 4n, available: 97n });
+    expect(await f.state()).toEqual({ posted: 99n, reserved: -4n, available: 95n });
     await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
-    expect(await f.state()).toEqual({ posted: 99n, debit: 0n, credit: 0n, available: 99n });
+    expect(await f.state()).toEqual({ posted: 99n, reserved: 0n, available: 99n });
     const [other] = await db.select().from(accounts).where(eq(accounts.id, f.receiveId));
-    expect(other.inflightDebitMinor).toBe(0n);
-    expect(other.inflightCreditMinor).toBe(0n);
+    expect(other.reservedDeltaMinor).toBe(0n);
     expect(await f.counts()).toMatchObject({ holds: 1, transactions: 1, entries: 3, snapshots: 6 });
   });
 
@@ -273,7 +326,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 3n, credit: 5n, available: 98n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: -5n, available: 95n });
     await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
     expect((await f.state()).available).toBe(100n);
   });
@@ -308,9 +361,9 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect((await f.state()).credit).toBe(2n);
+    expect((await f.state()).reserved).toBe(-2n);
     await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
-    expect((await f.state()).credit).toBe(0n);
+    expect((await f.state()).reserved).toBe(0n);
   });
 
   it('rejects a corrupted hold remainder above its original amount', async () => {
@@ -329,7 +382,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 2n, available: 98n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: -2n, available: 98n });
   });
 
   it('rejects cross-ledger hold entry mutation at the database boundary', async () => {
@@ -350,8 +403,8 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect(await f.counts()).toEqual(before);
     const [otherAccount] = await db.select().from(accounts).where(eq(accounts.id, otherAccountId));
     expect(otherAccount.balanceMinor).toBe(0n);
-    expect(otherAccount.inflightCreditMinor).toBe(0n);
-    expect((await f.state()).credit).toBe(2n);
+    expect(otherAccount.reservedDeltaMinor).toBe(0n);
+    expect((await f.state()).reserved).toBe(-2n);
     await expect(
       holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
@@ -362,7 +415,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     const [firstId, secondId] = [f.spendId, f.receiveId].sort();
     await db
       .update(accounts)
-      .set({ inflightCreditMinor: 9223372036854775807n })
+      .set({ reservedDeltaMinor: -9223372036854775808n })
       .where(eq(accounts.id, secondId));
     const before = await f.counts();
     await expect(
@@ -381,8 +434,8 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect(await f.counts()).toEqual(before);
     const [firstAccount] = await db.select().from(accounts).where(eq(accounts.id, firstId));
     const [secondAccount] = await db.select().from(accounts).where(eq(accounts.id, secondId));
-    expect(firstAccount.inflightDebitMinor).toBe(0n);
-    expect(secondAccount.inflightCreditMinor).toBe(9223372036854775807n);
+    expect(firstAccount.reservedDeltaMinor).toBe(0n);
+    expect(secondAccount.reservedDeltaMinor).toBe(-9223372036854775808n);
   });
 
   it('fails closed when a corrupted hold remainder cannot be released exactly', async () => {
@@ -412,13 +465,13 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect((await f.state()).credit).toBe(5n);
+    expect((await f.state()).reserved).toBe(-5n);
   });
 
   it('rejects commit or void when the persisted reservation is insufficient', async () => {
     const f = await setup();
     const held = await holdRepository.create(f.request('hold', 6n));
-    await db.update(accounts).set({ inflightCreditMinor: 1n }).where(eq(accounts.id, f.spendId));
+    await db.update(accounts).set({ reservedDeltaMinor: -1n }).where(eq(accounts.id, f.spendId));
     const before = await f.counts();
     await expect(
       holdRepository.commit({
@@ -439,22 +492,29 @@ describe('DISALLOW available balance across holds and postings', () => {
       state: 'HELD',
       remainingAmountMinor: 6n,
     });
-    expect((await f.state()).credit).toBe(1n);
+    expect((await f.state()).reserved).toBe(-1n);
   });
 
-  it('rejects negative in-flight columns at the database boundary', async () => {
+  it('rejects reservation deltas that increase the account natural balance', async () => {
     const f = await setup('ALLOW');
     await expect(
       Promise.resolve(
-        db.update(accounts).set({ inflightDebitMinor: -1n }).where(eq(accounts.id, f.spendId)),
+        db.update(accounts).set({ reservedDeltaMinor: 1n }).where(eq(accounts.id, f.spendId)),
       ),
     ).rejects.toThrow();
+    const creditId = await createAccount(db, {
+      tenantId: f.tenantId,
+      ledgerId: f.ledgerId,
+      name: 'Credit-normal',
+      currency: 'USD',
+      side: 'CREDIT',
+    });
     await expect(
       Promise.resolve(
-        db.update(accounts).set({ inflightCreditMinor: -1n }).where(eq(accounts.id, f.spendId)),
+        db.update(accounts).set({ reservedDeltaMinor: -1n }).where(eq(accounts.id, creditId)),
       ),
     ).rejects.toThrow();
-    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 0n, available: 100n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: 0n, available: 100n });
   });
 
   it('serializes competing holds using separate PostgreSQL clients', async () => {
@@ -489,7 +549,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     ]);
     expect(first.holdId).toBe(second.holdId);
     expect([first.created, second.created].sort()).toEqual([false, true]);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: -70n, available: 30n });
     expect(await f.counts()).toMatchObject({ holds: 1, holdEntries: 2, snapshots: 2 });
   });
 
@@ -517,11 +577,11 @@ describe('DISALLOW available balance across holds and postings', () => {
     const f = await setup('ALLOW');
     await holdRepository.create(f.request('hold', 90n));
     await transactionRepository.create(f.request('posting', 90n));
-    expect(await f.state()).toEqual({ posted: 10n, debit: 0n, credit: 90n, available: -80n });
+    expect(await f.state()).toEqual({ posted: 10n, reserved: -90n, available: -80n });
   });
 
   it('evaluates the final per-account delta when entries share an account', async () => {
-    const f = await setup();
+    const f = await setup('ALLOW');
     const netTen = {
       ...f.request('net-hold', 10n),
       entries: [
@@ -543,9 +603,9 @@ describe('DISALLOW available balance across holds and postings', () => {
       ],
     };
     await holdRepository.create(netTen);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 90n, credit: 100n, available: 90n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: -100n, available: 0n });
     await transactionRepository.create({ ...netTen, reference: 'net-posting' });
-    expect(await f.state()).toEqual({ posted: 90n, debit: 90n, credit: 100n, available: 80n });
+    expect(await f.state()).toEqual({ posted: 90n, reserved: -100n, available: -10n });
     expect(
       (await db.select().from(balanceSnapshots).where(eq(balanceSnapshots.accountId, f.spendId)))
         .length,
@@ -563,7 +623,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(BulkTransactionError);
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, reserved: -70n, available: 30n });
     expect(
       (
         await transactionRepository.createBulk({

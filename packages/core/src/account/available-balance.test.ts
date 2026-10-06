@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { InvalidAmountError } from '../transaction/errors';
-import { aggregateAccountEntries, calculateAvailableMinor } from './available-balance';
+import {
+  aggregateAccountEntries,
+  calculateAvailableMinor,
+  calculateReservationDeltaMinor,
+} from './available-balance';
 
 describe('aggregateAccountEntries', () => {
   it('sums mixed directions per account without changing the input', () => {
@@ -32,14 +36,26 @@ describe('aggregateAccountEntries', () => {
     );
   });
 
-  it('calculates signed availability from posted and in-flight amounts', () => {
+  it('calculates availability from posted balance and signed reservation delta', () => {
     expect(
       calculateAvailableMinor({
         side: 'DEBIT',
         balanceMinor: 100n,
-        inflightDebitMinor: 20n,
-        inflightCreditMinor: 70n,
+        reservedDeltaMinor: -70n,
       }),
-    ).toBe(50n);
+    ).toBe(30n);
+    expect(
+      calculateAvailableMinor({
+        side: 'CREDIT',
+        balanceMinor: -100n,
+        reservedDeltaMinor: 70n,
+      }),
+    ).toBe(30n);
+  });
+
+  it('reserves only the direction that consumes the account natural balance', () => {
+    const mixed = { debitMinor: 20n, creditMinor: 70n };
+    expect(calculateReservationDeltaMinor('DEBIT', mixed)).toBe(-70n);
+    expect(calculateReservationDeltaMinor('CREDIT', mixed)).toBe(20n);
   });
 });

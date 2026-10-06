@@ -12,8 +12,7 @@ export const insertBalanceSnapshot = async (
     eventType: BalanceSnapshotEventType;
     sourceId: string;
     postedMinor: bigint;
-    inflightDebitMinor: bigint;
-    inflightCreditMinor: bigint;
+    reservedDeltaMinor: bigint;
     effectiveAt?: Date;
   },
 ): Promise<void> => {
@@ -26,8 +25,7 @@ export const insertBalanceSnapshot = async (
       eventType: row.eventType,
       sourceId: row.sourceId,
       postedMinor: row.postedMinor,
-      inflightDebitMinor: row.inflightDebitMinor,
-      inflightCreditMinor: row.inflightCreditMinor,
+      reservedDeltaMinor: row.reservedDeltaMinor,
       effectiveAt: row.effectiveAt ?? new Date(),
     })
     .onConflictDoNothing({

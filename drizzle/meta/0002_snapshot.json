@@ -1,5 +1,5 @@
 {
-  "id": "98878e84-02ef-4ff6-b0ec-00588b21b0bc",
+  "id": "f9a104f1-815d-449c-8dfd-67913aa137bb",
   "prevId": "f4f72841-6c94-4c5f-a9d4-d460b834f0c8",
   "version": "7",
   "dialect": "postgresql",
@@ -73,15 +73,8 @@
           "notNull": true,
           "default": "0"
         },
-        "inflight_debit_minor": {
-          "name": "inflight_debit_minor",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "0"
-        },
-        "inflight_credit_minor": {
-          "name": "inflight_credit_minor",
+        "reserved_delta_minor": {
+          "name": "reserved_delta_minor",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true,
@@ -243,13 +236,9 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "accounts_inflight_debit_nonnegative_chk": {
-          "name": "accounts_inflight_debit_nonnegative_chk",
-          "value": "\"accounts\".\"inflight_debit_minor\" >= 0"
-        },
-        "accounts_inflight_credit_nonnegative_chk": {
-          "name": "accounts_inflight_credit_nonnegative_chk",
-          "value": "\"accounts\".\"inflight_credit_minor\" >= 0"
+        "accounts_reserved_delta_side_chk": {
+          "name": "accounts_reserved_delta_side_chk",
+          "value": "(\"accounts\".\"side\" = 'DEBIT' and \"accounts\".\"reserved_delta_minor\" <= 0) or (\"accounts\".\"side\" = 'CREDIT' and \"accounts\".\"reserved_delta_minor\" >= 0)"
         },
         "accounts_grant_enabled_shape_chk": {
           "name": "accounts_grant_enabled_shape_chk",
@@ -524,14 +513,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "inflight_debit_minor": {
-          "name": "inflight_debit_minor",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "inflight_credit_minor": {
-          "name": "inflight_credit_minor",
+        "reserved_delta_minor": {
+          "name": "reserved_delta_minor",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true

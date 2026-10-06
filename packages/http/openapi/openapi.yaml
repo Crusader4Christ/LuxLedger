@@ -1423,7 +1423,7 @@ components:
     BalanceAsOfResponse:
       type: object
       additionalProperties: false
-      required: [account_id, timestamp, posted_minor, inflight_debit_minor, inflight_credit_minor, available_minor]
+      required: [account_id, timestamp, posted_minor, reserved_delta_minor, available_minor]
       properties:
         account_id:
           type: string
@@ -1433,16 +1433,14 @@ components:
           format: date-time
         posted_minor:
           type: string
-        inflight_debit_minor:
-          type: string
-        inflight_credit_minor:
+        reserved_delta_minor:
           type: string
         available_minor:
           type: string
     BalanceSnapshot:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, account_id, event_type, source_id, posted_minor, inflight_debit_minor, inflight_credit_minor, effective_at, created_at]
+      required: [id, tenant_id, ledger_id, account_id, event_type, source_id, posted_minor, reserved_delta_minor, effective_at, created_at]
       properties:
         id:
           type: string
@@ -1464,9 +1462,7 @@ components:
           format: uuid
         posted_minor:
           type: string
-        inflight_debit_minor:
-          type: string
-        inflight_credit_minor:
+        reserved_delta_minor:
           type: string
         effective_at:
           type: string

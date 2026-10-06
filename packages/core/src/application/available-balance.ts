@@ -7,8 +7,7 @@ export const assertAvailableBalance = (account: {
   side: AccountSide;
   overdraftPolicy: OverdraftPolicy;
   balanceMinor: bigint;
-  inflightDebitMinor: bigint;
-  inflightCreditMinor: bigint;
+  reservedDeltaMinor: bigint;
 }): void => {
   const availableMinor = calculateAvailableMinor(account);
   if (account.overdraftPolicy === 'DISALLOW' && availableMinor < 0n) {

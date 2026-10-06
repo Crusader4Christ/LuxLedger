@@ -218,8 +218,7 @@ class InMemoryLedgerRepository {
       accountId: query.accountId,
       at: query.at,
       postedMinor: 0n,
-      inflightDebitMinor: 0n,
-      inflightCreditMinor: 0n,
+      reservedDeltaMinor: 0n,
       availableMinor: 0n,
     };
   }

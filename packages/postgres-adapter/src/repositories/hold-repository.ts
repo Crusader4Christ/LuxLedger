@@ -11,7 +11,7 @@ import {
   type VoidHoldInput,
   type VoidHoldResult,
 } from '@luxledger/core/application';
-import { and, asc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import * as schema from '../schema';
@@ -132,11 +132,14 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
       );
 
       for (const entry of aggregateAccountEntries(input.entries)) {
+        const reservationDeltaMinor = sql<bigint>`case
+          when ${schema.accounts.side} = 'DEBIT' then ${-entry.creditMinor}
+          else ${entry.debitMinor}
+        end`;
         const [updatedAccount] = await tx
           .update(schema.accounts)
           .set({
-            inflightDebitMinor: sql`${schema.accounts.inflightDebitMinor} + ${entry.debitMinor}`,
-            inflightCreditMinor: sql`${schema.accounts.inflightCreditMinor} + ${entry.creditMinor}`,
+            reservedDeltaMinor: sql`${schema.accounts.reservedDeltaMinor} + ${reservationDeltaMinor}`,
             updatedAt: sql`now()`,
           })
           .where(
@@ -153,8 +156,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             side: schema.accounts.side,
             overdraftPolicy: schema.accounts.overdraftPolicy,
             balanceMinor: schema.accounts.balanceMinor,
-            inflightDebitMinor: schema.accounts.inflightDebitMinor,
-            inflightCreditMinor: schema.accounts.inflightCreditMinor,
+            reservedDeltaMinor: schema.accounts.reservedDeltaMinor,
           });
         if (!updatedAccount) {
           throw new InvariantViolationError(
@@ -169,8 +171,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           accountId: updatedAccount.id,
           ledgerId: updatedAccount.ledgerId,
           postedMinor: updatedAccount.balanceMinor,
-          inflightDebitMinor: updatedAccount.inflightDebitMinor,
-          inflightCreditMinor: updatedAccount.inflightCreditMinor,
+          reservedDeltaMinor: updatedAccount.reservedDeltaMinor,
         });
       }
 
@@ -303,12 +304,15 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
 
       for (const entry of aggregateAccountEntries(committedEntries)) {
         const delta = entry.signedAmountMinor;
+        const reservationDeltaMinor = sql<bigint>`case
+          when ${schema.accounts.side} = 'DEBIT' then ${-entry.creditMinor}
+          else ${entry.debitMinor}
+        end`;
         const [updatedAccount] = await tx
           .update(schema.accounts)
           .set({
             balanceMinor: sql`${schema.accounts.balanceMinor} + ${delta}`,
-            inflightDebitMinor: sql`${schema.accounts.inflightDebitMinor} - ${entry.debitMinor}`,
-            inflightCreditMinor: sql`${schema.accounts.inflightCreditMinor} - ${entry.creditMinor}`,
+            reservedDeltaMinor: sql`${schema.accounts.reservedDeltaMinor} - ${reservationDeltaMinor}`,
             updatedAt: sql`now()`,
           })
           .where(
@@ -317,8 +321,11 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
               eq(schema.accounts.tenantId, input.tenantId),
               eq(schema.accounts.ledgerId, hold.ledgerId),
               eq(schema.accounts.currency, hold.currency),
-              gte(schema.accounts.inflightDebitMinor, entry.debitMinor),
-              gte(schema.accounts.inflightCreditMinor, entry.creditMinor),
+              sql`(
+                (${schema.accounts.side} = 'DEBIT' and ${schema.accounts.reservedDeltaMinor} <= ${reservationDeltaMinor})
+                or
+                (${schema.accounts.side} = 'CREDIT' and ${schema.accounts.reservedDeltaMinor} >= ${reservationDeltaMinor})
+              )`,
             ),
           )
           .returning({
@@ -327,8 +334,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             side: schema.accounts.side,
             overdraftPolicy: schema.accounts.overdraftPolicy,
             balanceMinor: schema.accounts.balanceMinor,
-            inflightDebitMinor: schema.accounts.inflightDebitMinor,
-            inflightCreditMinor: schema.accounts.inflightCreditMinor,
+            reservedDeltaMinor: schema.accounts.reservedDeltaMinor,
           });
         if (!updatedAccount) {
           throw new InvariantViolationError(
@@ -343,8 +349,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           accountId: updatedAccount.id,
           ledgerId: updatedAccount.ledgerId,
           postedMinor: updatedAccount.balanceMinor,
-          inflightDebitMinor: updatedAccount.inflightDebitMinor,
-          inflightCreditMinor: updatedAccount.inflightCreditMinor,
+          reservedDeltaMinor: updatedAccount.reservedDeltaMinor,
         });
       }
 
@@ -419,11 +424,14 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         throw new InvariantViolationError('Unable to void hold: reservation totals do not match');
       }
       for (const entry of releases) {
+        const reservationDeltaMinor = sql<bigint>`case
+          when ${schema.accounts.side} = 'DEBIT' then ${-entry.creditMinor}
+          else ${entry.debitMinor}
+        end`;
         const [updated] = await tx
           .update(schema.accounts)
           .set({
-            inflightDebitMinor: sql`${schema.accounts.inflightDebitMinor} - ${entry.debitMinor}`,
-            inflightCreditMinor: sql`${schema.accounts.inflightCreditMinor} - ${entry.creditMinor}`,
+            reservedDeltaMinor: sql`${schema.accounts.reservedDeltaMinor} - ${reservationDeltaMinor}`,
             updatedAt: sql`now()`,
           })
           .where(
@@ -432,16 +440,18 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
               eq(schema.accounts.tenantId, input.tenantId),
               eq(schema.accounts.ledgerId, hold.ledgerId),
               eq(schema.accounts.currency, hold.currency),
-              gte(schema.accounts.inflightDebitMinor, entry.debitMinor),
-              gte(schema.accounts.inflightCreditMinor, entry.creditMinor),
+              sql`(
+                (${schema.accounts.side} = 'DEBIT' and ${schema.accounts.reservedDeltaMinor} <= ${reservationDeltaMinor})
+                or
+                (${schema.accounts.side} = 'CREDIT' and ${schema.accounts.reservedDeltaMinor} >= ${reservationDeltaMinor})
+              )`,
             ),
           )
           .returning({
             id: schema.accounts.id,
             ledgerId: schema.accounts.ledgerId,
             balanceMinor: schema.accounts.balanceMinor,
-            inflightDebitMinor: schema.accounts.inflightDebitMinor,
-            inflightCreditMinor: schema.accounts.inflightCreditMinor,
+            reservedDeltaMinor: schema.accounts.reservedDeltaMinor,
           });
         if (!updated) {
           throw new InvariantViolationError('Unable to void hold: account reservation is missing');
@@ -453,8 +463,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           accountId: updated.id,
           ledgerId: updated.ledgerId,
           postedMinor: updated.balanceMinor,
-          inflightDebitMinor: updated.inflightDebitMinor,
-          inflightCreditMinor: updated.inflightCreditMinor,
+          reservedDeltaMinor: updated.reservedDeltaMinor,
         });
       }
 

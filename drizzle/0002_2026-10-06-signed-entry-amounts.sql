@@ -2,6 +2,33 @@ ALTER TABLE "entries" RENAME COLUMN "amount_minor" TO "signed_amount_minor";--> 
 ALTER TABLE "hold_entries" RENAME COLUMN "amount_minor" TO "signed_amount_minor";--> statement-breakpoint
 UPDATE "entries" SET "signed_amount_minor" = -"signed_amount_minor" WHERE "direction" = 'CREDIT';--> statement-breakpoint
 UPDATE "hold_entries" SET "signed_amount_minor" = -"signed_amount_minor" WHERE "direction" = 'CREDIT';--> statement-breakpoint
+ALTER TABLE "accounts" DROP CONSTRAINT "accounts_inflight_debit_nonnegative_chk";--> statement-breakpoint
+ALTER TABLE "accounts" DROP CONSTRAINT "accounts_inflight_credit_nonnegative_chk";--> statement-breakpoint
+ALTER TABLE "accounts" ADD COLUMN "reserved_delta_minor" bigint;--> statement-breakpoint
+ALTER TABLE "balance_snapshots" ADD COLUMN "reserved_delta_minor" bigint;--> statement-breakpoint
+UPDATE "accounts"
+SET
+  "balance_minor" = -"balance_minor",
+  "reserved_delta_minor" = CASE
+    WHEN "side" = 'DEBIT' THEN -"inflight_credit_minor"
+    ELSE "inflight_debit_minor"
+  END;--> statement-breakpoint
+UPDATE "balance_snapshots" AS snapshot
+SET
+  "posted_minor" = -snapshot."posted_minor",
+  "reserved_delta_minor" = CASE
+    WHEN account."side" = 'DEBIT' THEN -snapshot."inflight_credit_minor"
+    ELSE snapshot."inflight_debit_minor"
+  END
+FROM "accounts" AS account
+WHERE account."id" = snapshot."account_id";--> statement-breakpoint
+ALTER TABLE "accounts" ALTER COLUMN "reserved_delta_minor" SET DEFAULT 0;--> statement-breakpoint
+ALTER TABLE "accounts" ALTER COLUMN "reserved_delta_minor" SET NOT NULL;--> statement-breakpoint
+ALTER TABLE "balance_snapshots" ALTER COLUMN "reserved_delta_minor" SET NOT NULL;--> statement-breakpoint
+ALTER TABLE "accounts" DROP COLUMN "inflight_debit_minor";--> statement-breakpoint
+ALTER TABLE "accounts" DROP COLUMN "inflight_credit_minor";--> statement-breakpoint
+ALTER TABLE "balance_snapshots" DROP COLUMN "inflight_debit_minor";--> statement-breakpoint
+ALTER TABLE "balance_snapshots" DROP COLUMN "inflight_credit_minor";--> statement-breakpoint
 CREATE OR REPLACE FUNCTION validate_credit_grant_entry() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE source_transaction uuid;
 DECLARE grant_expiration timestamptz;
@@ -152,6 +179,15 @@ BEGIN
 END $$;--> statement-breakpoint
 ALTER TABLE "entries" DROP COLUMN "direction";--> statement-breakpoint
 ALTER TABLE "hold_entries" DROP COLUMN "direction";--> statement-breakpoint
+ALTER TABLE "accounts" ADD CONSTRAINT "accounts_reserved_delta_side_chk" CHECK (("accounts"."side" = 'DEBIT' and "accounts"."reserved_delta_minor" <= 0) or ("accounts"."side" = 'CREDIT' and "accounts"."reserved_delta_minor" >= 0));--> statement-breakpoint
 ALTER TABLE "entries" ADD CONSTRAINT "entries_signed_amount_nonzero_chk" CHECK ("entries"."signed_amount_minor" <> 0);--> statement-breakpoint
 ALTER TABLE "hold_entries" ADD CONSTRAINT "hold_entries_signed_amount_nonzero_chk" CHECK ("hold_entries"."signed_amount_minor" <> 0);--> statement-breakpoint
+COMMENT ON COLUMN "accounts"."balance_minor" IS 'Posted signed balance: DEBIT entries are positive and CREDIT entries are negative.';--> statement-breakpoint
+COMMENT ON COLUMN "accounts"."reserved_delta_minor" IS 'Signed pending delta that consumes natural balance; excludes capacity-increasing hold legs.';--> statement-breakpoint
+COMMENT ON COLUMN "entries"."signed_amount_minor" IS 'Signed entry amount: positive is DEBIT and negative is CREDIT.';--> statement-breakpoint
+COMMENT ON COLUMN "hold_entries"."signed_amount_minor" IS 'Signed held entry amount: positive is DEBIT and negative is CREDIT.';--> statement-breakpoint
+COMMENT ON COLUMN "holds"."original_amount_minor" IS 'Positive debit-side magnitude used to scale partial commits.';--> statement-breakpoint
+COMMENT ON COLUMN "holds"."remaining_amount_minor" IS 'Uncommitted portion of original_amount_minor; zero after full commit or void.';--> statement-breakpoint
+COMMENT ON COLUMN "balance_snapshots"."posted_minor" IS 'Immutable account posted balance at the event boundary.';--> statement-breakpoint
+COMMENT ON COLUMN "balance_snapshots"."reserved_delta_minor" IS 'Immutable account reservation delta at the event boundary.';--> statement-breakpoint
 DROP TYPE "public"."entry_direction";

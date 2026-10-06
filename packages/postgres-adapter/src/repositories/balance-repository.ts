@@ -108,20 +108,17 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
         .limit(1);
 
       const postedMinor = row?.postedMinor ?? 0n;
-      const inflightDebitMinor = row?.inflightDebitMinor ?? 0n;
-      const inflightCreditMinor = row?.inflightCreditMinor ?? 0n;
+      const reservedDeltaMinor = row?.reservedDeltaMinor ?? 0n;
       return {
         tenantId: query.tenantId,
         accountId: query.accountId,
         at: query.at,
         postedMinor,
-        inflightDebitMinor,
-        inflightCreditMinor,
+        reservedDeltaMinor,
         availableMinor: calculateAvailableMinor({
           side: parseAccountSide(account.side),
           balanceMinor: postedMinor,
-          inflightDebitMinor,
-          inflightCreditMinor,
+          reservedDeltaMinor,
         }),
       };
     });
@@ -165,8 +162,7 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
         eventType: row.eventType as BalanceSnapshotEvent['eventType'],
         sourceId: row.sourceId,
         postedMinor: row.postedMinor,
-        inflightDebitMinor: row.inflightDebitMinor,
-        inflightCreditMinor: row.inflightCreditMinor,
+        reservedDeltaMinor: row.reservedDeltaMinor,
         effectiveAt: row.effectiveAt,
         createdAt: row.createdAt,
       }));

@@ -40,10 +40,13 @@ export const aggregateAccountEntries = (entries: readonly BalanceEntry[]) => {
 export const calculateAvailableMinor = (balance: {
   side: AccountSide;
   balanceMinor: bigint;
-  inflightDebitMinor: bigint;
-  inflightCreditMinor: bigint;
+  reservedDeltaMinor: bigint;
 }): bigint => {
-  const signedAvailableMinor =
-    balance.balanceMinor + balance.inflightDebitMinor - balance.inflightCreditMinor;
+  const signedAvailableMinor = balance.balanceMinor + balance.reservedDeltaMinor;
   return balance.side === 'DEBIT' ? signedAvailableMinor : -signedAvailableMinor;
 };
+
+export const calculateReservationDeltaMinor = (
+  side: AccountSide,
+  entry: { debitMinor: bigint; creditMinor: bigint },
+): bigint => (side === 'DEBIT' ? -entry.creditMinor : entry.debitMinor);

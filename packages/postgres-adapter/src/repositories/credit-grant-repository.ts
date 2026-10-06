@@ -525,7 +525,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         'Credit account requires a registered asset, CREDIT side and DISALLOW overdraft',
       );
     }
-    if (account.inflightDebitMinor !== 0n || account.inflightCreditMinor !== 0n) {
+    if (account.reservedDeltaMinor !== 0n) {
       throw new CreditGrantConflictError('Credit account cannot have unallocated holds');
     }
     return account;
