@@ -754,6 +754,51 @@ describe('credit grants', () => {
     }
   });
 
+  it('serializes opposite-direction postings on an existing grant account', async () => {
+    const tenantId = await createTenant(db, 'grant-opposite-posting-lock-order');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'existing-grant'));
+
+    const secondClient = createDbClient({ databaseUrl, max: 1 });
+    try {
+      const other = createApplicationServices(secondClient);
+      const [consumption, issuance] = await Promise.all([
+        services.transactions.create({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          reference: 'concurrent-grant-consumption',
+          currency: 'USD',
+          entries: [
+            {
+              accountId: accounts.accountId,
+              direction: EntryDirection.DEBIT,
+              amountMinor: 10n,
+              currency: 'USD',
+            },
+            {
+              accountId: accounts.fundingAccountId,
+              direction: EntryDirection.CREDIT,
+              amountMinor: 10n,
+              currency: 'USD',
+            },
+          ],
+        }),
+        other.creditGrants.create({
+          ...grantInput(tenantId, accounts, 'concurrent-grant-issuance'),
+          amountMinor: 20n,
+        }),
+      ]);
+
+      expect(consumption.created).toBeTrue();
+      expect(issuance.created).toBeTrue();
+      expect(
+        (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+      ).toBe(110n);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
   it('supports multiple grant-enabled accounts with different assets', async () => {
     const tenantId = await createTenant(db, 'A');
     const usd = await setup(tenantId);
