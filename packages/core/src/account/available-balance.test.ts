@@ -1,50 +1,44 @@
 import { describe, expect, it } from 'bun:test';
-import { EntryDirection } from '../entry/entity';
-import { InvalidAmountError, InvalidDirectionError } from '../transaction/errors';
+import { InvalidAmountError } from '../transaction/errors';
 import { aggregateAccountEntries, calculateAvailableMinor } from './available-balance';
 
 describe('aggregateAccountEntries', () => {
   it('sums mixed directions per account without changing the input', () => {
     const entries = [
-      { accountId: 'b', direction: EntryDirection.CREDIT, amountMinor: 3n },
-      { accountId: 'a', direction: EntryDirection.DEBIT, amountMinor: 7n },
-      { accountId: 'a', direction: EntryDirection.CREDIT, amountMinor: 2n },
-      { accountId: 'a', direction: EntryDirection.DEBIT, amountMinor: 1n },
+      { accountId: 'b', signedAmountMinor: -3n },
+      { accountId: 'a', signedAmountMinor: 7n },
+      { accountId: 'a', signedAmountMinor: -2n },
+      { accountId: 'a', signedAmountMinor: 1n },
     ];
     expect(aggregateAccountEntries(entries)).toEqual([
-      { accountId: 'a', debitMinor: 8n, creditMinor: 2n },
-      { accountId: 'b', debitMinor: 0n, creditMinor: 3n },
+      { accountId: 'a', signedAmountMinor: 6n, debitMinor: 8n, creditMinor: 2n },
+      { accountId: 'b', signedAmountMinor: -3n, debitMinor: 0n, creditMinor: 3n },
     ]);
     expect(entries[0].accountId).toBe('b');
   });
 
-  it('uses core direction validation for unsafe runtime input', () => {
-    expect(() =>
-      aggregateAccountEntries([
-        { accountId: 'a', direction: 'INVALID' as EntryDirection, amountMinor: 10n },
-      ]),
-    ).toThrow(InvalidDirectionError);
+  it('rejects a zero signed amount', () => {
+    expect(() => aggregateAccountEntries([{ accountId: 'a', signedAmountMinor: 0n }])).toThrow(
+      InvalidAmountError,
+    );
   });
 
-  it('rejects nonpositive amounts and empty account IDs', () => {
+  it('accepts either sign and rejects empty account IDs', () => {
     expect(() =>
-      aggregateAccountEntries([
-        { accountId: 'a', direction: EntryDirection.DEBIT, amountMinor: -1n },
-      ]),
-    ).toThrow(InvalidAmountError);
-    expect(() =>
-      aggregateAccountEntries([
-        { accountId: '', direction: EntryDirection.DEBIT, amountMinor: 1n },
-      ]),
-    ).toThrow('AccountId must be a non-empty string');
+      aggregateAccountEntries([{ accountId: 'a', signedAmountMinor: -1n }]),
+    ).not.toThrow();
+    expect(() => aggregateAccountEntries([{ accountId: '', signedAmountMinor: 1n }])).toThrow(
+      'AccountId must be a non-empty string',
+    );
   });
 
   it('calculates signed availability from posted and in-flight amounts', () => {
     expect(
       calculateAvailableMinor({
+        side: 'DEBIT',
         balanceMinor: 100n,
-        inflightDebitMinor: 70n,
-        inflightCreditMinor: 20n,
+        inflightDebitMinor: 20n,
+        inflightCreditMinor: 70n,
       }),
     ).toBe(50n);
   });

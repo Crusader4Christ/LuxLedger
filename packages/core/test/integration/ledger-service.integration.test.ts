@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import {
   type AccountEntity,
   AccountSide,
-  EntryDirection,
   type EntryEntity,
   type TransactionEntity,
 } from '@luxledger/core';
@@ -355,14 +354,12 @@ describe('application services integration (services + in-memory repository)', (
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],

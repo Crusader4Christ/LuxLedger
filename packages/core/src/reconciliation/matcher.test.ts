@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
   AccountId,
-  EntryDirection,
   EntryEntity,
   LedgerId,
   Money,
@@ -36,13 +35,11 @@ const transaction = (input: {
     entries: [
       new EntryEntity({
         accountId: new AccountId('account-1'),
-        direction: EntryDirection.DEBIT,
         money: Money.of(input.amountMinor, input.currency ?? 'USD'),
       }),
       new EntryEntity({
         accountId: new AccountId('account-2'),
-        direction: EntryDirection.CREDIT,
-        money: Money.of(input.amountMinor, input.currency ?? 'USD'),
+        money: Money.of(-input.amountMinor, input.currency ?? 'USD'),
       }),
     ],
   });

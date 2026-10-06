@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { EntryDirection } from '@luxledger/core';
 import { OverdraftPolicyViolationError, RepositoryError } from '@luxledger/core/application';
 import {
   CrossLedgerAccountError,
@@ -73,14 +72,12 @@ describe('Drizzle transaction repository posting', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 250n,
+          signedAmountMinor: 250n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 250n,
+          signedAmountMinor: -250n,
           currency: 'USD',
         },
       ],
@@ -113,8 +110,8 @@ describe('Drizzle transaction repository posting', () => {
       .from(accounts)
       .where(eq(accounts.id, creditAccountId))
       .limit(1);
-    expect(debitBalance?.balanceMinor).toBe(-250n);
-    expect(creditBalance?.balanceMinor).toBe(250n);
+    expect(debitBalance?.balanceMinor).toBe(250n);
+    expect(creditBalance?.balanceMinor).toBe(-250n);
   });
 
   it('createTransaction rejects imbalanced entries', async () => {
@@ -144,14 +141,12 @@ describe('Drizzle transaction repository posting', () => {
         entries: [
           {
             accountId: debitAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 200n,
+            signedAmountMinor: 200n,
             currency: 'USD',
           },
           {
             accountId: creditAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 100n,
+            signedAmountMinor: -100n,
             currency: 'USD',
           },
         ],
@@ -209,14 +204,12 @@ describe('Drizzle transaction repository posting', () => {
         entries: [
           {
             accountId: debitAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 100n,
+            signedAmountMinor: -100n,
             currency: 'USD',
           },
           {
             accountId: creditAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 100n,
+            signedAmountMinor: 100n,
             currency: 'USD',
           },
         ],
@@ -264,14 +257,12 @@ describe('Drizzle transaction repository posting', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
       ],
@@ -312,14 +303,12 @@ describe('Drizzle transaction repository posting', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -334,14 +323,12 @@ describe('Drizzle transaction repository posting', () => {
       entries: [
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
       ],
@@ -358,14 +345,12 @@ describe('Drizzle transaction repository posting', () => {
         entries: [
           {
             accountId: debitAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 100n,
+            signedAmountMinor: 100n,
             currency: 'USD',
           },
           {
             accountId: creditAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 100n,
+            signedAmountMinor: -100n,
             currency: 'USD',
           },
         ],
@@ -410,8 +395,8 @@ describe('Drizzle transaction repository posting', () => {
       .where(eq(accounts.id, creditAccountId))
       .limit(1);
 
-    expect(debitBalance?.balanceMinor).toBe(-100n);
-    expect(creditBalance?.balanceMinor).toBe(100n);
+    expect(debitBalance?.balanceMinor).toBe(100n);
+    expect(creditBalance?.balanceMinor).toBe(-100n);
   });
 
   it('createTransaction serializes concurrent idempotent retries', async () => {
@@ -437,14 +422,12 @@ describe('Drizzle transaction repository posting', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -513,14 +496,12 @@ describe('Drizzle transaction repository posting', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -554,14 +535,12 @@ describe('Drizzle transaction repository posting', () => {
         entries: [
           {
             accountId: debitAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor,
+            signedAmountMinor: amountMinor,
             currency: 'USD',
           },
           {
             accountId: creditAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor,
+            signedAmountMinor: -amountMinor,
             currency: 'USD',
           },
         ],
@@ -585,7 +564,7 @@ describe('Drizzle transaction repository posting', () => {
         .orderBy(sql`${balanceSnapshots.effectiveAt} desc`, sql`${balanceSnapshots.id} desc`)
         .limit(1);
 
-      expect(latestSnapshot?.postedMinor).toBe(-165n);
+      expect(latestSnapshot?.postedMinor).toBe(165n);
     } finally {
       await clientA.sql.end({ timeout: 5 });
       await clientB.sql.end({ timeout: 5 });
@@ -619,14 +598,12 @@ describe('Drizzle transaction repository posting', () => {
         entries: [
           {
             accountId: debitAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
           {
             accountId: creditAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: 1n,
             currency: 'USD',
           },
         ],
@@ -684,14 +661,12 @@ describe('Drizzle transaction repository posting', () => {
         entries: [
           {
             accountId: wrongCurrencyAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 10n,
+            signedAmountMinor: 10n,
             currency: 'USD',
           },
           {
             accountId: validAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 10n,
+            signedAmountMinor: -10n,
             currency: 'USD',
           },
         ],
@@ -736,14 +711,12 @@ describe('Drizzle transaction repository posting', () => {
         entries: [
           {
             accountId: sourceAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 10n,
+            signedAmountMinor: 10n,
             currency: 'USD',
           },
           {
             accountId: otherLedgerAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 10n,
+            signedAmountMinor: -10n,
             currency: 'USD',
           },
         ],

@@ -49,20 +49,20 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
       let totalCreditsMinor = 0n;
       const accounts: TrialBalanceAccount[] = rows.map((row) => {
         const side = parseAccountSide(row.side);
-        const isDebit = row.balanceMinor < 0n;
+        const isDebit = row.balanceMinor > 0n;
         const balanceSide =
           row.balanceMinor === 0n ? side : isDebit ? AccountSide.DEBIT : AccountSide.CREDIT;
         if (isDebit) {
-          totalDebitsMinor += -row.balanceMinor;
-        } else if (row.balanceMinor > 0n) {
-          totalCreditsMinor += row.balanceMinor;
+          totalDebitsMinor += row.balanceMinor;
+        } else if (row.balanceMinor < 0n) {
+          totalCreditsMinor += -row.balanceMinor;
         }
         return {
           accountId: row.id,
           code: row.code,
           name: row.name,
           normalBalance: side,
-          balanceMinor: isDebit ? -row.balanceMinor : row.balanceMinor,
+          balanceMinor: row.balanceMinor < 0n ? -row.balanceMinor : row.balanceMinor,
           balanceSide,
         };
       });
@@ -81,6 +81,19 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
 
   public async getAt(query: BalanceAtQuery): Promise<HistoricalBalance> {
     return this.client.runTenantTx(query.tenantId, 'get historical balance', async (tx) => {
+      const [account] = await tx
+        .select({ side: schema.accounts.side })
+        .from(schema.accounts)
+        .where(
+          and(
+            eq(schema.accounts.tenantId, query.tenantId),
+            eq(schema.accounts.id, query.accountId),
+          ),
+        )
+        .limit(1);
+      if (!account) {
+        throw new InvariantViolationError('Unable to get historical balance: account not found');
+      }
       const [row] = await tx
         .select()
         .from(schema.balanceSnapshots)
@@ -105,6 +118,7 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
         inflightDebitMinor,
         inflightCreditMinor,
         availableMinor: calculateAvailableMinor({
+          side: parseAccountSide(account.side),
           balanceMinor: postedMinor,
           inflightDebitMinor,
           inflightCreditMinor,

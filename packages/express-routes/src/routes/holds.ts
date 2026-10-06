@@ -35,8 +35,7 @@ export const registerHoldRoutes = (app: Application, services: HoldRouteServices
         description: body.description,
         entries: body.entries.map((entry) => ({
           accountId: entry.account_id,
-          direction: entry.direction,
-          amountMinor: BigInt(entry.amount_minor),
+          signedAmountMinor: BigInt(entry.signed_amount_minor),
           currency: entry.currency,
         })),
       });

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { EntryDirection } from '@luxledger/core';
+import { AccountSide } from '@luxledger/core';
 import { InvariantViolationError } from '@luxledger/core/application';
 import { createDbClient } from '../../src/client';
 import { DrizzleAccountRepository } from '../../src/repositories/account-repository';
@@ -46,14 +46,14 @@ describe('Drizzle transaction repository reversal', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
     const creditAccountId = await createAccount({
       tenantId,
       ledgerId,
       name: 'Revenue',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       currency: 'USD',
     });
     const created = await transactionRepository.create({
@@ -64,14 +64,12 @@ describe('Drizzle transaction repository reversal', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -107,14 +105,14 @@ describe('Drizzle transaction repository reversal', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
     const creditAccountId = await createAccount({
       tenantId,
       ledgerId,
       name: 'Revenue',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       currency: 'USD',
     });
     const original = await transactionRepository.create({
@@ -125,14 +123,12 @@ describe('Drizzle transaction repository reversal', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 10n,
+          signedAmountMinor: 10n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 10n,
+          signedAmountMinor: -10n,
           currency: 'USD',
         },
       ],
@@ -159,14 +155,14 @@ describe('Drizzle transaction repository reversal', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
     const creditAccountId = await createAccount({
       tenantId,
       ledgerId,
       name: 'Revenue',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       currency: 'USD',
     });
     const original = await transactionRepository.create({
@@ -177,14 +173,12 @@ describe('Drizzle transaction repository reversal', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 10n,
+          signedAmountMinor: 10n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 10n,
+          signedAmountMinor: -10n,
           currency: 'USD',
         },
       ],
@@ -234,14 +228,14 @@ describe('Drizzle transaction repository reversal', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
     const creditAccountId = await createAccount({
       tenantId,
       ledgerId,
       name: 'Revenue',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       currency: 'USD',
     });
     const original = await transactionRepository.create({
@@ -252,14 +246,12 @@ describe('Drizzle transaction repository reversal', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 10n,
+          signedAmountMinor: 10n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 10n,
+          signedAmountMinor: -10n,
           currency: 'USD',
         },
       ],
@@ -288,14 +280,14 @@ describe('Drizzle transaction repository reversal', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
     const creditAccountId = await createAccount({
       tenantId,
       ledgerId,
       name: 'Revenue',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       currency: 'USD',
     });
     const original = await transactionRepository.create({
@@ -306,14 +298,12 @@ describe('Drizzle transaction repository reversal', () => {
       entries: [
         {
           accountId: debitAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 10n,
+          signedAmountMinor: 10n,
           currency: 'USD',
         },
         {
           accountId: creditAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 10n,
+          signedAmountMinor: -10n,
           currency: 'USD',
         },
       ],

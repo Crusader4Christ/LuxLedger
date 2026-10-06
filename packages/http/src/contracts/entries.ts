@@ -4,21 +4,12 @@ import { createPaginatedResponseSchema, type paginationQuerySchema } from './pag
 export const entryResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: [
-    'id',
-    'transaction_id',
-    'account_id',
-    'direction',
-    'amount_minor',
-    'currency',
-    'created_at',
-  ],
+  required: ['id', 'transaction_id', 'account_id', 'signed_amount_minor', 'currency', 'created_at'],
   properties: {
     id: { type: 'string', format: 'uuid' },
     transaction_id: { type: 'string', format: 'uuid' },
     account_id: { type: 'string', format: 'uuid' },
-    direction: { type: 'string', enum: ['DEBIT', 'CREDIT'] },
-    amount_minor: { type: 'string' },
+    signed_amount_minor: { type: 'string', pattern: '^-?[1-9][0-9]*$' },
     currency: { type: 'string' },
     created_at: { type: 'string', format: 'date-time' },
   },

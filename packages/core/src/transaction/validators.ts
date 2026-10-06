@@ -13,10 +13,6 @@ type EntryAmountLine = {
   };
 };
 
-type DoubleEntryLine = EntryAmountLine & {
-  signedAmountMinor(): bigint;
-};
-
 type EntryCurrencyLine = {
   money: {
     currency: string;
@@ -40,18 +36,18 @@ export function validateEntryCurrencies(
 
 export function validateEntryAmounts(entries: readonly EntryAmountLine[]): void {
   for (const entry of entries) {
-    if (entry.money.amountMinor <= 0n) {
-      throw new InvalidAmountError('amount must be positive');
+    if (entry.money.amountMinor === 0n) {
+      throw new InvalidAmountError('signed amount must not be zero');
     }
   }
 }
 
-export function validateDoubleEntry(entries: readonly DoubleEntryLine[]): void {
+export function validateDoubleEntry(entries: readonly EntryAmountLine[]): void {
   if (entries.length < 2) {
     throw new NotEnoughEntriesError();
   }
 
-  const total = entries.reduce((sum, entry) => sum + entry.signedAmountMinor(), 0n);
+  const total = entries.reduce((sum, entry) => sum + entry.money.amountMinor, 0n);
 
   if (total !== 0n) {
     throw new UnbalancedTransactionError();

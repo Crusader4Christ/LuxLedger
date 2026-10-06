@@ -1,12 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { EntryDirection } from '@luxledger/core';
 import {
   BulkTransactionError,
   InvariantViolationError,
   OverdraftPolicyViolationError,
   RepositoryError,
 } from '@luxledger/core/application';
-import { InvalidDirectionError } from '@luxledger/core/transaction';
+import { InvalidAmountError } from '@luxledger/core/transaction';
 import { eq } from 'drizzle-orm';
 import { DrizzleHoldRepository } from '../../src/repositories/hold-repository';
 import { DrizzleTransactionRepository } from '../../src/repositories/transaction-repository';
@@ -46,7 +45,7 @@ const setup = async (policy: 'ALLOW' | 'DISALLOW' = 'DISALLOW') => {
     currency: 'USD',
     balanceMinor: 100n,
     overdraftPolicy: policy,
-    side: 'CREDIT',
+    side: 'DEBIT',
   });
   const receiveId = await createAccount(db, {
     tenantId,
@@ -60,8 +59,8 @@ const setup = async (policy: 'ALLOW' | 'DISALLOW' = 'DISALLOW') => {
     reference,
     currency: 'USD',
     entries: [
-      { accountId: spendId, direction: EntryDirection.DEBIT, amountMinor, currency: 'USD' },
-      { accountId: receiveId, direction: EntryDirection.CREDIT, amountMinor, currency: 'USD' },
+      { accountId: spendId, signedAmountMinor: -amountMinor, currency: 'USD' },
+      { accountId: receiveId, signedAmountMinor: amountMinor, currency: 'USD' },
     ],
   });
   const state = async () => {
@@ -70,7 +69,7 @@ const setup = async (policy: 'ALLOW' | 'DISALLOW' = 'DISALLOW') => {
       posted: account.balanceMinor,
       debit: account.inflightDebitMinor,
       credit: account.inflightCreditMinor,
-      available: account.balanceMinor - account.inflightDebitMinor + account.inflightCreditMinor,
+      available: account.balanceMinor + account.inflightDebitMinor - account.inflightCreditMinor,
     };
   };
   const counts = async () => ({
@@ -91,20 +90,15 @@ describe('DISALLOW available balance across holds and postings', () => {
     await otherClient.sql.end({ timeout: 5 });
   });
 
-  it('uses core validation for unknown directions before either repository writes', async () => {
+  it('uses core validation for zero signed amounts before either repository writes', async () => {
     const f = await setup();
     const request = f.request('invalid', 10n);
     const invalid = {
       ...request,
-      entries: [
-        { ...request.entries[0], direction: 'INVALID' as EntryDirection },
-        request.entries[1],
-      ],
+      entries: [{ ...request.entries[0], signedAmountMinor: 0n }, request.entries[1]],
     };
-    await expect(holdRepository.create(invalid)).rejects.toBeInstanceOf(InvalidDirectionError);
-    await expect(transactionRepository.create(invalid)).rejects.toBeInstanceOf(
-      InvalidDirectionError,
-    );
+    await expect(holdRepository.create(invalid)).rejects.toBeInstanceOf(InvalidAmountError);
+    await expect(transactionRepository.create(invalid)).rejects.toBeInstanceOf(InvalidAmountError);
     expect(await f.counts()).toEqual({
       holds: 0,
       holdEntries: 0,
@@ -118,13 +112,13 @@ describe('DISALLOW available balance across holds and postings', () => {
     const f = await setup();
     const first = await holdRepository.create(f.request('hold-1', 70n));
     expect(first.created).toBeTrue();
-    expect(await f.state()).toEqual({ posted: 100n, debit: 70n, credit: 0n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
     const before = await f.counts();
     await expect(holdRepository.create(f.request('hold-2', 40n))).rejects.toBeInstanceOf(
       OverdraftPolicyViolationError,
     );
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 70n, credit: 0n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
     expect(await holdRepository.create(f.request('hold-1', 70n))).toMatchObject({
       holdId: first.holdId,
       created: false,
@@ -145,7 +139,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect((await transactionRepository.create(f.request('fits', 30n))).transactionId).toBe(
       posted.transactionId,
     );
-    expect(await f.state()).toEqual({ posted: 70n, debit: 70n, credit: 0n, available: 0n });
+    expect(await f.state()).toEqual({ posted: 70n, debit: 0n, credit: 70n, available: 0n });
   });
 
   it('commits its own reservation partially, then voids the rest', async () => {
@@ -158,7 +152,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       amountMinor: 30n,
     });
     expect(committed).toMatchObject({ created: true, state: 'HELD', remainingAmountMinor: 50n });
-    expect(await f.state()).toEqual({ posted: 70n, debit: 50n, credit: 0n, available: 20n });
+    expect(await f.state()).toEqual({ posted: 70n, debit: 0n, credit: 50n, available: 20n });
     expect(
       await holdRepository.commit({
         tenantId: f.tenantId,
@@ -223,17 +217,15 @@ describe('DISALLOW available balance across holds and postings', () => {
     const held = await holdRepository.create({
       ...f.request('mixed-hold', 6n),
       entries: [
-        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 6n, currency: 'USD' },
+        { accountId: f.spendId, signedAmountMinor: -6n, currency: 'USD' },
         {
           accountId: f.spendId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 3n,
+          signedAmountMinor: 3n,
           currency: 'USD',
         },
         {
           accountId: f.receiveId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 3n,
+          signedAmountMinor: 3n,
           currency: 'USD',
         },
       ],
@@ -244,7 +236,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       reference: 'partial',
       amountMinor: 2n,
     });
-    expect(await f.state()).toEqual({ posted: 99n, debit: 4n, credit: 2n, available: 97n });
+    expect(await f.state()).toEqual({ posted: 99n, debit: 2n, credit: 4n, available: 97n });
     await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
     expect(await f.state()).toEqual({ posted: 99n, debit: 0n, credit: 0n, available: 99n });
     const [other] = await db.select().from(accounts).where(eq(accounts.id, f.receiveId));
@@ -258,17 +250,15 @@ describe('DISALLOW available balance across holds and postings', () => {
     const held = await holdRepository.create({
       ...f.request('odd-hold', 5n),
       entries: [
-        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 5n, currency: 'USD' },
+        { accountId: f.spendId, signedAmountMinor: -5n, currency: 'USD' },
         {
           accountId: f.spendId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 3n,
+          signedAmountMinor: 3n,
           currency: 'USD',
         },
         {
           accountId: f.receiveId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 2n,
+          signedAmountMinor: 2n,
           currency: 'USD',
         },
       ],
@@ -283,7 +273,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 5n, credit: 3n, available: 98n });
+    expect(await f.state()).toEqual({ posted: 100n, debit: 3n, credit: 5n, available: 98n });
     await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
     expect((await f.state()).available).toBe(100n);
   });
@@ -293,18 +283,16 @@ describe('DISALLOW available balance across holds and postings', () => {
     const request = {
       ...f.request('split-hold', 2n),
       entries: [
-        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 1n, currency: 'USD' },
-        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 1n, currency: 'USD' },
+        { accountId: f.spendId, signedAmountMinor: -1n, currency: 'USD' },
+        { accountId: f.spendId, signedAmountMinor: -1n, currency: 'USD' },
         {
           accountId: f.receiveId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 1n,
+          signedAmountMinor: 1n,
           currency: 'USD',
         },
         {
           accountId: f.receiveId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 1n,
+          signedAmountMinor: 1n,
           currency: 'USD',
         },
       ],
@@ -320,9 +308,9 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect((await f.state()).debit).toBe(2n);
+    expect((await f.state()).credit).toBe(2n);
     await holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId });
-    expect((await f.state()).debit).toBe(0n);
+    expect((await f.state()).credit).toBe(0n);
   });
 
   it('rejects a corrupted hold remainder above its original amount', async () => {
@@ -341,7 +329,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 2n, credit: 0n, available: 98n });
+    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 2n, available: 98n });
   });
 
   it('rejects cross-ledger hold entry mutation at the database boundary', async () => {
@@ -363,7 +351,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     const [otherAccount] = await db.select().from(accounts).where(eq(accounts.id, otherAccountId));
     expect(otherAccount.balanceMinor).toBe(0n);
     expect(otherAccount.inflightCreditMinor).toBe(0n);
-    expect((await f.state()).debit).toBe(2n);
+    expect((await f.state()).credit).toBe(2n);
     await expect(
       holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
@@ -381,11 +369,10 @@ describe('DISALLOW available balance across holds and postings', () => {
       holdRepository.create({
         ...f.request('overflow-hold', 1n),
         entries: [
-          { accountId: firstId, direction: EntryDirection.DEBIT, amountMinor: 1n, currency: 'USD' },
+          { accountId: firstId, signedAmountMinor: 1n, currency: 'USD' },
           {
             accountId: secondId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
         ],
@@ -403,17 +390,15 @@ describe('DISALLOW available balance across holds and postings', () => {
     const held = await holdRepository.create({
       ...f.request('odd-hold', 5n),
       entries: [
-        { accountId: f.spendId, direction: EntryDirection.DEBIT, amountMinor: 5n, currency: 'USD' },
+        { accountId: f.spendId, signedAmountMinor: -5n, currency: 'USD' },
         {
           accountId: f.spendId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 3n,
+          signedAmountMinor: 3n,
           currency: 'USD',
         },
         {
           accountId: f.receiveId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 2n,
+          signedAmountMinor: 2n,
           currency: 'USD',
         },
       ],
@@ -427,13 +412,13 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     expect(await f.counts()).toEqual(before);
-    expect((await f.state()).debit).toBe(5n);
+    expect((await f.state()).credit).toBe(5n);
   });
 
   it('rejects commit or void when the persisted reservation is insufficient', async () => {
     const f = await setup();
     const held = await holdRepository.create(f.request('hold', 6n));
-    await db.update(accounts).set({ inflightDebitMinor: 1n }).where(eq(accounts.id, f.spendId));
+    await db.update(accounts).set({ inflightCreditMinor: 1n }).where(eq(accounts.id, f.spendId));
     const before = await f.counts();
     await expect(
       holdRepository.commit({
@@ -454,7 +439,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       state: 'HELD',
       remainingAmountMinor: 6n,
     });
-    expect((await f.state()).debit).toBe(1n);
+    expect((await f.state()).credit).toBe(1n);
   });
 
   it('rejects negative in-flight columns at the database boundary', async () => {
@@ -504,7 +489,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     ]);
     expect(first.holdId).toBe(second.holdId);
     expect([first.created, second.created].sort()).toEqual([false, true]);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 70n, credit: 0n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
     expect(await f.counts()).toMatchObject({ holds: 1, holdEntries: 2, snapshots: 2 });
   });
 
@@ -532,7 +517,7 @@ describe('DISALLOW available balance across holds and postings', () => {
     const f = await setup('ALLOW');
     await holdRepository.create(f.request('hold', 90n));
     await transactionRepository.create(f.request('posting', 90n));
-    expect(await f.state()).toEqual({ posted: 10n, debit: 90n, credit: 0n, available: -80n });
+    expect(await f.state()).toEqual({ posted: 10n, debit: 0n, credit: 90n, available: -80n });
   });
 
   it('evaluates the final per-account delta when entries share an account', async () => {
@@ -542,28 +527,25 @@ describe('DISALLOW available balance across holds and postings', () => {
       entries: [
         {
           accountId: f.spendId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
         {
           accountId: f.spendId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 90n,
+          signedAmountMinor: 90n,
           currency: 'USD',
         },
         {
           accountId: f.receiveId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 10n,
+          signedAmountMinor: 10n,
           currency: 'USD',
         },
       ],
     };
     await holdRepository.create(netTen);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 100n, credit: 90n, available: 90n });
+    expect(await f.state()).toEqual({ posted: 100n, debit: 90n, credit: 100n, available: 90n });
     await transactionRepository.create({ ...netTen, reference: 'net-posting' });
-    expect(await f.state()).toEqual({ posted: 90n, debit: 100n, credit: 90n, available: 80n });
+    expect(await f.state()).toEqual({ posted: 90n, debit: 90n, credit: 100n, available: 80n });
     expect(
       (await db.select().from(balanceSnapshots).where(eq(balanceSnapshots.accountId, f.spendId)))
         .length,
@@ -581,7 +563,7 @@ describe('DISALLOW available balance across holds and postings', () => {
       }),
     ).rejects.toBeInstanceOf(BulkTransactionError);
     expect(await f.counts()).toEqual(before);
-    expect(await f.state()).toEqual({ posted: 100n, debit: 70n, credit: 0n, available: 30n });
+    expect(await f.state()).toEqual({ posted: 100n, debit: 0n, credit: 70n, available: 30n });
     expect(
       (
         await transactionRepository.createBulk({
@@ -600,14 +582,12 @@ describe('DISALLOW available balance across holds and postings', () => {
       entries: [
         {
           accountId: f.spendId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 30n,
+          signedAmountMinor: 30n,
           currency: 'USD',
         },
         {
           accountId: f.receiveId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 30n,
+          signedAmountMinor: -30n,
           currency: 'USD',
         },
       ],

@@ -1,4 +1,3 @@
-import { EntryDirection } from '@luxledger/core/application';
 import type { InferSchema } from '../schema-types';
 import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
 
@@ -12,19 +11,15 @@ const nonEmptyTrimmedStringSchema = {
 export const transactionEntryRequestSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['account_id', 'direction', 'amount_minor', 'currency'],
+  required: ['account_id', 'signed_amount_minor', 'currency'],
   properties: {
     account_id: {
       type: 'string',
       format: 'uuid',
     },
-    direction: {
+    signed_amount_minor: {
       type: 'string',
-      enum: [...Object.values(EntryDirection)],
-    },
-    amount_minor: {
-      type: 'string',
-      pattern: '^[1-9][0-9]*$',
+      pattern: '^-?[1-9][0-9]*$',
     },
     currency: nonEmptyTrimmedStringSchema,
   },

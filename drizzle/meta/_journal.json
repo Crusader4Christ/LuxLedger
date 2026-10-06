@@ -15,6 +15,13 @@
       "when": 1791205624306,
       "tag": "0001_grant_account_capability",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791291427141,
+      "tag": "0002_2026-10-06-signed-entry-amounts",
+      "breakpoints": true
     }
   ]
 }

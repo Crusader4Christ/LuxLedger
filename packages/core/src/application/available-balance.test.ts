@@ -5,8 +5,9 @@ import { OverdraftPolicyViolationError } from './errors';
 describe('assertAvailableBalance', () => {
   const account = {
     id: 'account-1',
+    side: 'CREDIT' as const,
     overdraftPolicy: 'DISALLOW' as const,
-    balanceMinor: 100n,
+    balanceMinor: -100n,
     inflightDebitMinor: 70n,
     inflightCreditMinor: 0n,
   };

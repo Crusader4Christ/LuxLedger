@@ -1,19 +1,7 @@
-import { InvalidAmountError, InvalidDirectionError } from '../transaction/errors';
-import { EntryDirection } from './entity';
+import { InvalidAmountError } from '../transaction/errors';
 
-export function validateEntryDirection(direction: string): void {
-  if (!(Object.values(EntryDirection) as string[]).includes(direction)) {
-    throw new InvalidDirectionError();
+export function validateSignedEntryAmount(signedAmountMinor: bigint): void {
+  if (signedAmountMinor === 0n) {
+    throw new InvalidAmountError('signed amount must not be zero');
   }
-}
-
-export function validateEntryAmount(amountMinor: bigint): void {
-  if (amountMinor <= 0n) {
-    throw new InvalidAmountError('amount must be positive');
-  }
-}
-
-export function parseEntryDirection(direction: string): EntryDirection {
-  validateEntryDirection(direction);
-  return direction as EntryDirection;
 }

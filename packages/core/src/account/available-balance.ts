@@ -1,31 +1,36 @@
 import { AccountId } from '../base/id';
-import { EntryDirection } from '../entry/entity';
-import { validateEntryAmount, validateEntryDirection } from '../entry/validators';
+import { validateSignedEntryAmount } from '../entry/validators';
+import type { AccountSide } from './entity';
 
 type BalanceEntry = {
   accountId: string;
-  direction: EntryDirection;
-  amountMinor: bigint;
+  signedAmountMinor: bigint;
 };
 
 export const aggregateAccountEntries = (entries: readonly BalanceEntry[]) => {
   const byAccount = new Map<
     string,
-    { accountId: string; debitMinor: bigint; creditMinor: bigint }
+    {
+      accountId: string;
+      signedAmountMinor: bigint;
+      debitMinor: bigint;
+      creditMinor: bigint;
+    }
   >();
   for (const entry of entries) {
     new AccountId(entry.accountId);
-    validateEntryDirection(entry.direction);
-    validateEntryAmount(entry.amountMinor);
+    validateSignedEntryAmount(entry.signedAmountMinor);
     const total = byAccount.get(entry.accountId) ?? {
       accountId: entry.accountId,
+      signedAmountMinor: 0n,
       debitMinor: 0n,
       creditMinor: 0n,
     };
-    if (entry.direction === EntryDirection.DEBIT) {
-      total.debitMinor += entry.amountMinor;
+    total.signedAmountMinor += entry.signedAmountMinor;
+    if (entry.signedAmountMinor > 0n) {
+      total.debitMinor += entry.signedAmountMinor;
     } else {
-      total.creditMinor += entry.amountMinor;
+      total.creditMinor -= entry.signedAmountMinor;
     }
     byAccount.set(entry.accountId, total);
   }
@@ -33,7 +38,12 @@ export const aggregateAccountEntries = (entries: readonly BalanceEntry[]) => {
 };
 
 export const calculateAvailableMinor = (balance: {
+  side: AccountSide;
   balanceMinor: bigint;
   inflightDebitMinor: bigint;
   inflightCreditMinor: bigint;
-}): bigint => balance.balanceMinor - balance.inflightDebitMinor + balance.inflightCreditMinor;
+}): bigint => {
+  const signedAvailableMinor =
+    balance.balanceMinor + balance.inflightDebitMinor - balance.inflightCreditMinor;
+  return balance.side === 'DEBIT' ? signedAvailableMinor : -signedAvailableMinor;
+};

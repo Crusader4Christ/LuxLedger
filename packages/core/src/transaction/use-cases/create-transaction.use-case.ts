@@ -25,8 +25,7 @@ export class CreateTransactionUseCase {
       (entry) =>
         new EntryEntity({
           accountId: new AccountId(entry.accountId),
-          direction: entry.direction,
-          money: Money.of(entry.amountMinor, entry.currency),
+          money: Money.of(entry.signedAmountMinor, entry.currency),
           assetId: command.assetId,
         }),
     );

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { AccountSide, EntryDirection } from '@luxledger/core';
+import { AccountSide } from '@luxledger/core';
 import { InvariantViolationError } from '@luxledger/core/application';
 import { eq } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
@@ -108,14 +108,12 @@ describe('tenant assets', () => {
       entries: [
         {
           accountId: debit.id,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 5n,
+          signedAmountMinor: 5n,
           currency: 'CREDIT',
         },
         {
           accountId: contra.id,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 5n,
+          signedAmountMinor: -5n,
           currency: 'CREDIT',
         },
       ],
@@ -127,7 +125,10 @@ describe('tenant assets', () => {
     await expect(
       services.transactions.create({
         ...input,
-        entries: input.entries.map((entry) => ({ ...entry, amountMinor: 6n })),
+        entries: input.entries.map((entry) => ({
+          ...entry,
+          signedAmountMinor: entry.signedAmountMinor > 0n ? 6n : -6n,
+        })),
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
     await expect(

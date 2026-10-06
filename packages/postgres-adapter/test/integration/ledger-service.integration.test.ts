@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { AccountSide, type EntryDirection } from '@luxledger/core';
+import { AccountSide } from '@luxledger/core';
 import {
   BulkTransactionError,
   InvariantViolationError,
@@ -184,20 +184,17 @@ describe('application services integration (services + repositories + real DB)',
 
     const happyPathEntries: Array<{
       accountId: string;
-      direction: EntryDirection;
-      amountMinor: bigint;
+      signedAmountMinor: bigint;
       currency: string;
     }> = [
       {
         accountId: cashAccountId,
-        direction: AccountSide.DEBIT,
-        amountMinor: 100n,
+        signedAmountMinor: 100n,
         currency: 'USD',
       },
       {
         accountId: revenueAccountId,
-        direction: AccountSide.CREDIT,
-        amountMinor: 100n,
+        signedAmountMinor: -100n,
         currency: 'USD',
       },
     ];
@@ -214,8 +211,8 @@ describe('application services integration (services + repositories + real DB)',
 
     const cashAfterFirst = await getAccountBalance(cashAccountId);
     const revenueAfterFirst = await getAccountBalance(revenueAccountId);
-    expect(cashAfterFirst).toBe(-100n);
-    expect(revenueAfterFirst).toBe(100n);
+    expect(cashAfterFirst).toBe(100n);
+    expect(revenueAfterFirst).toBe(-100n);
 
     await expect(
       services.transactions.create({
@@ -240,8 +237,8 @@ describe('application services integration (services + repositories + real DB)',
       );
     expect(rowsAfterRetry.length).toBe(1);
     expect(rowsAfterRetry[0]?.description).toBe('Original integration description');
-    expect(await getAccountBalance(cashAccountId)).toBe(-100n);
-    expect(await getAccountBalance(revenueAccountId)).toBe(100n);
+    expect(await getAccountBalance(cashAccountId)).toBe(100n);
+    expect(await getAccountBalance(revenueAccountId)).toBe(-100n);
 
     await expect(
       services.transactions.create({
@@ -252,14 +249,12 @@ describe('application services integration (services + repositories + real DB)',
         entries: [
           {
             accountId: cashAccountId,
-            direction: AccountSide.DEBIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
           {
             accountId: overflowAccountId,
-            direction: AccountSide.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: 1n,
             currency: 'USD',
           },
         ],
@@ -271,7 +266,7 @@ describe('application services integration (services + repositories + real DB)',
       .from(transactions)
       .where(eq(transactions.reference, 'integration-rollback'));
     expect(rollbackRows.length).toBe(0);
-    expect(await getAccountBalance(cashAccountId)).toBe(-100n);
+    expect(await getAccountBalance(cashAccountId)).toBe(100n);
     expect(await getAccountBalance(overflowAccountId)).toBe(9223372036854775807n);
 
     await expect(
@@ -283,14 +278,12 @@ describe('application services integration (services + repositories + real DB)',
         entries: [
           {
             accountId: cashAccountId,
-            direction: AccountSide.DEBIT,
-            amountMinor: 10n,
+            signedAmountMinor: 10n,
             currency: 'USD',
           },
           {
             accountId: secondaryLedgerAccountId,
-            direction: AccountSide.CREDIT,
-            amountMinor: 10n,
+            signedAmountMinor: -10n,
             currency: 'USD',
           },
         ],
@@ -302,7 +295,7 @@ describe('application services integration (services + repositories + real DB)',
       .from(transactions)
       .where(eq(transactions.reference, 'integration-cross-ledger'));
     expect(crossLedgerRows.length).toBe(0);
-    expect(await getAccountBalance(cashAccountId)).toBe(-100n);
+    expect(await getAccountBalance(cashAccountId)).toBe(100n);
     expect(await getAccountBalance(secondaryLedgerAccountId)).toBe(0n);
   });
 
@@ -330,14 +323,12 @@ describe('application services integration (services + repositories + real DB)',
     const entries = (amountMinor: bigint) => [
       {
         accountId: cashAccountId,
-        direction: AccountSide.DEBIT,
-        amountMinor,
+        signedAmountMinor: amountMinor,
         currency: 'USD',
       },
       {
         accountId: revenueAccountId,
-        direction: AccountSide.CREDIT,
-        amountMinor,
+        signedAmountMinor: -amountMinor,
         currency: 'USD',
       },
     ];
@@ -384,9 +375,9 @@ describe('application services integration (services + repositories + real DB)',
     });
 
     expect(beforeFirst.postedMinor).toBe(0n);
-    expect(afterBackdated.postedMinor).toBe(-125n);
-    expect(afterLater.postedMinor).toBe(-175n);
-    expect(await getAccountBalance(cashAccountId)).toBe(-175n);
+    expect(afterBackdated.postedMinor).toBe(125n);
+    expect(afterLater.postedMinor).toBe(175n);
+    expect(await getAccountBalance(cashAccountId)).toBe(175n);
   });
 
   it('rolls back every item in a bulk posting when one item fails', async () => {
@@ -422,14 +413,12 @@ describe('application services integration (services + repositories + real DB)',
             entries: [
               {
                 accountId: cashAccountId,
-                direction: AccountSide.DEBIT,
-                amountMinor: 100n,
+                signedAmountMinor: 100n,
                 currency: 'USD',
               },
               {
                 accountId: revenueAccountId,
-                direction: AccountSide.CREDIT,
-                amountMinor: 100n,
+                signedAmountMinor: -100n,
                 currency: 'USD',
               },
             ],
@@ -442,14 +431,12 @@ describe('application services integration (services + repositories + real DB)',
             entries: [
               {
                 accountId: cashAccountId,
-                direction: AccountSide.DEBIT,
-                amountMinor: 50n,
+                signedAmountMinor: 50n,
                 currency: 'USD',
               },
               {
                 accountId: '00000000-0000-4000-8000-000000000999',
-                direction: AccountSide.CREDIT,
-                amountMinor: 50n,
+                signedAmountMinor: -50n,
                 currency: 'USD',
               },
             ],
@@ -495,14 +482,12 @@ describe('application services integration (services + repositories + real DB)',
     const entries = (amountMinor: bigint) => [
       {
         accountId: cashAccountId,
-        direction: AccountSide.DEBIT as EntryDirection,
-        amountMinor,
+        signedAmountMinor: amountMinor,
         currency: 'USD',
       },
       {
         accountId: revenueAccountId,
-        direction: AccountSide.CREDIT as EntryDirection,
-        amountMinor,
+        signedAmountMinor: -amountMinor,
         currency: 'USD',
       },
     ];

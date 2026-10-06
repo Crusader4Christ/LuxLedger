@@ -1,4 +1,3 @@
-import { EntryDirection } from '@luxledger/core';
 import {
   AccountNotFoundError,
   type CreateCreditGrantInput,
@@ -118,14 +117,12 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         entries: [
           {
             accountId: input.fundingAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: input.amountMinor,
+            signedAmountMinor: input.amountMinor,
             currency: account.currency,
           },
           {
             accountId: input.accountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: input.amountMinor,
+            signedAmountMinor: -input.amountMinor,
             currency: account.currency,
           },
         ],
@@ -237,14 +234,12 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         entries: [
           {
             accountId: row.accountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: grant.amountMinor,
+            signedAmountMinor: grant.amountMinor,
             currency: account.currency,
           },
           {
             accountId: row.fundingAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: grant.amountMinor,
+            signedAmountMinor: -grant.amountMinor,
             currency: account.currency,
           },
         ],
@@ -459,14 +454,12 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       entries: [
         {
           accountId: candidate.accountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: candidate.amountMinor,
+          signedAmountMinor: candidate.amountMinor,
           currency: candidate.currency,
         },
         {
           accountId: candidate.fundingAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: candidate.amountMinor,
+          signedAmountMinor: -candidate.amountMinor,
           currency: candidate.currency,
         },
       ],
@@ -541,7 +534,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   private async ledgerTotalInTx(tx: Tx, tenantId: string, accountId: string): Promise<bigint> {
     const [result] = await tx
       .select({
-        posted: sql<string>`coalesce(sum(case when ${schema.entries.direction} = 'CREDIT' then ${schema.entries.amountMinor} else -${schema.entries.amountMinor} end), 0)::text`,
+        posted: sql<string>`coalesce(-sum(${schema.entries.signedAmountMinor}), 0)::text`,
       })
       .from(schema.entries)
       .where(and(eq(schema.entries.tenantId, tenantId), eq(schema.entries.accountId, accountId)));
@@ -697,7 +690,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     kind: 'ISSUANCE' | 'REVERSAL' | 'EXPIRATION',
   ): Promise<void> {
     const walletEntries = await tx
-      .select({ id: schema.entries.id, amountMinor: schema.entries.amountMinor })
+      .select({ id: schema.entries.id, signedAmountMinor: schema.entries.signedAmountMinor })
       .from(schema.entries)
       .where(
         and(
@@ -716,7 +709,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       grantId: row.id,
       entryId: walletEntries[0].id,
       kind,
-      amountMinor: walletEntries[0].amountMinor,
+      amountMinor:
+        walletEntries[0].signedAmountMinor < 0n
+          ? -walletEntries[0].signedAmountMinor
+          : walletEntries[0].signedAmountMinor,
     });
   }
 
@@ -737,7 +733,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   private async toGrant(tx: Tx, row: GrantRow): Promise<CreditGrant> {
     const [issuance] = await tx
-      .select({ amountMinor: schema.entries.amountMinor, assetId: schema.entries.assetId })
+      .select({
+        signedAmountMinor: schema.entries.signedAmountMinor,
+        assetId: schema.entries.assetId,
+      })
       .from(schema.creditGrantEntries)
       .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
       .where(
@@ -760,7 +759,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       assetId: issuance.assetId,
       reference: row.reference,
       externalReference: row.externalReference,
-      amountMinor: issuance.amountMinor,
+      amountMinor:
+        issuance.signedAmountMinor < 0n ? -issuance.signedAmountMinor : issuance.signedAmountMinor,
       transactionId: row.transactionId,
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,

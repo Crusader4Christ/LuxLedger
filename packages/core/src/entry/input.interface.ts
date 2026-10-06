@@ -1,9 +1,6 @@
-import type { EntryDirection } from './entity';
-
 export interface TransactionEntryInput {
   accountId: string;
-  direction: EntryDirection;
-  amountMinor: bigint;
+  signedAmountMinor: bigint;
   currency: string;
   assetId?: string | null;
 }

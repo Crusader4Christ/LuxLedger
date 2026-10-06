@@ -26,7 +26,6 @@ import {
   type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
-  EntryDirection,
   type HistoricalBalance,
   HoldService,
   type IngestReconRecordsInput,
@@ -98,8 +97,7 @@ class InMemoryLedgerRepository {
         (entry) =>
           new EntryEntity({
             accountId: new AccountId(entry.accountId),
-            direction: entry.direction,
-            money: Money.of(entry.amountMinor, entry.currency),
+            money: Money.of(entry.signedAmountMinor, entry.currency),
           }),
       ),
     });
@@ -148,8 +146,7 @@ class InMemoryLedgerRepository {
     description?: string;
     entries: Array<{
       accountId: string;
-      direction: EntryDirection;
-      amountMinor: bigint;
+      signedAmountMinor: bigint;
       currency: string;
     }>;
   }): Promise<{ reversalTransactionId: string; correctedTransactionId: string; created: boolean }> {
@@ -481,14 +478,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -513,14 +508,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -543,14 +536,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -570,14 +561,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -612,14 +601,12 @@ describe('application services', () => {
         entries: [
           {
             accountId: 'account-1',
-            direction: EntryDirection.DEBIT,
-            amountMinor: 100n,
+            signedAmountMinor: 100n,
             currency: 'USD',
           },
           {
             accountId: 'account-2',
-            direction: EntryDirection.CREDIT,
-            amountMinor: 100n,
+            signedAmountMinor: -100n,
             currency: 'USD',
           },
         ],
@@ -829,14 +816,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -862,14 +847,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 50n,
+          signedAmountMinor: 50n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 50n,
+          signedAmountMinor: -50n,
           currency: 'USD',
         },
       ],
@@ -903,14 +886,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-1',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: 'account-2',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -923,14 +904,12 @@ describe('application services', () => {
       entries: [
         {
           accountId: 'account-3',
-          direction: EntryDirection.DEBIT,
-          amountMinor: 200n,
+          signedAmountMinor: 200n,
           currency: 'USD',
         },
         {
           accountId: 'account-4',
-          direction: EntryDirection.CREDIT,
-          amountMinor: 200n,
+          signedAmountMinor: -200n,
           currency: 'USD',
         },
       ],

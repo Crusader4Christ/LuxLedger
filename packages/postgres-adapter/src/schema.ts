@@ -1,4 +1,4 @@
-import { AccountSide, EntryDirection, type UnknownRecord } from '@luxledger/core';
+import { AccountSide, type UnknownRecord } from '@luxledger/core';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -48,10 +48,6 @@ export const accountSideEnum = pgEnum(
   Object.values(AccountSide) as [string, ...string[]],
 );
 export const overdraftPolicyEnum = pgEnum('overdraft_policy', ['ALLOW', 'DISALLOW']);
-export const entryDirectionEnum = pgEnum('entry_direction', [
-  EntryDirection.DEBIT,
-  EntryDirection.CREDIT,
-]);
 
 export const apiKeys = pgTable(
   'api_keys',
@@ -223,8 +219,7 @@ export const holdEntries = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    direction: entryDirectionEnum('direction').notNull(),
-    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    signedAmountMinor: bigint('signed_amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -238,6 +233,10 @@ export const holdEntries = pgTable(
     holdEntriesTenantIdIdx: index('hold_entries_tenant_id_idx').on(table.tenantId),
     holdEntriesHoldIdIdx: index('hold_entries_hold_id_idx').on(table.holdId),
     holdEntriesAccountIdIdx: index('hold_entries_account_id_idx').on(table.accountId),
+    holdEntriesSignedAmountNonzeroChk: check(
+      'hold_entries_signed_amount_nonzero_chk',
+      sql`${table.signedAmountMinor} <> 0`,
+    ),
   }),
 );
 
@@ -317,8 +316,7 @@ export const entries = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    direction: entryDirectionEnum('direction').notNull(),
-    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    signedAmountMinor: bigint('signed_amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -336,6 +334,10 @@ export const entries = pgTable(
       table.tenantId,
       table.accountId,
       table.id,
+    ),
+    entriesSignedAmountNonzeroChk: check(
+      'entries_signed_amount_nonzero_chk',
+      sql`${table.signedAmountMinor} <> 0`,
     ),
   }),
 );

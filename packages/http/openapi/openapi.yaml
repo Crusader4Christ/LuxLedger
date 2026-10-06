@@ -321,12 +321,10 @@ paths:
                   description: Correct account allocation
                   entries:
                     - account_id: 00000000-0000-4000-8000-000000000101
-                      direction: DEBIT
-                      amount_minor: '100'
+                      signed_amount_minor: '100'
                       currency: USD
                     - account_id: 00000000-0000-4000-8000-000000000102
-                      direction: CREDIT
-                      amount_minor: '100'
+                      signed_amount_minor: '-100'
                       currency: USD
       responses:
         '201':
@@ -1201,17 +1199,14 @@ components:
     TransactionEntryRequest:
       type: object
       additionalProperties: false
-      required: [account_id, direction, amount_minor, currency]
+      required: [account_id, signed_amount_minor, currency]
       properties:
         account_id:
           type: string
           format: uuid
-        direction:
+        signed_amount_minor:
           type: string
-          enum: [DEBIT, CREDIT]
-        amount_minor:
-          type: string
-          pattern: '^[1-9][0-9]*$'
+          pattern: '^-?[1-9][0-9]*$'
         currency:
           type: string
           pattern: '^(?=.*\S).+$'
@@ -1558,7 +1553,7 @@ components:
           items:
             type: object
             required:
-              [id, transaction_id, account_id, direction, amount_minor, currency, created_at]
+              [id, transaction_id, account_id, signed_amount_minor, currency, created_at]
             properties:
               id:
                 type: string
@@ -1569,10 +1564,7 @@ components:
               account_id:
                 type: string
                 format: uuid
-              direction:
-                type: string
-                enum: [DEBIT, CREDIT]
-              amount_minor:
+              signed_amount_minor:
                 type: string
               currency:
                 type: string

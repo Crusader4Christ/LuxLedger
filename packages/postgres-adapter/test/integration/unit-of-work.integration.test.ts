@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { AccountSide, EntryDirection, TenantId } from '@luxledger/core';
+import { AccountSide, TenantId } from '@luxledger/core';
 import { createDbClient, createUnitOfWork } from '@luxledger/postgres-adapter';
 import { sql } from 'drizzle-orm';
 import { pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
@@ -74,14 +74,12 @@ const createPosting = async (tenantId: TenantId, reference: string, outboxPayloa
       entries: [
         {
           accountId: debit.id,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 100n,
+          signedAmountMinor: 100n,
           currency: 'USD',
         },
         {
           accountId: credit.id,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -211,14 +209,12 @@ describe('PostgresUnitOfWork', () => {
           entries: [
             {
               accountId: setup.debitId,
-              direction: EntryDirection.DEBIT,
-              amountMinor: 100n,
+              signedAmountMinor: 100n,
               currency: 'USD',
             },
             {
               accountId: setup.creditId,
-              direction: EntryDirection.CREDIT,
-              amountMinor: 100n,
+              signedAmountMinor: -100n,
               currency: 'USD',
             },
           ],

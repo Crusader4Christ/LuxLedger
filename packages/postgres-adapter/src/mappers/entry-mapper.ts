@@ -1,4 +1,4 @@
-import { AccountId, EntryEntity, Money, parseEntryDirection } from '@luxledger/core';
+import { AccountId, EntryEntity, Money } from '@luxledger/core';
 import type * as schema from '../schema';
 
 export const toEntryEntity = (row: typeof schema.entries.$inferSelect): EntryEntity =>
@@ -6,8 +6,7 @@ export const toEntryEntity = (row: typeof schema.entries.$inferSelect): EntryEnt
     id: row.id,
     transactionId: row.transactionId,
     accountId: new AccountId(row.accountId),
-    direction: parseEntryDirection(row.direction),
-    money: Money.of(row.amountMinor, row.currency),
+    money: Money.of(row.signedAmountMinor, row.currency),
     assetId: row.assetId,
     createdAt: row.createdAt,
   });

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { EntryDirection } from '@luxledger/core';
+import { AccountSide } from '@luxledger/core';
 import { LedgerNotFoundError, RepositoryError } from '@luxledger/core/application';
 import { DrizzleAccountRepository } from '../../src/repositories/account-repository';
 import { DrizzleBalanceRepository } from '../../src/repositories/balance-repository';
@@ -44,17 +44,17 @@ describe('Drizzle balance repository', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
-      balanceMinor: -100n,
+      balanceMinor: 100n,
     });
     const creditAccountId = await createAccount({
       tenantId,
       ledgerId,
       name: 'Revenue',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       currency: 'USD',
-      balanceMinor: 100n,
+      balanceMinor: -100n,
     });
 
     const trialBalance = await balanceRepository.getTrialBalance({ tenantId, ledgerId });
@@ -71,12 +71,12 @@ describe('Drizzle balance repository', () => {
       (account) => account.accountId === creditAccountId,
     );
 
-    expect(debitAccount?.normalBalance).toBe(EntryDirection.DEBIT);
+    expect(debitAccount?.normalBalance).toBe(AccountSide.DEBIT);
     expect(debitAccount?.balanceMinor).toBe(100n);
-    expect(debitAccount?.balanceSide).toBe(EntryDirection.DEBIT);
-    expect(creditAccount?.normalBalance).toBe(EntryDirection.CREDIT);
+    expect(debitAccount?.balanceSide).toBe(AccountSide.DEBIT);
+    expect(creditAccount?.normalBalance).toBe(AccountSide.CREDIT);
     expect(creditAccount?.balanceMinor).toBe(100n);
-    expect(creditAccount?.balanceSide).toBe(EntryDirection.CREDIT);
+    expect(creditAccount?.balanceSide).toBe(AccountSide.CREDIT);
   });
 
   it('getLedgerTrialBalance reports the actual balance side and computes signed totals', async () => {
@@ -86,17 +86,17 @@ describe('Drizzle balance repository', () => {
       tenantId,
       ledgerId,
       name: 'Debit with credit balance',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
-      balanceMinor: 60n,
+      balanceMinor: -60n,
     });
     const creditAccountId = await createAccount({
       tenantId,
       ledgerId,
       name: 'Credit with debit balance',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       currency: 'USD',
-      balanceMinor: -60n,
+      balanceMinor: 60n,
     });
 
     const trialBalance = await balanceRepository.getTrialBalance({ tenantId, ledgerId });
@@ -111,8 +111,8 @@ describe('Drizzle balance repository', () => {
       (account) => account.accountId === creditAccountId,
     );
 
-    expect(debitAccount?.balanceSide).toBe(EntryDirection.CREDIT);
-    expect(creditAccount?.balanceSide).toBe(EntryDirection.DEBIT);
+    expect(debitAccount?.balanceSide).toBe(AccountSide.CREDIT);
+    expect(creditAccount?.balanceSide).toBe(AccountSide.DEBIT);
   });
 
   it('getLedgerTrialBalance throws when totals mismatch', async () => {

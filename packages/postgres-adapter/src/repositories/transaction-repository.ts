@@ -1,8 +1,8 @@
 import {
   aggregateAccountEntries,
-  EntryDirection,
   type EntryEntity,
   isDomainError,
+  parseAccountSide,
   type TransactionEntity,
 } from '@luxledger/core';
 import {
@@ -159,9 +159,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         description: input.description ?? null,
         entries: entries.map((entry) => ({
           accountId: entry.accountId.value,
-          direction:
-            entry.direction === EntryDirection.DEBIT ? EntryDirection.CREDIT : EntryDirection.DEBIT,
-          amountMinor: entry.money.amountMinor,
+          signedAmountMinor: -entry.money.amountMinor,
           currency: entry.money.currency,
         })),
       });
@@ -187,9 +185,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       ]);
       const reversalEntries = (originalEntries.get(input.transactionId) ?? []).map((entry) => ({
         accountId: entry.accountId.value,
-        direction:
-          entry.direction === EntryDirection.DEBIT ? EntryDirection.CREDIT : EntryDirection.DEBIT,
-        amountMinor: entry.money.amountMinor,
+        signedAmountMinor: -entry.money.amountMinor,
         currency: entry.money.currency,
       }));
       const persistedOriginalEntries = originalEntries.get(input.transactionId) ?? [];
@@ -372,8 +368,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       skipGrantLineage?: boolean;
       entries: Array<{
         accountId: string;
-        direction: EntryDirection;
-        amountMinor: bigint;
+        signedAmountMinor: bigint;
         currency: string;
       }>;
       compareDescriptionOnRetry?: boolean;
@@ -482,8 +477,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       effectiveAt?: Date;
       entries: Array<{
         accountId: string;
-        direction: EntryDirection;
-        amountMinor: bigint;
+        signedAmountMinor: bigint;
         currency: string;
       }>;
     },
@@ -558,8 +552,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       skipGrantLineage?: boolean;
       entries: Array<{
         accountId: string;
-        direction: EntryDirection;
-        amountMinor: bigint;
+        signedAmountMinor: bigint;
         currency: string;
       }>;
     },
@@ -615,8 +608,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       skipGrantLineage?: boolean;
       entries: Array<{
         accountId: string;
-        direction: EntryDirection;
-        amountMinor: bigint;
+        signedAmountMinor: bigint;
         currency: string;
       }>;
     },
@@ -630,8 +622,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           tenantId: input.tenantId,
           transactionId,
           accountId: entry.accountId,
-          direction: entry.direction,
-          amountMinor: entry.amountMinor,
+          signedAmountMinor: entry.signedAmountMinor,
           currency: entry.currency,
           assetId: input.assetId,
         })),
@@ -639,15 +630,14 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       .returning({
         id: schema.entries.id,
         accountId: schema.entries.accountId,
-        direction: schema.entries.direction,
-        amountMinor: schema.entries.amountMinor,
+        signedAmountMinor: schema.entries.signedAmountMinor,
       });
     if (!input.skipGrantLineage) {
       await this.recordGrantLineage(tx, { ...input, effectiveAt }, insertedEntries);
     }
     const entriesForBalanceUpdate = aggregateAccountEntries(input.entries);
     for (const entry of entriesForBalanceUpdate) {
-      const delta = entry.creditMinor - entry.debitMinor;
+      const delta = entry.signedAmountMinor;
       const [updatedAccount] = await tx
         .update(schema.accounts)
         .set({
@@ -665,6 +655,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         .returning({
           id: schema.accounts.id,
           ledgerId: schema.accounts.ledgerId,
+          side: schema.accounts.side,
           overdraftPolicy: schema.accounts.overdraftPolicy,
           balanceMinor: schema.accounts.balanceMinor,
           inflightDebitMinor: schema.accounts.inflightDebitMinor,
@@ -675,7 +666,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           'Unable to create transaction: account ledger/currency mismatch',
         );
       }
-      assertAvailableBalance(updatedAccount);
+      assertAvailableBalance({ ...updatedAccount, side: parseAccountSide(updatedAccount.side) });
       const [previousSnapshot] = await tx
         .select({ postedMinor: schema.balanceSnapshots.postedMinor })
         .from(schema.balanceSnapshots)
@@ -727,8 +718,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     insertedEntries: Array<{
       id: string;
       accountId: string;
-      direction: 'DEBIT' | 'CREDIT';
-      amountMinor: bigint;
+      signedAmountMinor: bigint;
     }>,
   ): Promise<void> {
     const copiedOriginalEntryIds = new Set<string>();
@@ -801,13 +791,15 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         }
 
         for (const entry of accountEntries) {
-          const originalKind = entry.direction === 'CREDIT' ? 'CONSUMPTION' : 'ISSUANCE';
+          const originalKind = entry.signedAmountMinor < 0n ? 'CONSUMPTION' : 'ISSUANCE';
           const newKind: 'COMPENSATION' | 'REVERSAL' =
-            entry.direction === 'CREDIT' ? 'COMPENSATION' : 'REVERSAL';
+            entry.signedAmountMinor < 0n ? 'COMPENSATION' : 'REVERSAL';
+          const magnitudeMinor =
+            entry.signedAmountMinor < 0n ? -entry.signedAmountMinor : entry.signedAmountMinor;
           const match = [...(candidatesByKind.get(originalKind)?.entries() ?? [])].find(
             ([entryId, links]) =>
               !copiedOriginalEntryIds.has(entryId) &&
-              links.reduce((sum, link) => sum + link.amountMinor, 0n) === entry.amountMinor,
+              links.reduce((sum, link) => sum + link.amountMinor, 0n) === magnitudeMinor,
           );
           if (!match) {
             throw new InvariantViolationError(
@@ -831,7 +823,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         continue;
       }
 
-      const debitEntries = accountEntries.filter((entry) => entry.direction === 'DEBIT');
+      const debitEntries = accountEntries.filter((entry) => entry.signedAmountMinor > 0n);
       if (debitEntries.length === 0) continue;
       const capacities = await tx
         .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
@@ -857,7 +849,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         remainingByGrant.set(capacity.grantId, capacity.remainingMinor);
       }
       for (const entry of debitEntries) {
-        let required = entry.amountMinor;
+        let required = entry.signedAmountMinor;
         for (const grant of grants) {
           if (!grant.eligible) continue;
           const available = remainingByGrant.get(grant.id) ?? 0n;
@@ -971,21 +963,19 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         entries: [
           {
             accountId: grant.accountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: remainingMinor,
+            signedAmountMinor: remainingMinor,
             currency: account.currency,
           },
           {
             accountId: grant.fundingAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: remainingMinor,
+            signedAmountMinor: -remainingMinor,
             currency: account.currency,
           },
         ],
       });
       if (!posted.created) continue;
       const [walletEntry] = await tx
-        .select({ id: schema.entries.id, amountMinor: schema.entries.amountMinor })
+        .select({ id: schema.entries.id, signedAmountMinor: schema.entries.signedAmountMinor })
         .from(schema.entries)
         .where(
           and(
@@ -1005,7 +995,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         grantId: grant.id,
         entryId: walletEntry.id,
         kind: 'EXPIRATION',
-        amountMinor: walletEntry.amountMinor,
+        amountMinor:
+          walletEntry.signedAmountMinor < 0n
+            ? -walletEntry.signedAmountMinor
+            : walletEntry.signedAmountMinor,
       });
     }
   }
@@ -1014,8 +1007,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     existingEntries: EntryEntity[],
     inputEntries: Array<{
       accountId: string;
-      direction: EntryDirection;
-      amountMinor: bigint;
+      signedAmountMinor: bigint;
       currency: string;
     }>,
   ): boolean {
@@ -1026,13 +1018,12 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     const existing = normalize(
       existingEntries.map(
         (entry) =>
-          `${entry.accountId.value}:${entry.direction}:${entry.money.amountMinor.toString()}:${entry.money.currency}`,
+          `${entry.accountId.value}:${entry.money.amountMinor.toString()}:${entry.money.currency}`,
       ),
     );
     const input = normalize(
       inputEntries.map(
-        (entry) =>
-          `${entry.accountId}:${entry.direction}:${entry.amountMinor.toString()}:${entry.currency}`,
+        (entry) => `${entry.accountId}:${entry.signedAmountMinor.toString()}:${entry.currency}`,
       ),
     );
     return existing.every((value, index) => value === input[index]);
