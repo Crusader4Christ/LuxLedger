@@ -208,7 +208,8 @@ class InMemoryLedgerRepository {
       code: input.code ?? null,
       name: input.name,
       side: input.side,
-      overdraftPolicy: 'ALLOW',
+      overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
+      grantEnabled: input.grantEnabled ?? false,
       currency: input.currency,
       assetId: null,
       balanceMinor: 0n,
@@ -701,6 +702,36 @@ describe('application services', () => {
         currency: 'USD',
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
+  it('createAccount requires CREDIT and DISALLOW for grant-enabled accounts', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const services = createServices(repository);
+    const ledger = await services.ledgers.create({ tenantId: 'tenant-1', name: 'Main' });
+
+    await expect(
+      services.accounts.create({
+        tenantId: 'tenant-1',
+        ledgerId: ledger.id,
+        name: 'Invalid promotional balance',
+        side: AccountSide.DEBIT,
+        overdraftPolicy: 'DISALLOW',
+        grantEnabled: true,
+        currency: 'USD',
+      }),
+    ).rejects.toThrow('grant-enabled account must use CREDIT side and DISALLOW overdraft');
+
+    await expect(
+      services.accounts.create({
+        tenantId: 'tenant-1',
+        ledgerId: ledger.id,
+        name: 'Promotional balance',
+        side: AccountSide.CREDIT,
+        overdraftPolicy: 'DISALLOW',
+        grantEnabled: true,
+        currency: 'USD',
+      }),
+    ).resolves.toMatchObject({ grantEnabled: true });
   });
 
   it('getAccountById returns account for tenant', async () => {

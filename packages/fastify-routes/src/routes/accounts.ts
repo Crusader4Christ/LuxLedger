@@ -62,6 +62,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
             name: request.body.name,
             side: request.body.side as AccountSide,
             overdraftPolicy: request.body.overdraft_policy,
+            grantEnabled: request.body.grant_enabled,
             currency: request.body.currency,
           });
 

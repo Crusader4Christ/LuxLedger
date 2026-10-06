@@ -7,6 +7,7 @@ export interface CreateAccountInput {
   name: string;
   side: AccountSide;
   overdraftPolicy?: OverdraftPolicy;
+  grantEnabled?: boolean;
   currency: string;
   assetId?: string;
 }

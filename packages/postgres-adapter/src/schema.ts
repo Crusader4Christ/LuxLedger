@@ -113,6 +113,7 @@ export const accounts = pgTable(
     inflightCreditMinor: bigint('inflight_credit_minor', { mode: 'bigint' })
       .notNull()
       .default(sql`0`),
+    grantEnabled: boolean('grant_enabled').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -136,6 +137,10 @@ export const accounts = pgTable(
     accountsInflightCreditNonnegativeChk: check(
       'accounts_inflight_credit_nonnegative_chk',
       sql`${table.inflightCreditMinor} >= 0`,
+    ),
+    accountsGrantEnabledShapeChk: check(
+      'accounts_grant_enabled_shape_chk',
+      sql`not ${table.grantEnabled} or (${table.side} = 'CREDIT' and ${table.overdraftPolicy} = 'DISALLOW')`,
     ),
     accountsLedgerCodeUq: uniqueIndex('accounts_ledger_code_uq')
       .on(table.tenantId, table.ledgerId, table.code)

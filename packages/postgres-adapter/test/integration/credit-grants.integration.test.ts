@@ -37,6 +37,7 @@ const setup = async (tenantId: string) => {
     name: 'Wallet',
     side: AccountSide.CREDIT,
     overdraftPolicy: 'DISALLOW',
+    grantEnabled: true,
     currency: 'USD',
     assetId: asset.id,
   });
@@ -252,6 +253,7 @@ describe('credit grants', () => {
       name: 'Second wallet',
       side: AccountSide.CREDIT,
       overdraftPolicy: 'DISALLOW',
+      grantEnabled: true,
       currency: 'USD',
       assetId: accounts.assetId,
     });
@@ -691,6 +693,112 @@ describe('credit grants', () => {
     expect(balances.find((row) => row.id === creditAccount.id)?.balanceMinor).toBe(50n);
   });
 
+  it('updates ordinary accounts in stable order for opposite concurrent postings', async () => {
+    const tenantId = await createTenant(db, 'posting-lock-order');
+    const accounts = await setup(tenantId);
+    const firstAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'First ordinary account',
+      side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    const secondAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Second ordinary account',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'ALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    const secondClient = createDbClient({ databaseUrl, max: 1 });
+    try {
+      const other = createApplicationServices(secondClient);
+      const post = (
+        service: typeof services,
+        reference: string,
+        debitAccountId: string,
+        creditAccountId: string,
+      ) =>
+        service.transactions.create({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          reference,
+          currency: 'USD',
+          entries: [
+            {
+              accountId: debitAccountId,
+              direction: EntryDirection.DEBIT,
+              amountMinor: 1n,
+              currency: 'USD',
+            },
+            {
+              accountId: creditAccountId,
+              direction: EntryDirection.CREDIT,
+              amountMinor: 1n,
+              currency: 'USD',
+            },
+          ],
+        });
+
+      const results = await Promise.all([
+        post(services, 'opposite-lock-order-a', firstAccount.id, secondAccount.id),
+        post(other, 'opposite-lock-order-b', secondAccount.id, firstAccount.id),
+      ]);
+      expect(results.every((result) => result.created)).toBeTrue();
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('serializes opposite-direction postings on an existing grant account', async () => {
+    const tenantId = await createTenant(db, 'grant-opposite-posting-lock-order');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'existing-grant'));
+
+    const secondClient = createDbClient({ databaseUrl, max: 1 });
+    try {
+      const other = createApplicationServices(secondClient);
+      const [consumption, issuance] = await Promise.all([
+        services.transactions.create({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          reference: 'concurrent-grant-consumption',
+          currency: 'USD',
+          entries: [
+            {
+              accountId: accounts.accountId,
+              direction: EntryDirection.DEBIT,
+              amountMinor: 10n,
+              currency: 'USD',
+            },
+            {
+              accountId: accounts.fundingAccountId,
+              direction: EntryDirection.CREDIT,
+              amountMinor: 10n,
+              currency: 'USD',
+            },
+          ],
+        }),
+        other.creditGrants.create({
+          ...grantInput(tenantId, accounts, 'concurrent-grant-issuance'),
+          amountMinor: 20n,
+        }),
+      ]);
+
+      expect(consumption.created).toBeTrue();
+      expect(issuance.created).toBeTrue();
+      expect(
+        (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+      ).toBe(110n);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
   it('supports multiple grant-enabled accounts with different assets', async () => {
     const tenantId = await createTenant(db, 'A');
     const usd = await setup(tenantId);
@@ -701,6 +809,7 @@ describe('credit grants', () => {
       name: 'Bonus lots',
       side: AccountSide.CREDIT,
       overdraftPolicy: 'DISALLOW',
+      grantEnabled: true,
       currency: 'BONUS',
       assetId: bonusAsset.id,
     });
@@ -782,7 +891,7 @@ describe('credit grants', () => {
     ).rejects.toThrow();
   });
 
-  it('serializes concurrent adoption and duplicate grants and records one compensation', async () => {
+  it('serializes concurrent grant issuance and duplicate references', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
     const input = grantInput(tenantId, accounts, 'concurrent');
@@ -795,8 +904,8 @@ describe('credit grants', () => {
     try {
       const other = createApplicationServices(secondClient);
       const firstAdoption = await Promise.all([
-        services.creditGrants.create({ ...input, reference: 'first-adoption-a' }),
-        other.creditGrants.create({ ...input, reference: 'first-adoption-b' }),
+        services.creditGrants.create({ ...input, reference: 'first-grant-a' }),
+        other.creditGrants.create({ ...input, reference: 'first-grant-b' }),
       ]);
       expect(firstAdoption.every((item) => item.created)).toBeTrue();
       const [a, b] = await Promise.all([
@@ -850,6 +959,110 @@ describe('credit grants', () => {
     } finally {
       await secondClient.sql.end({ timeout: 5 });
     }
+  });
+
+  it('rejects unattributed postings and ordinary holds before the first grant', async () => {
+    const tenantId = await createTenant(db, 'empty-grant-account');
+    const accounts = await setup(tenantId);
+    await expect(
+      services.transactions.create({
+        tenantId,
+        ledgerId: accounts.ledgerId,
+        reference: 'unattributed-before-first-grant',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: accounts.fundingAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+          {
+            accountId: accounts.accountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+    await expect(
+      services.holds.create({
+        tenantId,
+        ledgerId: accounts.ledgerId,
+        reference: 'hold-before-first-grant',
+        currency: 'USD',
+        entries: [
+          {
+            accountId: accounts.fundingAccountId,
+            direction: EntryDirection.DEBIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+          {
+            accountId: accounts.accountId,
+            direction: EntryDirection.CREDIT,
+            amountMinor: 1n,
+            currency: 'USD',
+          },
+        ],
+      }),
+    ).rejects.toThrow('Grant-enabled account holds require grant allocation');
+  });
+
+  it('rejects grants on ordinary accounts and keeps the capability immutable', async () => {
+    const tenantId = await createTenant(db, 'immutable-grant-capability');
+    const grantAccounts = await setup(tenantId);
+    const ordinaryAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: grantAccounts.ledgerId,
+      name: 'Ordinary credit account',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: grantAccounts.assetId,
+    });
+    await expect(
+      services.creditGrants.create({
+        ...grantInput(tenantId, grantAccounts, 'ordinary-account-grant'),
+        accountId: ordinaryAccount.id,
+      }),
+    ).rejects.toThrow('Credit grants require a grant-enabled account');
+
+    await expect(
+      client.runTenantTx(tenantId, 'invalid direct grant account', (tx) =>
+        tx.insert(creditGrants).values({
+          id: crypto.randomUUID(),
+          tenantId,
+          ledgerId: grantAccounts.ledgerId,
+          accountId: ordinaryAccount.id,
+          fundingAccountId: grantAccounts.fundingAccountId,
+          reference: 'invalid-direct-ordinary-grant',
+          externalReference: null,
+          transactionId: crypto.randomUUID(),
+          expiresAt: null,
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        await tx
+          .update(accountRows)
+          .set({ grantEnabled: true })
+          .where(eq(accountRows.id, ordinaryAccount.id));
+      }),
+    ).rejects.toThrow();
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        await tx
+          .update(accountRows)
+          .set({ grantEnabled: false })
+          .where(eq(accountRows.id, grantAccounts.accountId));
+      }),
+    ).rejects.toThrow();
   });
 
   it('rejects an untracked ledger posting and preserves the reconciled balance', async () => {
@@ -1124,6 +1337,15 @@ describe('credit grants', () => {
     const accounts = await setup(tenantId);
     const anotherLedger = await setup(tenantId);
     const otherTenant = await setup(otherTenantId);
+    const ordinaryAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Ordinary account',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
     const posting = await services.transactions.create({
       tenantId,
       ledgerId: accounts.ledgerId,
@@ -1137,7 +1359,7 @@ describe('credit grants', () => {
           currency: 'USD',
         },
         {
-          accountId: accounts.accountId,
+          accountId: ordinaryAccount.id,
           direction: EntryDirection.CREDIT,
           amountMinor: 1n,
           currency: 'USD',
@@ -1255,6 +1477,7 @@ describe('credit grants', () => {
       name: 'Expiring target',
       side: AccountSide.CREDIT,
       overdraftPolicy: 'DISALLOW',
+      grantEnabled: true,
       currency: 'USD',
       assetId: accounts.assetId,
     });
@@ -1419,9 +1642,18 @@ describe('credit grants', () => {
     ).toHaveLength(1);
   });
 
-  it('does not adopt a zero-balance account with prior ledger history', async () => {
+  it('does not allow a historically used ordinary account to receive grants', async () => {
     const tenantId = await createTenant(db, 'A');
     const accounts = await setup(tenantId);
+    const ordinaryAccount = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Previously used ordinary account',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'DISALLOW',
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
     const posted = await services.transactions.create({
       tenantId,
       ledgerId: accounts.ledgerId,
@@ -1435,7 +1667,7 @@ describe('credit grants', () => {
           currency: 'USD',
         },
         {
-          accountId: accounts.accountId,
+          accountId: ordinaryAccount.id,
           direction: EntryDirection.CREDIT,
           amountMinor: 1n,
           currency: 'USD',
@@ -1448,7 +1680,10 @@ describe('credit grants', () => {
       reference: 'old-posting-reversal',
     });
     await expect(
-      services.creditGrants.create(grantInput(tenantId, accounts, 'late-adoption')),
+      services.creditGrants.create({
+        ...grantInput(tenantId, accounts, 'late-grant'),
+        accountId: ordinaryAccount.id,
+      }),
     ).rejects.toBeInstanceOf(CreditGrantConflictError);
   });
 
@@ -1633,6 +1868,13 @@ describe('credit grants', () => {
   it('returns a short FEFO-sorted page when the earliest bounded grant is locked', async () => {
     const tenantId = await createTenant(db, 'expiration-skip-locked-order');
     const accounts = await setup(tenantId);
+    const readDatabaseTime = async () => {
+      const [clock] = await db.execute<{ databaseNow: Date }>(
+        sql`select transaction_timestamp() as "databaseNow"`,
+      );
+      if (!clock) throw new Error('Unable to read database time');
+      return new Date(clock.databaseNow);
+    };
     const firstExpiry = new Date(Date.now() + 120);
     const first = await services.creditGrants.create({
       ...grantInput(tenantId, accounts, 'skip-locked-first'),
@@ -1676,7 +1918,7 @@ describe('credit grants', () => {
       await locked;
       const shortPage = await services.creditGrants.runExpirations({
         tenantId,
-        asOf: new Date(Date.now() - 1),
+        asOf: await readDatabaseTime(),
         limit: 3,
       });
       expect(shortPage.items.map((item) => item.grantId)).toEqual([
@@ -1691,7 +1933,7 @@ describe('credit grants', () => {
 
     const nextPage = await services.creditGrants.runExpirations({
       tenantId,
-      asOf: new Date(Date.now() - 1),
+      asOf: await readDatabaseTime(),
       limit: 3,
     });
     expect(nextPage.items.map((item) => item.grantId)).toEqual([first.grant.id]);

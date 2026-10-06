@@ -15,6 +15,7 @@ import { and, asc, eq, gte, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import * as schema from '../schema';
+import { findGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { totalDebit, validatePosting } from './posting-validation';
 
@@ -26,6 +27,14 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
   public async create(input: CreateHoldInput): Promise<CreateHoldResult> {
     return this.client.runTenantTx(input.tenantId, 'create hold', async (tx) => {
       await validatePosting(tx, input);
+      const grantEnabledAccounts = await findGrantEnabledAccountsForMutation(
+        tx,
+        input.tenantId,
+        input.entries.map((entry) => entry.accountId),
+      );
+      if (grantEnabledAccounts.length > 0) {
+        throw new InvariantViolationError('Grant-enabled account holds require grant allocation');
+      }
       const [asset] = await tx
         .select({ id: schema.assets.id })
         .from(schema.assets)

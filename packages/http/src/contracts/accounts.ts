@@ -21,6 +21,10 @@ export const createAccountBodySchema = {
       type: 'string',
       enum: ['ALLOW', 'DISALLOW'],
     },
+    grant_enabled: {
+      type: 'boolean',
+      default: false,
+    },
     currency: NonEmptyTrimmedStringSchema,
   },
 } as const;
@@ -36,6 +40,7 @@ export const accountResponseSchema = {
     'name',
     'side',
     'overdraft_policy',
+    'grant_enabled',
     'currency',
     'balance_minor',
     'created_at',
@@ -67,6 +72,9 @@ export const accountResponseSchema = {
     overdraft_policy: {
       type: 'string',
       enum: ['ALLOW', 'DISALLOW'],
+    },
+    grant_enabled: {
+      type: 'boolean',
     },
     currency: {
       type: 'string',
