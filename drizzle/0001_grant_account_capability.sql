@@ -1,11 +1,4 @@
 ALTER TABLE "accounts" ADD COLUMN "grant_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE accounts NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-UPDATE accounts a SET grant_enabled = true
-WHERE EXISTS (
-  SELECT 1 FROM credit_grants g
-  WHERE g.tenant_id = a.tenant_id AND g.account_id = a.id
-);--> statement-breakpoint
-ALTER TABLE accounts FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "accounts" ADD CONSTRAINT "accounts_grant_enabled_shape_chk" CHECK (not "accounts"."grant_enabled" or ("accounts"."side" = 'CREDIT' and "accounts"."overdraft_policy" = 'DISALLOW'));--> statement-breakpoint
 CREATE FUNCTION reject_grant_capability_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
