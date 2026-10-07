@@ -4,6 +4,7 @@ import {
   isDomainError,
   parseAccountSide,
   type TransactionEntity,
+  type TransactionMetadata,
 } from '@luxledger/core';
 import {
   assertAvailableBalance,
@@ -23,13 +24,14 @@ import {
   type TransactionApplicationRepository,
   type TransactionPaginationQuery,
 } from '@luxledger/core/application';
-import { and, desc, eq, gt, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import { toEntryEntity } from '../mappers/entry-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
+import { toStoredTransactionMetadata } from '../transaction-metadata';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
@@ -363,6 +365,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       currency: string;
       description: string | null;
       effectiveAt?: Date;
+      metadata?: TransactionMetadata;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
       skipGrantLineage?: boolean;
@@ -376,6 +379,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     },
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
+    const metadata = toStoredTransactionMetadata(input.metadata);
     await validatePosting(tx, input);
     await lockGrantEnabledAccountsForMutation(
       tx,
@@ -400,6 +404,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: input.currency,
         assetId: asset.id,
         description: input.description,
+        metadata,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
         relationType: input.relationType ?? null,
@@ -419,12 +424,18 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       return { transactionId: inserted.id, created: true };
     }
 
+    // Compare JSONB in PostgreSQL and project only the boolean result. This keeps the
+    // potentially large metadata value off the application-side idempotency path.
     const [existing] = await tx
       .select({
         id: schema.transactions.id,
         ledgerId: schema.transactions.ledgerId,
         currency: schema.transactions.currency,
         description: schema.transactions.description,
+        metadataMatches:
+          metadata === null
+            ? isNull(schema.transactions.metadata)
+            : eq(schema.transactions.metadata, metadata),
         effectiveAt: schema.transactions.effectiveAt,
         relatedTransactionId: schema.transactions.relatedTransactionId,
         relationType: schema.transactions.relationType,
@@ -446,6 +457,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       existing.currency !== input.currency ||
       (input.compareDescriptionOnRetry === true &&
         (existing.description ?? null) !== input.description) ||
+      !existing.metadataMatches ||
       (input.effectiveAt !== undefined &&
         existing.effectiveAt.getTime() !== effectiveAt.getTime()) ||
       (existing.relatedTransactionId ?? null) !== (input.relatedTransactionId ?? null) ||
@@ -489,6 +501,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         relatedTransactionId: schema.transactions.relatedTransactionId,
         relationType: schema.transactions.relationType,
         description: schema.transactions.description,
+        metadata: schema.transactions.metadata,
       })
       .from(schema.transactions)
       .where(
@@ -512,9 +525,13 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       (candidate) => candidate.reference === input.reference,
     );
 
+    // Reversal inputs intentionally have no metadata: external identifiers belong to the
+    // original transaction, while relatedTransactionId provides the audit-trail link.
+    // Requiring SQL NULL also makes retries fail closed if persisted data violates that contract.
     if (
       existingReversal?.reference === input.reference &&
-      (existingReversal.description ?? null) === input.description
+      (existingReversal.description ?? null) === input.description &&
+      existingReversal.metadata === null
     ) {
       return { transactionId: existingReversal.id, created: false };
     }
@@ -547,6 +564,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       currency: string;
       description: string | null;
       effectiveAt?: Date;
+      metadata?: TransactionMetadata;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
       skipGrantLineage?: boolean;
@@ -558,6 +576,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     },
   ): Promise<string> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
+    const metadata = toStoredTransactionMetadata(input.metadata);
     await validatePosting(tx, input);
     await lockGrantEnabledAccountsForMutation(
       tx,
@@ -581,6 +600,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: input.currency,
         assetId: asset.id,
         description: input.description,
+        metadata,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
         relationType: input.relationType ?? null,

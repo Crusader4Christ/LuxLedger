@@ -61,6 +61,7 @@ describe('Drizzle transaction repository reversal', () => {
       ledgerId,
       reference: 'tx-original',
       currency: 'USD',
+      metadata: { purchaseId: 'purchase-1' },
       entries: [
         {
           accountId: debitAccountId,
@@ -94,8 +95,10 @@ describe('Drizzle transaction repository reversal', () => {
     const reversal = await transactionRepository.findById(tenantId, first.transactionId);
     expect(original?.relatedTransactionId).toBeNull();
     expect(original?.relationType).toBeNull();
+    expect(original?.metadata).toEqual({ purchaseId: 'purchase-1' });
     expect(reversal?.relatedTransactionId).toBe(created.transactionId);
     expect(reversal?.relationType).toBe('REVERSAL');
+    expect(reversal?.metadata).toBeUndefined();
   });
 
   it('reverseTransaction rejects reversing a reversal transaction', async () => {

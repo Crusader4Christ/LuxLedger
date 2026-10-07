@@ -1,4 +1,4 @@
-import type { AccountSide } from '@luxledger/core';
+import type { AccountSide, TransactionMetadata } from '@luxledger/core';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -152,6 +152,7 @@ export const createTransaction = async (
     reference: string;
     currency: string;
     description?: string | null;
+    metadata?: TransactionMetadata;
     createdAt?: Date;
   },
 ): Promise<string> => {
@@ -165,6 +166,7 @@ export const createTransaction = async (
       currency: input.currency,
       assetId,
       description: input.description ?? null,
+      metadata: input.metadata ?? null,
       createdAt: input.createdAt,
     })
     .returning({ id: schema.transactions.id });

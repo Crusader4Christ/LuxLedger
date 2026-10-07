@@ -1,4 +1,4 @@
-import { AccountSide, type UnknownRecord } from '@luxledger/core';
+import { AccountSide, type TransactionMetadata, type UnknownRecord } from '@luxledger/core';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -17,6 +17,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { MAX_TRANSACTION_METADATA_BYTES } from './transaction-metadata';
 
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().default(sql`uuid_v7()`),
@@ -264,6 +265,7 @@ export const transactions = pgTable(
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     description: text('description'),
+    metadata: jsonb('metadata').$type<TransactionMetadata>(),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -297,6 +299,16 @@ export const transactions = pgTable(
     transactionsRelationPairCk: check(
       'transactions_relation_pair_ck',
       sql`(${table.relatedTransactionId} is null and ${table.relationType} is null) or (${table.relatedTransactionId} is not null and ${table.relationType} is not null)`,
+    ),
+    transactionsMetadataObjectChk: check(
+      'transactions_metadata_object_chk',
+      sql`${table.metadata} is null or jsonb_typeof(${table.metadata}) = 'object'`,
+    ),
+    transactionsMetadataSizeChk: check(
+      'transactions_metadata_size_chk',
+      sql`${table.metadata} is null or octet_length(${table.metadata}::text) <= ${sql.raw(
+        MAX_TRANSACTION_METADATA_BYTES.toString(),
+      )}`,
     ),
   }),
 );

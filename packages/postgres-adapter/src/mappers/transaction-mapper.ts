@@ -17,5 +17,6 @@ export const toTransactionEntity = (
     relationType: row.relationType,
     createdAt: row.createdAt,
     effectiveAt: row.effectiveAt,
+    metadata: row.metadata ?? undefined,
     entries,
   });

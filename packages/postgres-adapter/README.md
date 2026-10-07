@@ -15,6 +15,10 @@ PostgreSQL 16 is the supported persistence model.
 
 State-changing repository operations use explicit PostgreSQL transactions. The adapter enforces persistence-level tenant scoping, atomicity, and transaction-reference idempotency required by the repository [invariants guide](../../docs/product/invariants.md).
 
+Transaction metadata is stored as nullable PostgreSQL `jsonb` on the immutable transaction header. Omitted metadata is SQL `NULL`, which remains distinct from an empty object. Metadata must be a JSON object no larger than 16 KiB in PostgreSQL's canonical JSON text representation and cannot be updated after insertion. The limit keeps idempotency comparisons and transaction reads bounded while leaving room for compact integration context. Idempotent retries use PostgreSQL `jsonb` equality: object key order is ignored, array order is significant, and any semantic metadata difference is a payload conflict.
+
+Use metadata for stable external IDs, provider references, flags, and other compact context needed to interpret a transaction. Do not embed full provider payloads, audit histories, documents, binary data, or mutable records. Store large data in the owning system and keep only its stable reference in transaction metadata.
+
 ## Host-composable unit of work
 
 Use `createUnitOfWork` when a host row or outbox record must commit atomically with LuxLedger operations:
