@@ -1,6 +1,7 @@
 import type { TransactionMetadata } from '@luxledger/core';
 import { InvariantViolationError } from '@luxledger/core/application';
 
+// Keep retry comparisons bounded while leaving enough room for compact integration context.
 export const MAX_TRANSACTION_METADATA_BYTES = 16 * 1024;
 const utf8Encoder = new TextEncoder();
 
