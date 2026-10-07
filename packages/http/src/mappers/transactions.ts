@@ -13,6 +13,7 @@ export const toTransactionResponse = (transaction: TransactionEntity): Transacti
     reference: transaction.reference,
     currency: transaction.currency,
     description: transaction.description,
+    metadata: transaction.metadata ?? null,
     related_transaction_id: transaction.relatedTransactionId,
     relation_type: transaction.relationType,
     effective_at: (transaction.effectiveAt ?? transaction.createdAt).toISOString(),

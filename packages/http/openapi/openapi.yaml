@@ -193,6 +193,9 @@ paths:
                         reference: tx-ref-1
                         currency: USD
                         description: Payment settlement
+                        metadata:
+                          provider:
+                            payment_id: pay_123
                         related_transaction_id: null
                         relation_type: null
                         effective_at: '2026-01-01T00:01:00.000Z'
@@ -254,8 +257,10 @@ paths:
                     reference: tx-ref-1
                     currency: USD
                     description: Payment settlement
+                    metadata: null
                     related_transaction_id: null
                     relation_type: null
+                    effective_at: '2026-01-01T00:01:00.000Z'
                     created_at: '2026-01-01T00:01:00.000Z'
         '400':
           $ref: '#/components/responses/BadRequestError'
@@ -1228,6 +1233,10 @@ components:
           type: string
           pattern: '^(?=.*\S).+$'
           description: Optional transaction description. When omitted it is stored as null.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Optional JSON object with caller-defined transaction metadata. Null, arrays, and primitives are rejected.
         effective_at:
           type: string
           format: date-time
@@ -1237,6 +1246,22 @@ components:
           minItems: 2
           items:
             $ref: '#/components/schemas/TransactionEntryRequest'
+      example:
+        ledger_id: 00000000-0000-4000-8000-000000000001
+        reference: tx-ref-1
+        currency: USD
+        description: Payment settlement
+        metadata:
+          provider:
+            payment_id: pay_123
+          tags: [settlement, card]
+        entries:
+          - account_id: 00000000-0000-4000-8000-000000000101
+            signed_amount_minor: '1000'
+            currency: USD
+          - account_id: 00000000-0000-4000-8000-000000000102
+            signed_amount_minor: '-1000'
+            currency: USD
     BulkCreateTransactionRequest:
       type: object
       additionalProperties: false
@@ -1497,7 +1522,7 @@ components:
     Transaction:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, ledger_id, reference, currency, description, related_transaction_id, relation_type, effective_at, created_at]
+      required: [id, tenant_id, ledger_id, reference, currency, description, metadata, related_transaction_id, relation_type, effective_at, created_at]
       properties:
         id:
           type: string
@@ -1515,6 +1540,10 @@ components:
         description:
           type: string
           nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
         related_transaction_id:
           type: string
           format: uuid
@@ -1536,6 +1565,9 @@ components:
         reference: tx-ref-1
         currency: USD
         description: Payment settlement
+        metadata:
+          provider:
+            payment_id: pay_123
         related_transaction_id: null
         relation_type: null
         effective_at: '2026-01-01T00:01:00.000Z'

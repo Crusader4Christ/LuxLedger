@@ -50,6 +50,9 @@
       "dependencies": {
         "@luxledger/core": "^0.2.0",
       },
+      "devDependencies": {
+        "ajv": "^8.17.1",
+      },
     },
     "packages/postgres-adapter": {
       "name": "@luxledger/postgres-adapter",
