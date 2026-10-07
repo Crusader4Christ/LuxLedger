@@ -517,7 +517,18 @@ describe('Drizzle transaction repository posting', () => {
         metadata: { payload: 'x'.repeat(16 * 1024) },
         entries,
       }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
+    ).rejects.toThrow('Transaction metadata must not exceed 16384 bytes');
+
+    await expect(
+      transactionRepository.create({
+        tenantId,
+        ledgerId,
+        reference: 'metadata-oversized-utf8',
+        currency: 'USD',
+        metadata: { payload: '€'.repeat(6 * 1024) },
+        entries,
+      }),
+    ).rejects.toThrow('Transaction metadata must not exceed 16384 bytes');
 
     const [stored] = await db
       .select()
