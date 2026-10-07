@@ -424,6 +424,8 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       return { transactionId: inserted.id, created: true };
     }
 
+    // Compare JSONB in PostgreSQL and project only the boolean result. This keeps the
+    // potentially large metadata value off the application-side idempotency path.
     const [existing] = await tx
       .select({
         id: schema.transactions.id,
@@ -523,6 +525,9 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       (candidate) => candidate.reference === input.reference,
     );
 
+    // Reversal inputs intentionally have no metadata: external identifiers belong to the
+    // original transaction, while relatedTransactionId provides the audit-trail link.
+    // Requiring SQL NULL also makes retries fail closed if persisted data violates that contract.
     if (
       existingReversal?.reference === input.reference &&
       (existingReversal.description ?? null) === input.description &&
