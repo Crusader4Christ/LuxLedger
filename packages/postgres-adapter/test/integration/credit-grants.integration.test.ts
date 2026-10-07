@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { AccountSide, EntryDirection, InvalidCreditGrantError } from '@luxledger/core';
+import { AccountSide, InvalidCreditGrantError } from '@luxledger/core';
 import { CreditGrantConflictError, CreditGrantNotFoundError } from '@luxledger/core/application';
 import { eq, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
@@ -80,14 +80,12 @@ const consume = (
     entries: [
       {
         accountId: setupResult.accountId,
-        direction: EntryDirection.DEBIT,
-        amountMinor,
+        signedAmountMinor: amountMinor,
         currency: 'USD',
       },
       {
         accountId: setupResult.fundingAccountId,
-        direction: EntryDirection.CREDIT,
-        amountMinor,
+        signedAmountMinor: -amountMinor,
         currency: 'USD',
       },
     ],
@@ -106,20 +104,17 @@ const consumeInTwoEntries = (
     entries: [
       {
         accountId: setupResult.accountId,
-        direction: EntryDirection.DEBIT,
-        amountMinor: 80n,
+        signedAmountMinor: 80n,
         currency: 'USD',
       },
       {
         accountId: setupResult.accountId,
-        direction: EntryDirection.DEBIT,
-        amountMinor: 80n,
+        signedAmountMinor: 80n,
         currency: 'USD',
       },
       {
         accountId: setupResult.fundingAccountId,
-        direction: EntryDirection.CREDIT,
-        amountMinor: 160n,
+        signedAmountMinor: -160n,
         currency: 'USD',
       },
     ],
@@ -158,14 +153,14 @@ describe('credit grants', () => {
       .from(entries)
       .where(eq(entries.transactionId, purchased.grant.transactionId));
     expect(posted).toHaveLength(2);
-    expect(posted.find((entry) => entry.accountId === accounts.accountId)?.direction).toBe(
-      EntryDirection.CREDIT,
-    );
-    expect(posted.find((entry) => entry.accountId === accounts.fundingAccountId)?.direction).toBe(
-      EntryDirection.DEBIT,
+    expect(posted.find((entry) => entry.accountId === accounts.accountId)?.signedAmountMinor).toBe(
+      -100n,
     );
     expect(
-      posted.every((entry) => entry.assetId === accounts.assetId && entry.amountMinor === 100n),
+      posted.find((entry) => entry.accountId === accounts.fundingAccountId)?.signedAmountMinor,
+    ).toBe(100n);
+    expect(
+      posted.every((entry) => entry.assetId === accounts.assetId && entry.signedAmountMinor !== 0n),
     ).toBeTrue();
   });
 
@@ -273,20 +268,17 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: accounts.accountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 40n,
+          signedAmountMinor: 40n,
           currency: 'USD',
         },
         {
           accountId: secondAccount.id,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 60n,
+          signedAmountMinor: 60n,
           currency: 'USD',
         },
         {
           accountId: accounts.fundingAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 100n,
+          signedAmountMinor: -100n,
           currency: 'USD',
         },
       ],
@@ -324,20 +316,17 @@ describe('credit grants', () => {
         entries: [
           {
             accountId: accounts.accountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 60n,
+            signedAmountMinor: 60n,
             currency: 'USD',
           },
           {
             accountId: accounts.accountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 50n,
+            signedAmountMinor: 50n,
             currency: 'USD',
           },
           {
             accountId: accounts.fundingAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 110n,
+            signedAmountMinor: -110n,
             currency: 'USD',
           },
         ],
@@ -370,14 +359,12 @@ describe('credit grants', () => {
           entries: [
             {
               accountId: accounts.accountId,
-              direction: EntryDirection.DEBIT,
-              amountMinor: 75n,
+              signedAmountMinor: 75n,
               currency: 'USD',
             },
             {
               accountId: accounts.fundingAccountId,
-              direction: EntryDirection.CREDIT,
-              amountMinor: 75n,
+              signedAmountMinor: -75n,
               currency: 'USD',
             },
           ],
@@ -430,14 +417,12 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: accounts.accountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 40n,
+          signedAmountMinor: 40n,
           currency: 'USD',
         },
         {
           accountId: accounts.fundingAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 40n,
+          signedAmountMinor: -40n,
           currency: 'USD',
         },
       ],
@@ -495,8 +480,7 @@ describe('credit grants', () => {
             tenantId,
             transactionId: reversed.transactionId,
             accountId: accounts.accountId,
-            direction: 'CREDIT',
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
             assetId: accounts.assetId,
           })
@@ -546,8 +530,7 @@ describe('credit grants', () => {
               tenantId,
               transactionId: reversal.id,
               accountId: accounts.accountId,
-              direction: 'CREDIT',
-              amountMinor: 100n,
+              signedAmountMinor: -100n,
               currency: 'USD',
               assetId: accounts.assetId,
             },
@@ -555,8 +538,7 @@ describe('credit grants', () => {
               tenantId,
               transactionId: reversal.id,
               accountId: accounts.fundingAccountId,
-              direction: 'DEBIT',
-              amountMinor: 100n,
+              signedAmountMinor: 100n,
               currency: 'USD',
               assetId: accounts.assetId,
             },
@@ -598,14 +580,12 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: accounts.accountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 50n,
+          signedAmountMinor: 50n,
           currency: 'USD',
         },
         {
           accountId: accounts.fundingAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 50n,
+          signedAmountMinor: -50n,
           currency: 'USD',
         },
       ],
@@ -664,20 +644,17 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: debitAccount.id,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 30n,
+          signedAmountMinor: 30n,
           currency: 'USD',
         },
         {
           accountId: debitAccount.id,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 20n,
+          signedAmountMinor: 20n,
           currency: 'USD',
         },
         {
           accountId: creditAccount.id,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 50n,
+          signedAmountMinor: -50n,
           currency: 'USD',
         },
       ],
@@ -689,8 +666,8 @@ describe('credit grants', () => {
     const balances = await db
       .select({ id: accountRows.id, balanceMinor: accountRows.balanceMinor })
       .from(accountRows);
-    expect(balances.find((row) => row.id === debitAccount.id)?.balanceMinor).toBe(-50n);
-    expect(balances.find((row) => row.id === creditAccount.id)?.balanceMinor).toBe(50n);
+    expect(balances.find((row) => row.id === debitAccount.id)?.balanceMinor).toBe(50n);
+    expect(balances.find((row) => row.id === creditAccount.id)?.balanceMinor).toBe(-50n);
   });
 
   it('updates ordinary accounts in stable order for opposite concurrent postings', async () => {
@@ -731,14 +708,12 @@ describe('credit grants', () => {
           entries: [
             {
               accountId: debitAccountId,
-              direction: EntryDirection.DEBIT,
-              amountMinor: 1n,
+              signedAmountMinor: 1n,
               currency: 'USD',
             },
             {
               accountId: creditAccountId,
-              direction: EntryDirection.CREDIT,
-              amountMinor: 1n,
+              signedAmountMinor: -1n,
               currency: 'USD',
             },
           ],
@@ -771,14 +746,12 @@ describe('credit grants', () => {
           entries: [
             {
               accountId: accounts.accountId,
-              direction: EntryDirection.DEBIT,
-              amountMinor: 10n,
+              signedAmountMinor: 10n,
               currency: 'USD',
             },
             {
               accountId: accounts.fundingAccountId,
-              direction: EntryDirection.CREDIT,
-              amountMinor: 10n,
+              signedAmountMinor: -10n,
               currency: 'USD',
             },
           ],
@@ -973,14 +946,12 @@ describe('credit grants', () => {
         entries: [
           {
             accountId: accounts.fundingAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 1n,
+            signedAmountMinor: 1n,
             currency: 'USD',
           },
           {
             accountId: accounts.accountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
         ],
@@ -995,14 +966,12 @@ describe('credit grants', () => {
         entries: [
           {
             accountId: accounts.fundingAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 1n,
+            signedAmountMinor: 1n,
             currency: 'USD',
           },
           {
             accountId: accounts.accountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
         ],
@@ -1078,14 +1047,12 @@ describe('credit grants', () => {
         entries: [
           {
             accountId: accounts.fundingAccountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 1n,
+            signedAmountMinor: 1n,
             currency: 'USD',
           },
           {
             accountId: accounts.accountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
         ],
@@ -1236,8 +1203,7 @@ describe('credit grants', () => {
             tenantId,
             transactionId: reversal.id,
             accountId: accounts.accountId,
-            direction: 'DEBIT',
-            amountMinor: 50n,
+            signedAmountMinor: 50n,
             currency: 'USD',
             assetId: accounts.assetId,
           })
@@ -1276,8 +1242,7 @@ describe('credit grants', () => {
             tenantId,
             transactionId: reversalTransactionId,
             accountId: accounts.accountId,
-            direction: 'DEBIT',
-            amountMinor: 100n,
+            signedAmountMinor: 100n,
             currency: 'USD',
             assetId: accounts.assetId,
           })
@@ -1309,7 +1274,7 @@ describe('credit grants', () => {
       (async () => {
         await db
           .update(entries)
-          .set({ amountMinor: 101n })
+          .set({ signedAmountMinor: 101n })
           .where(eq(entries.transactionId, grant.grant.transactionId));
       })(),
     ).rejects.toThrow();
@@ -1354,14 +1319,12 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: accounts.fundingAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 1n,
+          signedAmountMinor: 1n,
           currency: 'USD',
         },
         {
           accountId: ordinaryAccount.id,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 1n,
+          signedAmountMinor: -1n,
           currency: 'USD',
         },
       ],
@@ -1520,8 +1483,7 @@ describe('credit grants', () => {
           tenantId,
           transactionId: grant.grant.transactionId,
           accountId: accounts.accountId,
-          direction: 'CREDIT',
-          amountMinor: 1n,
+          signedAmountMinor: -1n,
           currency: 'USD',
           assetId: accounts.assetId,
         });
@@ -1568,8 +1530,7 @@ describe('credit grants', () => {
             tenantId,
             transactionId: transaction.id,
             accountId: accounts.accountId,
-            direction: 'DEBIT',
-            amountMinor: 101n,
+            signedAmountMinor: 101n,
             currency: 'USD',
             assetId: accounts.assetId,
           })
@@ -1617,8 +1578,7 @@ describe('credit grants', () => {
             tenantId,
             transactionId: transaction.id,
             accountId: accounts.accountId,
-            direction: 'DEBIT',
-            amountMinor: 100n,
+            signedAmountMinor: 100n,
             currency: 'USD',
             assetId: accounts.assetId,
           })
@@ -1662,14 +1622,12 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: accounts.fundingAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 1n,
+          signedAmountMinor: 1n,
           currency: 'USD',
         },
         {
           accountId: ordinaryAccount.id,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 1n,
+          signedAmountMinor: -1n,
           currency: 'USD',
         },
       ],
@@ -1755,14 +1713,12 @@ describe('credit grants', () => {
         entries: [
           {
             accountId: accounts.accountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 1n,
+            signedAmountMinor: 1n,
             currency: 'USD',
           },
           {
             accountId: accounts.fundingAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
         ],
@@ -1779,14 +1735,12 @@ describe('credit grants', () => {
         entries: [
           {
             accountId: accounts.accountId,
-            direction: EntryDirection.DEBIT,
-            amountMinor: 1n,
+            signedAmountMinor: 1n,
             currency: 'USD',
           },
           {
             accountId: accounts.fundingAccountId,
-            direction: EntryDirection.CREDIT,
-            amountMinor: 1n,
+            signedAmountMinor: -1n,
             currency: 'USD',
           },
         ],
@@ -1986,14 +1940,12 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: accounts.fundingAccountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 1n,
+          signedAmountMinor: 1n,
           currency: 'USD',
         },
         {
           accountId: otherFunding.id,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 1n,
+          signedAmountMinor: -1n,
           currency: 'USD',
         },
       ],
@@ -2061,14 +2013,12 @@ describe('credit grants', () => {
       entries: [
         {
           accountId: correctionAccounts.accountId,
-          direction: EntryDirection.DEBIT,
-          amountMinor: 70n,
+          signedAmountMinor: 70n,
           currency: 'USD',
         },
         {
           accountId: correctionAccounts.fundingAccountId,
-          direction: EntryDirection.CREDIT,
-          amountMinor: 70n,
+          signedAmountMinor: -70n,
           currency: 'USD',
         },
       ],
@@ -2205,14 +2155,12 @@ describe('credit grants', () => {
                     entries: [
                       {
                         accountId: accounts.accountId,
-                        direction: EntryDirection.DEBIT,
-                        amountMinor: 40n,
+                        signedAmountMinor: 40n,
                         currency: 'USD',
                       },
                       {
                         accountId: accounts.fundingAccountId,
-                        direction: EntryDirection.CREDIT,
-                        amountMinor: 40n,
+                        signedAmountMinor: -40n,
                         currency: 'USD',
                       },
                     ],
@@ -2293,8 +2241,7 @@ describe('credit grants', () => {
               tenantId,
               transactionId: transaction.id,
               accountId: accounts.accountId,
-              direction: EntryDirection.DEBIT,
-              amountMinor: 100n,
+              signedAmountMinor: 100n,
               currency: 'USD',
               assetId: accounts.assetId,
             },
@@ -2302,8 +2249,7 @@ describe('credit grants', () => {
               tenantId,
               transactionId: transaction.id,
               accountId: accounts.fundingAccountId,
-              direction: EntryDirection.CREDIT,
-              amountMinor: 100n,
+              signedAmountMinor: -100n,
               currency: 'USD',
               assetId: accounts.assetId,
             },

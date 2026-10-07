@@ -53,13 +53,12 @@ describe('transaction contract migration parity', () => {
   test('keeps validation details for entry/request/query/params schemas', () => {
     expect(transactionEntryRequestSchema.required).toEqual([
       'account_id',
-      'direction',
-      'amount_minor',
+      'signed_amount_minor',
       'currency',
     ]);
-    expect(transactionEntryRequestSchema.properties.amount_minor).toEqual({
+    expect(transactionEntryRequestSchema.properties.signed_amount_minor).toEqual({
       type: 'string',
-      pattern: '^[1-9][0-9]*$',
+      pattern: '^-?[1-9][0-9]*$',
     });
     expect(transactionByIdParamsSchema.required).toEqual(['id']);
     expect(listTransactionsQuerySchemaExtra.properties.ledger_id).toEqual({

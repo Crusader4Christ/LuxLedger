@@ -3,7 +3,6 @@ import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { UnknownRecord } from '../base/object';
-import type { EntryDirection } from '../entry/entity';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type {
@@ -118,7 +117,7 @@ export interface CreditGrantExpirationResult {
   asOf: Date;
   items: CreditGrantExpirationItem[];
 }
-export type { AccountSide, ApiKeyRole, CreateLedgerInput, EntryDirection, OverdraftPolicy };
+export type { AccountSide, ApiKeyRole, CreateLedgerInput, OverdraftPolicy };
 export type Ledger = LedgerEntity;
 
 export type CreateTransactionInput = Omit<CreateTransactionCommand, 'id'>;
@@ -174,8 +173,7 @@ export interface CorrectTransactionResult {
 
 export interface HoldEntryInput {
   accountId: string;
-  direction: EntryDirection;
-  amountMinor: bigint;
+  signedAmountMinor: bigint;
   currency: string;
 }
 
@@ -275,8 +273,7 @@ export interface HistoricalBalance {
   accountId: string;
   at: Date;
   postedMinor: bigint;
-  inflightDebitMinor: bigint;
-  inflightCreditMinor: bigint;
+  reservedDeltaMinor: bigint;
   availableMinor: bigint;
 }
 
@@ -288,8 +285,7 @@ export interface BalanceSnapshotEvent {
   eventType: 'TX_APPLIED' | 'HOLD_CREATED' | 'HOLD_COMMITTED' | 'HOLD_VOIDED' | 'ADJUSTMENT';
   sourceId: string;
   postedMinor: bigint;
-  inflightDebitMinor: bigint;
-  inflightCreditMinor: bigint;
+  reservedDeltaMinor: bigint;
   effectiveAt: Date;
   createdAt: Date;
 }

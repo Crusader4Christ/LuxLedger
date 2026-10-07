@@ -1,13 +1,27 @@
 # Available balance and overdraft policy
 
-Account balances are signed in minor units: a CREDIT entry adds to `balance_minor` and a DEBIT entry subtracts from it. The account's `side` describes its normal reporting side; it does not reverse the stored sign or the public `available_minor` calculation. This applies to both DEBIT and CREDIT accounts.
+Ledger amounts use one signed convention everywhere: a positive entry is a DEBIT and a negative entry is a CREDIT. Every balanced transaction and hold therefore has `sum(signed_amount_minor) = 0`.
 
-For each account, `available_minor = balance_minor - inflight_debit_minor + inflight_credit_minor`. A DISALLOW account must have `available_minor >= 0` after a successful hold reservation or posting. ALLOW accounts have no such restriction. The existing `OVERDRAFT_POLICY_VIOLATION` domain error (HTTP 409) reports the attempted available amount when the invariant fails.
+`accounts.balance_minor` is the posted projection: the sum of committed signed entries for that account. It is normally positive for a DEBIT-normal account and negative for a CREDIT-normal account. The entries remain the accounting authority; the account field exists so availability checks do not replay the entire journal while holding a transaction lock.
 
-For mixed entries on one account, the signed net delta is total CREDIT minus total DEBIT. A hold adds those totals to the corresponding in-flight columns; a posting adds the net delta to `balance_minor`. A commit subtracts the committed entries from in-flight while applying the same net delta to posted balance.
+`accounts.reserved_delta_minor` is the signed pending delta that consumes the account's natural balance. It deliberately ignores the capacity-increasing side of a hold, because incoming held funds must not become spendable before commit:
 
-Each operation sums only the debit and credit entries in that operation for an account before checking its final state. It does not replay prior transactions. The PostgreSQL account row update serializes competing holds and postings inside the existing tenant transaction. A hold commit moves its own reservation from in-flight to posted in the same transaction, leaving availability unchanged for the committed amount. A partial commit retains the uncommitted reservation; void releases what remains. Failed operations roll back entries, balances, snapshots, and hold state together. Idempotent retries return the existing result without applying balances again.
+- DEBIT-normal account: only CREDIT hold legs reserve capacity, so `reserved_delta_minor <= 0`.
+- CREDIT-normal account: only DEBIT hold legs reserve capacity, so `reserved_delta_minor >= 0`.
 
-Backdated postings have a separate write cost: they update every later balance snapshot for each affected account. There is currently no closed-period cutoff, so a very old backdated posting can touch years of snapshots. A period-closing feature should reject postings with an `effective_at` in a closed period (with corrections recorded in an open period), making this work bounded by the open history.
+Availability is calculated as:
 
-The clean-install schema enforces nonnegative in-flight debit and credit columns with database checks. There is no compatibility backfill for databases created from the former migration history; reset those pre-production databases before applying the current baseline.
+```text
+signed_available_minor = balance_minor + reserved_delta_minor
+available_minor = side == DEBIT
+  ? signed_available_minor
+  : -signed_available_minor
+```
+
+A `DISALLOW` account must have normalized `available_minor >= 0` after a successful reservation or posting. An `ALLOW` account may go below zero. `OVERDRAFT_POLICY_VIOLATION` (HTTP 409) reports the attempted normalized available amount.
+
+Creating a hold changes only `reserved_delta_minor`. Committing it atomically adds the signed committed entries to `balance_minor` and removes their reservation delta. A partial commit retains the uncommitted reservation; void removes the remaining reservation. Failed operations roll back entries, account projections, snapshots, and hold state together. Idempotent retries do not apply any delta twice.
+
+The account row is locked by the PostgreSQL update inside the explicit transaction. This serializes competing holds and postings. `balance_snapshots` copies both projections at event boundaries for historical reads; it is not a second mutable source of current balance.
+
+Backdated postings update later balance snapshots for each affected account. There is currently no closed-period cutoff, so a very old posting may touch years of snapshots. A future period-closing feature should reject writes into closed periods and record corrections in an open period.

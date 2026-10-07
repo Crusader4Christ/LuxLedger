@@ -12,12 +12,6 @@ export class UnbalancedTransactionError extends DomainError {
   }
 }
 
-export class InvalidDirectionError extends DomainError {
-  public constructor() {
-    super('posting direction must be DEBIT or CREDIT', 'INVALID_DIRECTION');
-  }
-}
-
 export class InvalidAmountError extends DomainError {
   public constructor(message: string) {
     super(message, 'INVALID_AMOUNT');

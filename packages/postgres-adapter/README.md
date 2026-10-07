@@ -74,6 +74,6 @@ export default defineConfig({
 });
 ```
 
-Apply migrations before starting application code that depends on a newer adapter schema. The current pre-production history is a clean-install baseline and does not upgrade databases created by the former incremental migrations; reset those databases first. Package downgrade does not roll back a database; follow the repository [upgrade procedure](../../docs/integration/versioning.md).
+Apply migrations before starting application code that depends on a newer adapter schema. Numbered migrations upgrade the consolidated `0000` baseline in place; reset databases created by the retired history that predates that baseline. Package downgrade does not roll back a database; follow the repository [upgrade procedure](../../docs/integration/versioning.md).
 
 Before production use, pin compatible LuxLedger package versions and review the [documentation publication checklist](../../docs/integration/versioning.md#documentation-publication-checklist).

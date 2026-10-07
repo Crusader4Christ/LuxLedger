@@ -9,8 +9,7 @@ export const toEntryResponse = (entry: EntryEntity): EntryResponse => {
     id: entry.id,
     transaction_id: entry.transactionId,
     account_id: entry.accountId.value,
-    direction: entry.direction,
-    amount_minor: entry.money.amountMinor.toString(),
+    signed_amount_minor: entry.money.amountMinor.toString(),
     currency: entry.money.currency,
     created_at: entry.createdAt.toISOString(),
   };

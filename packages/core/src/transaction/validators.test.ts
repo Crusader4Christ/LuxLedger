@@ -57,35 +57,27 @@ describe('validateEntryAmounts', () => {
     );
   });
 
-  it('rejects negative amount', () => {
-    expect(() => validateEntryAmounts([{ money: { amountMinor: -1n } }])).toThrowError(
-      InvalidAmountError,
-    );
+  it('accepts negative credit amount', () => {
+    expect(() => validateEntryAmounts([{ money: { amountMinor: -1n } }])).not.toThrow();
   });
 });
 
 describe('validateDoubleEntry', () => {
   it('accepts balanced entries', () => {
     expect(() =>
-      validateDoubleEntry([
-        { money: { amountMinor: 100n }, signedAmountMinor: () => -100n },
-        { money: { amountMinor: 100n }, signedAmountMinor: () => 100n },
-      ]),
+      validateDoubleEntry([{ money: { amountMinor: 100n } }, { money: { amountMinor: -100n } }]),
     ).not.toThrow();
   });
 
   it('rejects less than two entries', () => {
-    expect(() =>
-      validateDoubleEntry([{ money: { amountMinor: 100n }, signedAmountMinor: () => -100n }]),
-    ).toThrowError(NotEnoughEntriesError);
+    expect(() => validateDoubleEntry([{ money: { amountMinor: 100n } }])).toThrowError(
+      NotEnoughEntriesError,
+    );
   });
 
   it('rejects unbalanced entries', () => {
     expect(() =>
-      validateDoubleEntry([
-        { money: { amountMinor: 100n }, signedAmountMinor: () => -100n },
-        { money: { amountMinor: 99n }, signedAmountMinor: () => 99n },
-      ]),
+      validateDoubleEntry([{ money: { amountMinor: 100n } }, { money: { amountMinor: -99n } }]),
     ).toThrowError(UnbalancedTransactionError);
   });
 });

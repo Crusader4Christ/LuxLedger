@@ -440,14 +440,12 @@ describe('express adapter parity with fastify adapter', () => {
             entries: [
               {
                 account_id: '00000000-0000-4000-8000-000000000101',
-                direction: 'DEBIT',
-                amount_minor: '100',
+                signed_amount_minor: '100',
                 currency: 'USD',
               },
               {
                 account_id: '00000000-0000-4000-8000-000000000102',
-                direction: 'CREDIT',
-                amount_minor: '100',
+                signed_amount_minor: '-100',
                 currency: 'USD',
               },
             ],
@@ -500,14 +498,12 @@ describe('express adapter parity with fastify adapter', () => {
             entries: [
               {
                 account_id: '00000000-0000-4000-8000-000000000101',
-                direction: 'DEBIT',
-                amount_minor: '100',
+                signed_amount_minor: '100',
                 currency: 'USD',
               },
               {
                 account_id: '00000000-0000-4000-8000-000000000102',
-                direction: 'CREDIT',
-                amount_minor: '100',
+                signed_amount_minor: '-100',
                 currency: 'USD',
               },
             ],
@@ -547,14 +543,12 @@ describe('express adapter parity with fastify adapter', () => {
             entries: [
               {
                 account_id: '00000000-0000-4000-8000-000000000101',
-                direction: 'DEBIT',
-                amount_minor: '100',
+                signed_amount_minor: '100',
                 currency: 'USD',
               },
               {
                 account_id: '00000000-0000-4000-8000-000000000102',
-                direction: 'CREDIT',
-                amount_minor: '100',
+                signed_amount_minor: '-100',
                 currency: 'USD',
               },
             ],

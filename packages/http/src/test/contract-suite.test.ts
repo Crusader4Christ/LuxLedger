@@ -126,11 +126,11 @@ describe('framework-agnostic contract suite', () => {
         },
       },
       {
-        name: 'transaction amount pattern rejects zero and negative values',
+        name: 'transaction signed amount pattern accepts either nonzero sign',
         assert: () =>
-          expect(transactionEntryRequestSchema.properties.amount_minor).toEqual({
+          expect(transactionEntryRequestSchema.properties.signed_amount_minor).toEqual({
             type: 'string',
-            pattern: '^[1-9][0-9]*$',
+            pattern: '^-?[1-9][0-9]*$',
           }),
       },
       {

@@ -1,4 +1,4 @@
-import { AccountId, CreateTransactionUseCase, EntryDirection, LedgerId } from '@luxledger/core';
+import { AccountId, CreateTransactionUseCase, LedgerId } from '@luxledger/core';
 import { type CreateTransactionInput, InvariantViolationError } from '@luxledger/core/application';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { DrizzleDatabase } from '../client';
@@ -55,8 +55,7 @@ export const validatePosting = async (
 
 export const validatePostingEntries = (
   entries: Array<{
-    direction: EntryDirection;
-    amountMinor: bigint;
+    signedAmountMinor: bigint;
     currency: string;
   }>,
   currency: string,
@@ -64,8 +63,8 @@ export const validatePostingEntries = (
   if (entries.length < 2) {
     throw new InvariantViolationError('At least two entries are required');
   }
-  const hasDebit = entries.some((entry) => entry.direction === EntryDirection.DEBIT);
-  const hasCredit = entries.some((entry) => entry.direction === EntryDirection.CREDIT);
+  const hasDebit = entries.some((entry) => entry.signedAmountMinor > 0n);
+  const hasCredit = entries.some((entry) => entry.signedAmountMinor < 0n);
   if (!hasDebit || !hasCredit) {
     throw new InvariantViolationError('Entries must include at least one DEBIT and one CREDIT');
   }
@@ -76,10 +75,8 @@ export const validatePostingEntries = (
   }
 };
 
-export const totalDebit = (
-  entries: Array<{ direction: EntryDirection; amountMinor: bigint }>,
-): bigint =>
+export const totalDebit = (entries: Array<{ signedAmountMinor: bigint }>): bigint =>
   entries.reduce(
-    (sum, entry) => (entry.direction === EntryDirection.DEBIT ? sum + entry.amountMinor : sum),
+    (sum, entry) => (entry.signedAmountMinor > 0n ? sum + entry.signedAmountMinor : sum),
     0n,
   );

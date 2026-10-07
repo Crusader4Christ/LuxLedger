@@ -58,7 +58,7 @@ export interface ReconMatchDecision {
 
 const transactionAmountMinor = (transaction: TransactionEntity): bigint =>
   transaction.entries
-    .filter((entry) => entry.direction === 'DEBIT')
+    .filter((entry) => entry.money.amountMinor > 0n)
     .reduce((sum, entry) => sum + entry.money.amountMinor, 0n);
 
 const normalize = (value: string): string => value.trim().toLowerCase();

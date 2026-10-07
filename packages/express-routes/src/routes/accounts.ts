@@ -111,8 +111,7 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
         account_id: result.accountId,
         timestamp: result.at.toISOString(),
         posted_minor: result.postedMinor.toString(),
-        inflight_debit_minor: result.inflightDebitMinor.toString(),
-        inflight_credit_minor: result.inflightCreditMinor.toString(),
+        reserved_delta_minor: result.reservedDeltaMinor.toString(),
         available_minor: result.availableMinor.toString(),
       };
       res.status(200).json(response);
@@ -155,8 +154,7 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
           event_type: item.eventType,
           source_id: item.sourceId,
           posted_minor: item.postedMinor.toString(),
-          inflight_debit_minor: item.inflightDebitMinor.toString(),
-          inflight_credit_minor: item.inflightCreditMinor.toString(),
+          reserved_delta_minor: item.reservedDeltaMinor.toString(),
           effective_at: item.effectiveAt.toISOString(),
           created_at: item.createdAt.toISOString(),
         })),

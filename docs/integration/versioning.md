@@ -4,7 +4,7 @@
 
 LuxLedger packages are versioned independently. A host should pin compatible released versions of core, HTTP, route adapter, and PostgreSQL adapter rather than mixing arbitrary ranges. The OpenAPI `info.version` identifies the HTTP contract version; it is not a substitute for package versions.
 
-The current database history is explicitly pre-production and clean-install only. `0000_initial-schema.sql` replaces the former incremental migrations and snapshots. Existing development databases from that history must be reset; no in-place data-preserving upgrade is provided. Once durable user data exists, this exception ends and the baseline must remain immutable.
+`0000_initial-schema.sql` is the consolidated pre-production baseline. Numbered migrations after `0000` are ordered, in-place upgrades from that baseline and must preserve supported data. Existing development databases from the retired history that predates `0000` must be reset. The baseline is immutable once durable data exists.
 
 ## Upgrade procedure
 

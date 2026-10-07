@@ -46,8 +46,7 @@ export class HoldsRoutes extends BaseRoute {
             description: request.body.description,
             entries: request.body.entries.map((entry) => ({
               accountId: entry.account_id,
-              direction: entry.direction,
-              amountMinor: BigInt(entry.amount_minor),
+              signedAmountMinor: BigInt(entry.signed_amount_minor),
               currency: entry.currency,
             })),
           });

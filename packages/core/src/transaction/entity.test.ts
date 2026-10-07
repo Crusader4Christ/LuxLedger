@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { AccountId, LedgerId, Money, TransactionId } from '../base';
-import { EntryDirection, EntryEntity } from '../entry/entity';
+import { EntryEntity } from '../entry/entity';
 import { TransactionEntity } from './';
 import {
   AssetMismatchError,
@@ -12,15 +12,13 @@ import {
 
 const buildEntry = (input: {
   accountId: string;
-  direction: EntryDirection;
-  amountMinor: bigint;
+  signedAmountMinor: bigint;
   currency?: string;
   assetId?: string | null;
 }): EntryEntity =>
   new EntryEntity({
     accountId: new AccountId(input.accountId),
-    direction: input.direction,
-    money: Money.of(input.amountMinor, input.currency ?? 'USD'),
+    money: Money.of(input.signedAmountMinor, input.currency ?? 'USD'),
     assetId: input.assetId,
   });
 
@@ -32,8 +30,8 @@ describe('TransactionEntity', () => {
       reference: 'ref-1',
       currency: 'USD',
       entries: [
-        buildEntry({ accountId: 'a-1', direction: EntryDirection.DEBIT, amountMinor: 100n }),
-        buildEntry({ accountId: 'a-2', direction: EntryDirection.CREDIT, amountMinor: 100n }),
+        buildEntry({ accountId: 'a-1', signedAmountMinor: 100n }),
+        buildEntry({ accountId: 'a-2', signedAmountMinor: -100n }),
       ],
     });
 
@@ -42,8 +40,8 @@ describe('TransactionEntity', () => {
 
   it('keeps omitted metadata distinct from an empty object', () => {
     const entries = [
-      buildEntry({ accountId: 'a-1', direction: EntryDirection.DEBIT, amountMinor: 100n }),
-      buildEntry({ accountId: 'a-2', direction: EntryDirection.CREDIT, amountMinor: 100n }),
+      buildEntry({ accountId: 'a-1', signedAmountMinor: 100n }),
+      buildEntry({ accountId: 'a-2', signedAmountMinor: -100n }),
     ];
     const omitted = new TransactionEntity({
       id: new TransactionId('tx-omitted'),
@@ -76,8 +74,7 @@ describe('TransactionEntity', () => {
           entries: [
             buildEntry({
               accountId: 'a-1',
-              direction: EntryDirection.DEBIT,
-              amountMinor: 100n,
+              signedAmountMinor: 100n,
             }),
           ],
         }),
@@ -95,13 +92,11 @@ describe('TransactionEntity', () => {
           entries: [
             buildEntry({
               accountId: 'a-1',
-              direction: EntryDirection.DEBIT,
-              amountMinor: 100n,
+              signedAmountMinor: 100n,
             }),
             buildEntry({
               accountId: 'a-2',
-              direction: EntryDirection.CREDIT,
-              amountMinor: 100n,
+              signedAmountMinor: -100n,
             }),
           ],
         }),
@@ -119,13 +114,11 @@ describe('TransactionEntity', () => {
           entries: [
             buildEntry({
               accountId: 'a-1',
-              direction: EntryDirection.DEBIT,
-              amountMinor: 100n,
+              signedAmountMinor: 100n,
             }),
             buildEntry({
               accountId: 'a-2',
-              direction: EntryDirection.CREDIT,
-              amountMinor: 99n,
+              signedAmountMinor: -99n,
             }),
           ],
         }),
@@ -142,11 +135,10 @@ describe('TransactionEntity', () => {
           currency: 'USD',
           assetId: 'asset-usd',
           entries: [
-            buildEntry({ accountId: 'a-1', direction: EntryDirection.DEBIT, amountMinor: 100n }),
+            buildEntry({ accountId: 'a-1', signedAmountMinor: 100n }),
             buildEntry({
               accountId: 'a-2',
-              direction: EntryDirection.CREDIT,
-              amountMinor: 100n,
+              signedAmountMinor: -100n,
               assetId: null,
             }),
           ],

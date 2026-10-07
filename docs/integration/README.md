@@ -23,10 +23,10 @@ Authentication, rate limiting, bootstrap, server `PORT`, and `SHUTDOWN_TIMEOUT_M
 
 ## Contract conventions
 
-- Send money as integer `amount_minor` values plus an ISO-style currency code.
+- Send each ledger entry as a non-zero integer `signed_amount_minor` plus an ISO-style currency code. Positive values are debits and negative values are credits.
 - Generate a unique stable transaction `reference`; retry the identical payload after timeouts.
 - Treat a reference/payload mismatch as a client correctness error, not as a retryable conflict.
-- Entry order is ignored during retry comparison, but every entry and duplicate occurrence must match by account, direction, amount, and currency.
+- Entry order is ignored during retry comparison, but every entry and duplicate occurrence must match by account, signed amount, and currency.
 - Preserve `effective_at` separately from record creation time.
 - Follow cursor pagination fields from the OpenAPI schemas rather than constructing cursors.
 - Persist returned resource identifiers; do not derive IDs from names or references.

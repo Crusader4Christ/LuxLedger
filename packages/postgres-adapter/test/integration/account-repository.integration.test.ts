@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { EntryDirection } from '@luxledger/core';
+import { AccountSide } from '@luxledger/core';
 import { InvariantViolationError, LedgerNotFoundError } from '@luxledger/core/application';
 import { eq } from 'drizzle-orm';
 import { DrizzleAccountRepository } from '../../src/repositories/account-repository';
@@ -47,7 +47,7 @@ describe('Drizzle account repository', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
 
@@ -59,7 +59,7 @@ describe('Drizzle account repository', () => {
     expect(row?.code).toBeNull();
     expect(created.code).toBeNull();
     expect(row?.name).toBe('Cash');
-    expect(row?.side).toBe(EntryDirection.DEBIT);
+    expect(row?.side).toBe(AccountSide.DEBIT);
     expect(row?.overdraftPolicy).toBe('ALLOW');
     expect(row?.currency).toBe('USD');
   });
@@ -73,7 +73,7 @@ describe('Drizzle account repository', () => {
       ledgerId,
       code: '1000',
       name: 'Platform cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
 
@@ -84,7 +84,7 @@ describe('Drizzle account repository', () => {
         ledgerId,
         code: '1000',
         name: 'Settlement cash',
-        side: EntryDirection.DEBIT,
+        side: AccountSide.DEBIT,
         currency: 'USD',
       }),
     ).rejects.toBeInstanceOf(InvariantViolationError);
@@ -103,7 +103,7 @@ describe('Drizzle account repository', () => {
         ledgerId: ledgerA1,
         code: '1000',
         name: 'Primary cash',
-        side: EntryDirection.DEBIT,
+        side: AccountSide.DEBIT,
         currency: 'USD',
       }),
       accountRepository.create({
@@ -111,7 +111,7 @@ describe('Drizzle account repository', () => {
         ledgerId: ledgerA2,
         code: '1000',
         name: 'Secondary cash',
-        side: EntryDirection.DEBIT,
+        side: AccountSide.DEBIT,
         currency: 'USD',
       }),
       accountRepository.create({
@@ -119,7 +119,7 @@ describe('Drizzle account repository', () => {
         ledgerId: ledgerB,
         code: '1000',
         name: 'Tenant B cash',
-        side: EntryDirection.DEBIT,
+        side: AccountSide.DEBIT,
         currency: 'USD',
       }),
     ]);
@@ -135,14 +135,14 @@ describe('Drizzle account repository', () => {
       tenantId,
       ledgerId,
       name: 'Primary cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
     const second = await accountRepository.create({
       tenantId,
       ledgerId,
       name: 'Settlement cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       currency: 'USD',
     });
 
@@ -158,7 +158,7 @@ describe('Drizzle account repository', () => {
       tenantId,
       ledgerId,
       name: 'Cash',
-      side: EntryDirection.DEBIT,
+      side: AccountSide.DEBIT,
       overdraftPolicy: 'DISALLOW',
       currency: 'USD',
     });
@@ -176,7 +176,7 @@ describe('Drizzle account repository', () => {
       tenantId,
       ledgerId,
       name: 'Promotional balance',
-      side: EntryDirection.CREDIT,
+      side: AccountSide.CREDIT,
       overdraftPolicy: 'DISALLOW',
       grantEnabled: true,
       currency: 'USD',
@@ -188,7 +188,7 @@ describe('Drizzle account repository', () => {
         tenantId,
         ledgerId,
         name: 'Invalid promotional balance',
-        side: EntryDirection.DEBIT,
+        side: AccountSide.DEBIT,
         overdraftPolicy: 'DISALLOW',
         grantEnabled: true,
         currency: 'USD',
@@ -204,7 +204,7 @@ describe('Drizzle account repository', () => {
         tenantId,
         ledgerId: '00000000-0000-4000-8000-999999999999',
         name: 'Cash',
-        side: EntryDirection.DEBIT,
+        side: AccountSide.DEBIT,
         currency: 'USD',
       }),
     ).rejects.toBeInstanceOf(LedgerNotFoundError);

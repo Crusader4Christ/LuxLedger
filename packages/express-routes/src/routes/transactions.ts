@@ -49,8 +49,7 @@ export const registerTransactionRoutes = (
         effectiveAt: body.effective_at === undefined ? undefined : new Date(body.effective_at),
         entries: body.entries.map((entry) => ({
           accountId: entry.account_id,
-          direction: entry.direction,
-          amountMinor: BigInt(entry.amount_minor),
+          signedAmountMinor: BigInt(entry.signed_amount_minor),
           currency: entry.currency,
         })),
       });
@@ -85,8 +84,7 @@ export const registerTransactionRoutes = (
             transaction.effective_at === undefined ? undefined : new Date(transaction.effective_at),
           entries: transaction.entries.map((entry) => ({
             accountId: entry.account_id,
-            direction: entry.direction,
-            amountMinor: BigInt(entry.amount_minor),
+            signedAmountMinor: BigInt(entry.signed_amount_minor),
             currency: entry.currency,
           })),
         })),
@@ -189,8 +187,7 @@ export const registerTransactionRoutes = (
         description: body.description,
         entries: body.entries.map((entry) => ({
           accountId: entry.account_id,
-          direction: entry.direction,
-          amountMinor: BigInt(entry.amount_minor),
+          signedAmountMinor: BigInt(entry.signed_amount_minor),
           currency: entry.currency,
         })),
       });

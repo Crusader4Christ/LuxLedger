@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { EntryDirection } from '@luxledger/core';
 import { DrizzleAccountRepository } from '../../src/repositories/account-repository';
 import { DrizzleBalanceRepository } from '../../src/repositories/balance-repository';
 import { DrizzleLedgerRepository } from '../../src/repositories/ledger-repository';
@@ -82,16 +81,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId: tx1,
       accountId: tenantDebitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 100n,
+      signedAmountMinor: 100n,
       currency: 'USD',
     });
     await createEntry({
       tenantId,
       transactionId: tx1,
       accountId: tenantCreditAccountId,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 100n,
+      signedAmountMinor: -100n,
       currency: 'USD',
     });
 
@@ -107,16 +104,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId: tx2,
       accountId: tenantDebitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 200n,
+      signedAmountMinor: 200n,
       currency: 'USD',
     });
     await createEntry({
       tenantId,
       transactionId: tx2,
       accountId: tenantCreditAccountId,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 200n,
+      signedAmountMinor: -200n,
       currency: 'USD',
     });
 
@@ -131,16 +126,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId: tx3,
       accountId: tenantDebitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 300n,
+      signedAmountMinor: 300n,
       currency: 'USD',
     });
     await createEntry({
       tenantId,
       transactionId: tx3,
       accountId: tenantCreditAccountId,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 300n,
+      signedAmountMinor: -300n,
       currency: 'USD',
     });
 
@@ -155,16 +148,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId: tenantB,
       transactionId: txB1,
       accountId: tenantBDebitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 999n,
+      signedAmountMinor: 999n,
       currency: 'USD',
     });
     await createEntry({
       tenantId: tenantB,
       transactionId: txB1,
       accountId: tenantBCreditAccountId,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 999n,
+      signedAmountMinor: -999n,
       currency: 'USD',
     });
 
@@ -234,16 +225,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId,
       accountId: debitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 10n,
+      signedAmountMinor: 10n,
       currency: 'USD',
     });
     await createEntry({
       tenantId,
       transactionId,
       accountId: creditAccountId,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 10n,
+      signedAmountMinor: -10n,
       currency: 'USD',
     });
 
@@ -257,16 +246,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId: otherTenantId,
       transactionId: otherTransactionId,
       accountId: otherDebitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 11n,
+      signedAmountMinor: 11n,
       currency: 'USD',
     });
     await createEntry({
       tenantId: otherTenantId,
       transactionId: otherTransactionId,
       accountId: otherCreditAccountId,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 11n,
+      signedAmountMinor: -11n,
       currency: 'USD',
     });
 
@@ -341,16 +328,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId: mainTx1,
       accountId: mainDebit,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 100n,
+      signedAmountMinor: 100n,
       currency: 'USD',
     });
     await createEntry({
       tenantId,
       transactionId: mainTx1,
       accountId: mainCredit,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 100n,
+      signedAmountMinor: -100n,
       currency: 'USD',
     });
 
@@ -365,16 +350,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId: mainTx2,
       accountId: mainDebit,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 200n,
+      signedAmountMinor: 200n,
       currency: 'USD',
     });
     await createEntry({
       tenantId,
       transactionId: mainTx2,
       accountId: mainCredit,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 200n,
+      signedAmountMinor: -200n,
       currency: 'USD',
     });
 
@@ -389,16 +372,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId: secondaryTx,
       accountId: secondaryDebit,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 300n,
+      signedAmountMinor: 300n,
       currency: 'USD',
     });
     await createEntry({
       tenantId,
       transactionId: secondaryTx,
       accountId: secondaryCredit,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 300n,
+      signedAmountMinor: -300n,
       currency: 'USD',
     });
 
@@ -413,16 +394,14 @@ describe('Drizzle transaction repository query', () => {
       tenantId: tenantB,
       transactionId: otherTx,
       accountId: otherDebit,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 400n,
+      signedAmountMinor: 400n,
       currency: 'USD',
     });
     await createEntry({
       tenantId: tenantB,
       transactionId: otherTx,
       accountId: otherCredit,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 400n,
+      signedAmountMinor: -400n,
       currency: 'USD',
     });
 
@@ -498,8 +477,7 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId,
       accountId: debitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 10n,
+      signedAmountMinor: 10n,
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:20:00.000Z'),
     });
@@ -507,8 +485,7 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId,
       accountId: creditAccountId,
-      direction: EntryDirection.CREDIT,
-      amountMinor: 10n,
+      signedAmountMinor: -10n,
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:20:01.000Z'),
     });
@@ -516,8 +493,7 @@ describe('Drizzle transaction repository query', () => {
       tenantId,
       transactionId,
       accountId: debitAccountId,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 20n,
+      signedAmountMinor: 20n,
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:20:02.000Z'),
     });
@@ -525,8 +501,7 @@ describe('Drizzle transaction repository query', () => {
       tenantId: tenantB,
       transactionId: txB,
       accountId: accountB,
-      direction: EntryDirection.DEBIT,
-      amountMinor: 999n,
+      signedAmountMinor: 999n,
       currency: 'USD',
       createdAt: new Date('2026-01-01T00:20:03.000Z'),
     });

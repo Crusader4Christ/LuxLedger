@@ -1,4 +1,4 @@
-import { AccountSide, EntryDirection, type UnknownRecord } from '@luxledger/core';
+import { AccountSide, type UnknownRecord } from '@luxledger/core';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -48,10 +48,6 @@ export const accountSideEnum = pgEnum(
   Object.values(AccountSide) as [string, ...string[]],
 );
 export const overdraftPolicyEnum = pgEnum('overdraft_policy', ['ALLOW', 'DISALLOW']);
-export const entryDirectionEnum = pgEnum('entry_direction', [
-  EntryDirection.DEBIT,
-  EntryDirection.CREDIT,
-]);
 
 export const apiKeys = pgTable(
   'api_keys',
@@ -106,11 +102,10 @@ export const accounts = pgTable(
     overdraftPolicy: overdraftPolicyEnum('overdraft_policy').notNull().default('ALLOW'),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
+    // Posted signed balance: DEBIT entries are positive, CREDIT entries are negative.
     balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
-    inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' })
-      .notNull()
-      .default(sql`0`),
-    inflightCreditMinor: bigint('inflight_credit_minor', { mode: 'bigint' })
+    // Signed pending delta that consumes natural balance; never includes capacity-increasing legs.
+    reservedDeltaMinor: bigint('reserved_delta_minor', { mode: 'bigint' })
       .notNull()
       .default(sql`0`),
     grantEnabled: boolean('grant_enabled').notNull().default(false),
@@ -130,13 +125,9 @@ export const accounts = pgTable(
       table.ledgerId,
       table.id,
     ),
-    accountsInflightDebitNonnegativeChk: check(
-      'accounts_inflight_debit_nonnegative_chk',
-      sql`${table.inflightDebitMinor} >= 0`,
-    ),
-    accountsInflightCreditNonnegativeChk: check(
-      'accounts_inflight_credit_nonnegative_chk',
-      sql`${table.inflightCreditMinor} >= 0`,
+    accountsReservedDeltaSideChk: check(
+      'accounts_reserved_delta_side_chk',
+      sql`(${table.side} = 'DEBIT' and ${table.reservedDeltaMinor} <= 0) or (${table.side} = 'CREDIT' and ${table.reservedDeltaMinor} >= 0)`,
     ),
     accountsGrantEnabledShapeChk: check(
       'accounts_grant_enabled_shape_chk',
@@ -190,7 +181,9 @@ export const holds = pgTable(
     assetId: uuid('asset_id').notNull(),
     description: text('description'),
     state: holdStateEnum('state').notNull().default('HELD'),
+    // Positive debit-side magnitude used to scale partial commits deterministically.
     originalAmountMinor: bigint('original_amount_minor', { mode: 'bigint' }).notNull(),
+    // Uncommitted portion of originalAmountMinor; reaches zero on full commit or void.
     remainingAmountMinor: bigint('remaining_amount_minor', { mode: 'bigint' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     appliedAt: timestamp('applied_at', { withTimezone: true }),
@@ -223,8 +216,8 @@ export const holdEntries = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    direction: entryDirectionEnum('direction').notNull(),
-    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    // Positive is DEBIT and negative is CREDIT; entries in one hold sum to zero.
+    signedAmountMinor: bigint('signed_amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -238,6 +231,10 @@ export const holdEntries = pgTable(
     holdEntriesTenantIdIdx: index('hold_entries_tenant_id_idx').on(table.tenantId),
     holdEntriesHoldIdIdx: index('hold_entries_hold_id_idx').on(table.holdId),
     holdEntriesAccountIdIdx: index('hold_entries_account_id_idx').on(table.accountId),
+    holdEntriesSignedAmountNonzeroChk: check(
+      'hold_entries_signed_amount_nonzero_chk',
+      sql`${table.signedAmountMinor} <> 0`,
+    ),
   }),
 );
 
@@ -317,8 +314,8 @@ export const entries = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    direction: entryDirectionEnum('direction').notNull(),
-    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    // Positive is DEBIT and negative is CREDIT; entries in one transaction sum to zero.
+    signedAmountMinor: bigint('signed_amount_minor', { mode: 'bigint' }).notNull(),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -336,6 +333,10 @@ export const entries = pgTable(
       table.tenantId,
       table.accountId,
       table.id,
+    ),
+    entriesSignedAmountNonzeroChk: check(
+      'entries_signed_amount_nonzero_chk',
+      sql`${table.signedAmountMinor} <> 0`,
     ),
   }),
 );
@@ -546,9 +547,10 @@ export const balanceSnapshots = pgTable(
       .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     eventType: balanceSnapshotEventTypeEnum('event_type').notNull(),
     sourceId: uuid('source_id').notNull(),
+    // Immutable copy of accounts.balanceMinor at the event boundary.
     postedMinor: bigint('posted_minor', { mode: 'bigint' }).notNull(),
-    inflightDebitMinor: bigint('inflight_debit_minor', { mode: 'bigint' }).notNull(),
-    inflightCreditMinor: bigint('inflight_credit_minor', { mode: 'bigint' }).notNull(),
+    // Immutable copy of accounts.reservedDeltaMinor at the event boundary.
+    reservedDeltaMinor: bigint('reserved_delta_minor', { mode: 'bigint' }).notNull(),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

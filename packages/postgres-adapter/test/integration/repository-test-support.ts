@@ -1,4 +1,4 @@
-import type { EntryDirection } from '@luxledger/core';
+import type { AccountSide } from '@luxledger/core';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -118,7 +118,7 @@ export const createAccount = async (
     ledgerId: string;
     code?: string;
     name: string;
-    side?: EntryDirection;
+    side?: AccountSide;
     overdraftPolicy?: 'ALLOW' | 'DISALLOW';
     currency: string;
     balanceMinor?: bigint;
@@ -177,8 +177,7 @@ export const createEntry = async (
     tenantId: string;
     transactionId: string;
     accountId: string;
-    direction: EntryDirection;
-    amountMinor: bigint;
+    signedAmountMinor: bigint;
     currency: string;
     createdAt?: Date;
   },
