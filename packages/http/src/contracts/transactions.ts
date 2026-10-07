@@ -8,6 +8,11 @@ const nonEmptyTrimmedStringSchema = {
   pattern: NON_EMPTY_TRIMMED_PATTERN,
 } as const;
 
+export const transactionMetadataSchema = {
+  type: 'object',
+  additionalProperties: true,
+} as const;
+
 export const transactionEntryRequestSchema = {
   type: 'object',
   additionalProperties: false,
@@ -37,6 +42,7 @@ export const createTransactionRequestSchema = {
     reference: nonEmptyTrimmedStringSchema,
     currency: nonEmptyTrimmedStringSchema,
     description: nonEmptyTrimmedStringSchema,
+    metadata: transactionMetadataSchema,
     effective_at: {
       type: 'string',
       format: 'date-time',
@@ -124,6 +130,7 @@ export const transactionResponseSchema = {
     'reference',
     'currency',
     'description',
+    'metadata',
     'related_transaction_id',
     'relation_type',
     'effective_at',
@@ -150,6 +157,10 @@ export const transactionResponseSchema = {
     },
     description: {
       type: 'string',
+      nullable: true,
+    },
+    metadata: {
+      ...transactionMetadataSchema,
       nullable: true,
     },
     related_transaction_id: {

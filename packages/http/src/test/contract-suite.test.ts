@@ -75,6 +75,22 @@ describe('framework-agnostic contract suite', () => {
             }),
         },
         {
+          name: 'transaction metadata is optional on input and required nullable on output',
+          assert: () => {
+            expect(createTransactionRequestSchema.required).not.toContain('metadata');
+            expect(createTransactionRequestSchema.properties.metadata).toEqual({
+              type: 'object',
+              additionalProperties: true,
+            });
+            expect(transactionResponseSchema.required).toContain('metadata');
+            expect(transactionResponseSchema.properties.metadata).toEqual({
+              type: 'object',
+              additionalProperties: true,
+              nullable: true,
+            });
+          },
+        },
+        {
           name: 'account request forbids additional properties',
           assert: () => expect(createAccountBodySchema.additionalProperties).toBeFalse(),
         },
@@ -170,6 +186,12 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('/v1/ledgers:');
     expect(openapi).toContain('/v1/entries:');
     expect(openapi).toContain('required: [ledger_id, reference, currency, entries]');
+    expect(openapi).toContain(
+      'required: [id, tenant_id, ledger_id, reference, currency, description, metadata, related_transaction_id, relation_type, effective_at, created_at]',
+    );
+    expect(openapi).toContain(
+      'description: Optional JSON object with caller-defined transaction metadata. Null, arrays, and primitives are rejected.',
+    );
     expect(openapi).toContain('CreateAccountRequest:');
     expect(openapi).toContain('CreateApiKeyRequest:');
     expect(openapi).toContain('/v1/credit-grants:');

@@ -67,6 +67,9 @@
   "dependencies": {
     "@luxledger/core": "^0.2.1"
   },
+  "devDependencies": {
+    "ajv": "^8.17.1"
+  },
   "scripts": {
     "build": "rm -rf dist && bun build src/index.ts src/errors.ts src/contracts/index.ts src/query/pagination.ts src/mappers/index.ts src/validation-utils.ts src/route-core.ts src/route-specs.ts src/test/harness.ts --target=node --format=esm --packages=external --root=src --outdir=dist && bunx tsc -p tsconfig.build.json --emitDeclarationOnly && node ../../scripts/fix-dts-relative-imports.mjs packages/http/dist",
     "test": "bun test $(find src -type f -name '*.test.ts' | sort)",

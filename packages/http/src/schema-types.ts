@@ -1,4 +1,4 @@
-import type { UnknownRecord } from '@luxledger/core/base';
+import type { JsonObject, UnknownRecord } from '@luxledger/core/base';
 
 type SchemaProperties = Readonly<UnknownRecord>;
 
@@ -38,7 +38,7 @@ type InferNonNullableSchema<Schema> = Schema extends {
                   readonly type: 'object';
                   readonly additionalProperties: true;
                 }
-              ? UnknownRecord
+              ? JsonObject
               : unknown;
 
 export type InferSchema<Schema> = Schema extends { readonly nullable: true }
