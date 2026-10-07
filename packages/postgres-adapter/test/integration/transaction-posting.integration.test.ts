@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { OverdraftPolicyViolationError, RepositoryError } from '@luxledger/core/application';
+import {
+  InvariantViolationError,
+  OverdraftPolicyViolationError,
+  RepositoryError,
+} from '@luxledger/core/application';
 import {
   CrossLedgerAccountError,
   CurrencyMismatchError,
@@ -492,6 +496,59 @@ describe('Drizzle transaction repository posting', () => {
         entries,
       }),
     ).rejects.toThrow('Unable to create transaction: reference payload mismatch');
+
+    await expect(
+      transactionRepository.create({
+        tenantId,
+        ledgerId,
+        reference: 'metadata-null',
+        currency: 'USD',
+        metadata: null as never,
+        entries,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    await expect(
+      transactionRepository.create({
+        tenantId,
+        ledgerId,
+        reference: 'metadata-oversized',
+        currency: 'USD',
+        metadata: { payload: 'x'.repeat(16 * 1024) },
+        entries,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const [stored] = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.id, created.transactionId));
+    await expect(
+      db
+        .insert(transactions)
+        .values({
+          tenantId,
+          ledgerId,
+          reference: 'metadata-array',
+          currency: 'USD',
+          assetId: stored.assetId,
+          metadata: [] as never,
+        })
+        .execute(),
+    ).rejects.toThrow();
+    await expect(
+      db
+        .update(transactions)
+        .set({ metadata: { changed: true } })
+        .where(eq(transactions.id, created.transactionId))
+        .execute(),
+    ).rejects.toThrow();
+    expect(
+      (await transactionRepository.findById(tenantId, created.transactionId))?.metadata,
+    ).toEqual({
+      attempt: 1,
+      provider: { id: 'provider-1', flags: ['captured', 'settled'] },
+    });
   });
 
   it('persists metadata for every item in a bulk posting', async () => {

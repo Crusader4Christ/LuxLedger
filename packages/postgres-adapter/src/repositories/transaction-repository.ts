@@ -31,6 +31,7 @@ import { toEntryEntity } from '../mappers/entry-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
+import { toStoredTransactionMetadata } from '../transaction-metadata';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
@@ -378,6 +379,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     },
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
+    const metadata = toStoredTransactionMetadata(input.metadata);
     await validatePosting(tx, input);
     await lockGrantEnabledAccountsForMutation(
       tx,
@@ -402,7 +404,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: input.currency,
         assetId: asset.id,
         description: input.description,
-        metadata: input.metadata ?? null,
+        metadata,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
         relationType: input.relationType ?? null,
@@ -429,9 +431,9 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: schema.transactions.currency,
         description: schema.transactions.description,
         metadataMatches:
-          input.metadata === undefined
+          metadata === null
             ? isNull(schema.transactions.metadata)
-            : eq(schema.transactions.metadata, input.metadata),
+            : eq(schema.transactions.metadata, metadata),
         effectiveAt: schema.transactions.effectiveAt,
         relatedTransactionId: schema.transactions.relatedTransactionId,
         relationType: schema.transactions.relationType,
@@ -569,6 +571,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     },
   ): Promise<string> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
+    const metadata = toStoredTransactionMetadata(input.metadata);
     await validatePosting(tx, input);
     await lockGrantEnabledAccountsForMutation(
       tx,
@@ -592,7 +595,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: input.currency,
         assetId: asset.id,
         description: input.description,
-        metadata: input.metadata ?? null,
+        metadata,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
         relationType: input.relationType ?? null,

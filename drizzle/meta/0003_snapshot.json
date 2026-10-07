@@ -1,5 +1,5 @@
 {
-  "id": "41ba0aa8-2b39-4235-a9ca-5b3b492a4450",
+  "id": "bb3105a5-73db-4657-95c8-76d95bf59b7d",
   "prevId": "f9a104f1-815d-449c-8dfd-67913aa137bb",
   "version": "7",
   "dialect": "postgresql",
@@ -3097,6 +3097,14 @@
         "transactions_relation_pair_ck": {
           "name": "transactions_relation_pair_ck",
           "value": "(\"transactions\".\"related_transaction_id\" is null and \"transactions\".\"relation_type\" is null) or (\"transactions\".\"related_transaction_id\" is not null and \"transactions\".\"relation_type\" is not null)"
+        },
+        "transactions_metadata_object_chk": {
+          "name": "transactions_metadata_object_chk",
+          "value": "\"transactions\".\"metadata\" is null or jsonb_typeof(\"transactions\".\"metadata\") = 'object'"
+        },
+        "transactions_metadata_size_chk": {
+          "name": "transactions_metadata_size_chk",
+          "value": "\"transactions\".\"metadata\" is null or octet_length(\"transactions\".\"metadata\"::text) <= 16384"
         }
       },
       "isRLSEnabled": false

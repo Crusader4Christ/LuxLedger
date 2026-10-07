@@ -192,7 +192,11 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
       }
 
       const [existingTransaction] = await tx
-        .select({ id: schema.transactions.id, holdId: schema.transactions.holdId })
+        .select({
+          id: schema.transactions.id,
+          holdId: schema.transactions.holdId,
+          metadata: schema.transactions.metadata,
+        })
         .from(schema.transactions)
         .where(
           and(
@@ -206,6 +210,9 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           throw new InvariantViolationError(
             'Unable to commit hold: reference belongs to different transaction',
           );
+        }
+        if (existingTransaction.metadata !== null) {
+          throw new InvariantViolationError('Unable to commit hold: reference payload mismatch');
         }
         if (input.amountMinor !== undefined) {
           const committedDebits = await tx
@@ -276,6 +283,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           currency: hold.currency,
           assetId: hold.assetId,
           description: hold.description,
+          metadata: null,
         })
         .returning({ id: schema.transactions.id });
 

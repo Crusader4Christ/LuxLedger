@@ -266,6 +266,29 @@ describe('DISALLOW available balance across holds and postings', () => {
     ).toMatchObject({ created: false, transactionId: first.transactionId });
   });
 
+  it('rejects a hold commit retry when the existing transaction has metadata', async () => {
+    const f = await setup();
+    const held = await holdRepository.create(f.request('hold-metadata', 20n));
+    const [hold] = await db.select().from(holds).where(eq(holds.id, held.holdId));
+    await db.insert(transactions).values({
+      tenantId: f.tenantId,
+      ledgerId: f.ledgerId,
+      holdId: held.holdId,
+      reference: 'commit-metadata',
+      currency: 'USD',
+      assetId: hold.assetId,
+      metadata: { unexpected: true },
+    });
+
+    await expect(
+      holdRepository.commit({
+        tenantId: f.tenantId,
+        holdId: held.holdId,
+        reference: 'commit-metadata',
+      }),
+    ).rejects.toThrow('Unable to commit hold: reference payload mismatch');
+  });
+
   it('releases exact mixed-direction reservations after a partial commit', async () => {
     const f = await setup();
     const held = await holdRepository.create({
