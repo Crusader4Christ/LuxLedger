@@ -75,6 +75,7 @@ describe('Drizzle transaction repository query', () => {
       reference: 'tx-1',
       currency: 'USD',
       description: 'Description tx-1',
+      metadata: { source: { id: 'query-1' } },
       createdAt: new Date('2026-01-01T00:10:00.000Z'),
     });
     await createEntry({
@@ -176,7 +177,9 @@ describe('Drizzle transaction repository query', () => {
     expect(secondPage.nextCursor).toBeNull();
     expect(secondPage.data[0]?.reference).toBe('tx-3');
     expect(firstPage.data[0]?.description).toBe('Description tx-1');
+    expect(firstPage.data[0]?.metadata).toEqual({ source: { id: 'query-1' } });
     expect(firstPage.data[1]?.description).toBeNull();
+    expect(firstPage.data[1]?.metadata).toBeUndefined();
     expect(
       [...firstPage.data, ...secondPage.data].every(
         (transaction) => transaction.tenantId === tenantId,
@@ -220,6 +223,7 @@ describe('Drizzle transaction repository query', () => {
       reference: 'tx-find-1',
       currency: 'USD',
       description: 'Lookup description',
+      metadata: { invoiceId: 'invoice-1' },
     });
     await createEntry({
       tenantId,
@@ -262,6 +266,7 @@ describe('Drizzle transaction repository query', () => {
     expect(found?.id.value).toBe(transactionId);
     expect(found?.tenantId).toBe(tenantId);
     expect(found?.description).toBe('Lookup description');
+    expect(found?.metadata).toEqual({ invoiceId: 'invoice-1' });
     expect(found?.entries.length).toBe(2);
 
     const missing = await transactionRepository.findById(

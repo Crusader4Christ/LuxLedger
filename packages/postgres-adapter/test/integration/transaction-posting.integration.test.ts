@@ -399,6 +399,159 @@ describe('Drizzle transaction repository posting', () => {
     expect(creditBalance?.balanceMinor).toBe(-100n);
   });
 
+  it('persists metadata and compares retries with PostgreSQL jsonb semantics', async () => {
+    const tenantId = await createTenant('Metadata Tenant');
+    const ledgerId = await createLedger(tenantId, 'Metadata Ledger');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+    const entries = [
+      {
+        accountId: debitAccountId,
+        signedAmountMinor: 100n,
+        currency: 'USD',
+      },
+      {
+        accountId: creditAccountId,
+        signedAmountMinor: -100n,
+        currency: 'USD',
+      },
+    ];
+
+    const created = await transactionRepository.create({
+      tenantId,
+      ledgerId,
+      reference: 'metadata-ref',
+      currency: 'USD',
+      metadata: {
+        provider: { id: 'provider-1', flags: ['captured', 'settled'] },
+        attempt: 1,
+      },
+      entries,
+    });
+    const retry = await transactionRepository.create({
+      tenantId,
+      ledgerId,
+      reference: 'metadata-ref',
+      currency: 'USD',
+      metadata: {
+        attempt: 1,
+        provider: { flags: ['captured', 'settled'], id: 'provider-1' },
+      },
+      entries,
+    });
+
+    expect(retry).toEqual({ transactionId: created.transactionId, created: false });
+    expect(
+      (await transactionRepository.findById(tenantId, created.transactionId))?.metadata,
+    ).toEqual({
+      attempt: 1,
+      provider: { id: 'provider-1', flags: ['captured', 'settled'] },
+    });
+
+    await expect(
+      transactionRepository.create({
+        tenantId,
+        ledgerId,
+        reference: 'metadata-ref',
+        currency: 'USD',
+        metadata: {
+          provider: { id: 'provider-1', flags: ['settled', 'captured'] },
+          attempt: 1,
+        },
+        entries,
+      }),
+    ).rejects.toThrow('Unable to create transaction: reference payload mismatch');
+
+    const omitted = await transactionRepository.create({
+      tenantId,
+      ledgerId,
+      reference: 'metadata-omitted',
+      currency: 'USD',
+      entries,
+    });
+    expect(
+      (await transactionRepository.findById(tenantId, omitted.transactionId))?.metadata,
+    ).toBeUndefined();
+    await expect(
+      transactionRepository.create({
+        tenantId,
+        ledgerId,
+        reference: 'metadata-omitted',
+        currency: 'USD',
+        metadata: {},
+        entries,
+      }),
+    ).rejects.toThrow('Unable to create transaction: reference payload mismatch');
+  });
+
+  it('persists metadata for every item in a bulk posting', async () => {
+    const tenantId = await createTenant('Bulk Metadata Tenant');
+    const ledgerId = await createLedger(tenantId, 'Bulk Metadata Ledger');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+    const entries = (amountMinor: bigint) => [
+      { accountId: debitAccountId, signedAmountMinor: amountMinor, currency: 'USD' },
+      { accountId: creditAccountId, signedAmountMinor: -amountMinor, currency: 'USD' },
+    ];
+
+    const result = await transactionRepository.createBulk({
+      tenantId,
+      transactions: [
+        {
+          tenantId,
+          ledgerId,
+          reference: 'bulk-metadata',
+          currency: 'USD',
+          metadata: { batch: { id: 'batch-1' } },
+          entries: entries(40n),
+        },
+        {
+          tenantId,
+          ledgerId,
+          reference: 'bulk-empty-metadata',
+          currency: 'USD',
+          metadata: {},
+          entries: entries(20n),
+        },
+      ],
+    });
+
+    expect(result.createdCount).toBe(2);
+    const transactionsByReference = new Map(
+      (
+        await transactionRepository.list({
+          tenantId,
+          ledgerId,
+          limit: 10,
+        })
+      ).data.map((transaction) => [transaction.reference, transaction]),
+    );
+    expect(transactionsByReference.get('bulk-metadata')?.metadata).toEqual({
+      batch: { id: 'batch-1' },
+    });
+    expect(transactionsByReference.get('bulk-empty-metadata')?.metadata).toEqual({});
+  });
+
   it('createTransaction serializes concurrent idempotent retries', async () => {
     const tenantId = await createTenant('Tenant A');
     const ledgerId = await createLedger(tenantId, 'Main');

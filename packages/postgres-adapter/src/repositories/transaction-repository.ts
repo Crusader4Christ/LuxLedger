@@ -4,6 +4,7 @@ import {
   isDomainError,
   parseAccountSide,
   type TransactionEntity,
+  type TransactionMetadata,
 } from '@luxledger/core';
 import {
   assertAvailableBalance,
@@ -23,7 +24,7 @@ import {
   type TransactionApplicationRepository,
   type TransactionPaginationQuery,
 } from '@luxledger/core/application';
-import { and, desc, eq, gt, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import { toEntryEntity } from '../mappers/entry-mapper';
@@ -363,6 +364,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       currency: string;
       description: string | null;
       effectiveAt?: Date;
+      metadata?: TransactionMetadata;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
       skipGrantLineage?: boolean;
@@ -400,6 +402,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: input.currency,
         assetId: asset.id,
         description: input.description,
+        metadata: input.metadata ?? null,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
         relationType: input.relationType ?? null,
@@ -425,6 +428,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         ledgerId: schema.transactions.ledgerId,
         currency: schema.transactions.currency,
         description: schema.transactions.description,
+        metadataMatches:
+          input.metadata === undefined
+            ? isNull(schema.transactions.metadata)
+            : eq(schema.transactions.metadata, input.metadata),
         effectiveAt: schema.transactions.effectiveAt,
         relatedTransactionId: schema.transactions.relatedTransactionId,
         relationType: schema.transactions.relationType,
@@ -446,6 +453,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       existing.currency !== input.currency ||
       (input.compareDescriptionOnRetry === true &&
         (existing.description ?? null) !== input.description) ||
+      !existing.metadataMatches ||
       (input.effectiveAt !== undefined &&
         existing.effectiveAt.getTime() !== effectiveAt.getTime()) ||
       (existing.relatedTransactionId ?? null) !== (input.relatedTransactionId ?? null) ||
@@ -489,6 +497,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         relatedTransactionId: schema.transactions.relatedTransactionId,
         relationType: schema.transactions.relationType,
         description: schema.transactions.description,
+        metadata: schema.transactions.metadata,
       })
       .from(schema.transactions)
       .where(
@@ -514,7 +523,8 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
     if (
       existingReversal?.reference === input.reference &&
-      (existingReversal.description ?? null) === input.description
+      (existingReversal.description ?? null) === input.description &&
+      existingReversal.metadata === null
     ) {
       return { transactionId: existingReversal.id, created: false };
     }
@@ -547,6 +557,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       currency: string;
       description: string | null;
       effectiveAt?: Date;
+      metadata?: TransactionMetadata;
       relatedTransactionId?: string | null;
       relationType?: 'REVERSAL' | 'CORRECTION' | null;
       skipGrantLineage?: boolean;
@@ -581,6 +592,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         currency: input.currency,
         assetId: asset.id,
         description: input.description,
+        metadata: input.metadata ?? null,
         effectiveAt,
         relatedTransactionId: input.relatedTransactionId ?? null,
         relationType: input.relationType ?? null,

@@ -1,4 +1,4 @@
-import { AccountSide, type UnknownRecord } from '@luxledger/core';
+import { AccountSide, type TransactionMetadata, type UnknownRecord } from '@luxledger/core';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -264,6 +264,7 @@ export const transactions = pgTable(
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     description: text('description'),
+    metadata: jsonb('metadata').$type<TransactionMetadata>(),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

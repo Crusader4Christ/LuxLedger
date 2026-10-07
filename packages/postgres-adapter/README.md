@@ -15,6 +15,8 @@ PostgreSQL 16 is the supported persistence model.
 
 State-changing repository operations use explicit PostgreSQL transactions. The adapter enforces persistence-level tenant scoping, atomicity, and transaction-reference idempotency required by the repository [invariants guide](../../docs/product/invariants.md).
 
+Transaction metadata is stored as nullable PostgreSQL `jsonb` on the immutable transaction header. Omitted metadata is SQL `NULL`, which remains distinct from an empty object. Idempotent retries use PostgreSQL `jsonb` equality: object key order is ignored, array order is significant, and any semantic metadata difference is a payload conflict.
+
 ## Host-composable unit of work
 
 Use `createUnitOfWork` when a host row or outbox record must commit atomically with LuxLedger operations:

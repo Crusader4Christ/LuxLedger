@@ -60,6 +60,7 @@ describe('Drizzle transaction repository correction', () => {
       ledgerId,
       reference: 'tx-correct-original',
       currency: 'USD',
+      metadata: { purchaseId: 'purchase-correction-1' },
       entries: [
         {
           accountId: debitAccountId,
@@ -126,6 +127,10 @@ describe('Drizzle transaction repository correction', () => {
     );
     expect(correctedTransaction?.relatedTransactionId).toBe(original.transactionId);
     expect(correctedTransaction?.relationType).toBe('CORRECTION');
+    expect(correctedTransaction?.metadata).toBeUndefined();
+    expect(
+      (await transactionRepository.findById(tenantId, original.transactionId))?.metadata,
+    ).toEqual({ purchaseId: 'purchase-correction-1' });
   });
 
   it('correctTransaction rejects correctedReference payload mismatch', async () => {

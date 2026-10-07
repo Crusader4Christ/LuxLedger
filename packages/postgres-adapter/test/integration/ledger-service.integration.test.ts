@@ -410,6 +410,7 @@ describe('application services integration (services + repositories + real DB)',
             ledgerId: ledger.id,
             reference: 'bulk-valid',
             currency: 'USD',
+            metadata: { batch: 'rollback' },
             entries: [
               {
                 accountId: cashAccountId,
@@ -428,6 +429,7 @@ describe('application services integration (services + repositories + real DB)',
             ledgerId: ledger.id,
             reference: 'bulk-invalid',
             currency: 'USD',
+            metadata: { batch: 'rollback' },
             entries: [
               {
                 accountId: cashAccountId,
@@ -497,6 +499,7 @@ describe('application services integration (services + repositories + real DB)',
       ledgerId: ledger.id,
       reference: 'exact-1',
       currency: 'USD',
+      metadata: { provider: { id: 'bank-feed-1' } },
       entries: entries(100n),
     });
     await services.transactions.create({
