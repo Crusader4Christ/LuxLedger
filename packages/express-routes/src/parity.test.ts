@@ -6,6 +6,7 @@ import {
   type CreditGrant,
 } from '@luxledger/core/application';
 import type { UnknownRecord } from '@luxledger/core/base';
+import type { TransactionMetadata } from '@luxledger/core/transaction';
 import { registerLedgerAdapter as registerFastifyLedgerAdapter } from '@luxledger/fastify-routes';
 import { createContractHarness } from '@luxledger/http/test/harness';
 import express, { type Application } from 'express';
@@ -22,6 +23,39 @@ const tenantId = '11111111-1111-4111-8111-111111111111';
 
 class FakeLedgerService {
   private txByReference = new Map<string, string>();
+  private txMetadataByReference = new Map<string, TransactionMetadata | undefined>();
+
+  public metadataFor(reference: string): TransactionMetadata | undefined {
+    return this.txMetadataByReference.get(`${tenantId}:${reference}`);
+  }
+
+  private transactionResponse(metadata: TransactionMetadata) {
+    return {
+      id: { value: '00000000-0000-4000-8000-000000000301' },
+      tenantId,
+      ledgerId: { value: '00000000-0000-4000-8000-000000000001' },
+      reference: 'adapter-metadata-read',
+      currency: 'USD',
+      description: null,
+      relatedTransactionId: null,
+      relationType: null,
+      effectiveAt: null,
+      createdAt: new Date('2026-01-01T00:01:00.000Z'),
+      metadata,
+      entries: [],
+    };
+  }
+
+  public async getById(_tenantId: string, _transactionId: string) {
+    return this.transactionResponse({ provider: { payment_id: 'read-1' } });
+  }
+
+  public async list(_query: unknown) {
+    return {
+      data: [this.transactionResponse({ provider: { payment_id: 'read-1' } })],
+      nextCursor: null,
+    };
+  }
 
   public async create(input: {
     tenantId: string;
@@ -55,6 +89,7 @@ class FakeLedgerService {
   public async createTransaction(input: {
     tenantId: string;
     reference: string;
+    metadata?: TransactionMetadata;
   }): Promise<{ transactionId: string; created: boolean }> {
     if (input.reference.startsWith('unbalanced-')) {
       throw Object.assign(new Error('total debits must equal total credits'), {
@@ -71,22 +106,30 @@ class FakeLedgerService {
     const key = `${input.tenantId}:${input.reference}`;
     const existing = this.txByReference.get(key);
     if (existing) {
+      if (JSON.stringify(this.txMetadataByReference.get(key)) !== JSON.stringify(input.metadata)) {
+        throw Object.assign(new Error('transaction retry metadata conflicts with the original'), {
+          code: 'IDEMPOTENCY_CONFLICT',
+          httpStatus: 409,
+        });
+      }
       return { transactionId: existing, created: false };
     }
     const id = '00000000-0000-4000-8000-000000000300';
     this.txByReference.set(key, id);
+    this.txMetadataByReference.set(key, input.metadata);
     return { transactionId: id, created: true };
   }
 
   public async createTransactionsBulk(input: {
     tenantId: string;
-    transactions: Array<{ reference: string }>;
+    transactions: Array<{ reference: string; metadata?: TransactionMetadata }>;
   }) {
     const transactions = [];
     for (const transaction of input.transactions) {
       const result = await this.createTransaction({
         tenantId: input.tenantId,
         reference: transaction.reference,
+        metadata: transaction.metadata,
       });
       transactions.push({
         reference: transaction.reference,
@@ -142,9 +185,10 @@ class FakeApiKeyService {
 describe('express adapter parity with fastify adapter', () => {
   let fastifyServer: FastifyInstance;
   let expressApp: Application;
+  let fakeLedgerService: FakeLedgerService;
 
   beforeAll(async () => {
-    const fakeLedgerService = new FakeLedgerService();
+    fakeLedgerService = new FakeLedgerService();
     const apiKeyService = new FakeApiKeyService() as unknown as ApiKeyService;
     let lastGrant: CreditGrant | null = null;
     const services = {
@@ -227,6 +271,10 @@ describe('express adapter parity with fastify adapter', () => {
           fakeLedgerService.createTransaction(input),
         createBulk: (input: Parameters<FakeLedgerService['createTransactionsBulk']>[0]) =>
           fakeLedgerService.createTransactionsBulk(input),
+        getById: (currentTenantId: string, transactionId: string) =>
+          fakeLedgerService.getById(currentTenantId, transactionId),
+        list: (input: { tenantId: string; limit: number; cursor?: string; ledgerId?: string }) =>
+          fakeLedgerService.list(input),
         reverse: (input: Parameters<FakeLedgerService['reverseTransaction']>[0]) =>
           fakeLedgerService.reverseTransaction(input),
         correct: (input: Parameters<FakeLedgerService['correctTransaction']>[0]) =>
@@ -437,6 +485,10 @@ describe('express adapter parity with fastify adapter', () => {
             ledger_id: '00000000-0000-4000-8000-000000000001',
             reference,
             currency: 'USD',
+            metadata: {
+              provider: { payment_id: reference },
+              tags: ['settlement'],
+            },
             entries: [
               {
                 account_id: '00000000-0000-4000-8000-000000000101',
@@ -485,6 +537,151 @@ describe('express adapter parity with fastify adapter', () => {
             expect.objectContaining({
               created: false,
             }),
+          );
+
+          const conflictPayload = {
+            ...buildPayload('parity-ref-fastify'),
+            metadata: { provider: { payment_id: 'different-payment' } },
+          };
+          const [fastifyConflict, expressConflict] = await Promise.all([
+            requestFastify('POST', '/v1/transactions', conflictPayload),
+            requestExpress('POST', '/v1/transactions', {
+              ...buildPayload('parity-ref-express'),
+              metadata: { provider: { payment_id: 'different-payment' } },
+            }),
+          ]);
+          expect(fastifyConflict.status).toBe(409);
+          expect(expressConflict).toEqual(fastifyConflict);
+        },
+      },
+      {
+        name: 'POST /v1/transactions metadata validation parity',
+        run: async () => {
+          for (const [index, metadata] of [null, [], 'metadata', 42, true].entries()) {
+            const buildPayload = (framework: string) => ({
+              ledger_id: '00000000-0000-4000-8000-000000000001',
+              reference: `invalid-metadata-${framework}-${index}`,
+              currency: 'USD',
+              metadata,
+              entries: [
+                {
+                  account_id: '00000000-0000-4000-8000-000000000101',
+                  signed_amount_minor: '100',
+                  currency: 'USD',
+                },
+                {
+                  account_id: '00000000-0000-4000-8000-000000000102',
+                  signed_amount_minor: '-100',
+                  currency: 'USD',
+                },
+              ],
+            });
+            const [fastifyResponse, expressResponse] = await Promise.all([
+              requestFastify('POST', '/v1/transactions', buildPayload('fastify')),
+              requestExpress('POST', '/v1/transactions', buildPayload('express')),
+            ]);
+            expect(fastifyResponse.status).toBe(400);
+            expect(expressResponse.status).toBe(400);
+            expect(fastifyResponse.json).toEqual(
+              expect.objectContaining({ error: 'INVALID_INPUT' }),
+            );
+            expect(expressResponse.json).toEqual(
+              expect.objectContaining({ error: 'INVALID_INPUT' }),
+            );
+          }
+        },
+      },
+      {
+        name: 'POST /v1/transactions/bulk forwards metadata for every item',
+        run: async () => {
+          const buildPayload = (framework: string) => ({
+            transactions: [
+              {
+                ledger_id: '00000000-0000-4000-8000-000000000001',
+                reference: `bulk-metadata-${framework}-nested`,
+                currency: 'USD',
+                metadata: { provider: { framework }, tags: ['bulk'] },
+                entries: [
+                  {
+                    account_id: '00000000-0000-4000-8000-000000000101',
+                    signed_amount_minor: '100',
+                    currency: 'USD',
+                  },
+                  {
+                    account_id: '00000000-0000-4000-8000-000000000102',
+                    signed_amount_minor: '-100',
+                    currency: 'USD',
+                  },
+                ],
+              },
+              {
+                ledger_id: '00000000-0000-4000-8000-000000000001',
+                reference: `bulk-metadata-${framework}-empty`,
+                currency: 'USD',
+                metadata: {},
+                entries: [
+                  {
+                    account_id: '00000000-0000-4000-8000-000000000101',
+                    signed_amount_minor: '50',
+                    currency: 'USD',
+                  },
+                  {
+                    account_id: '00000000-0000-4000-8000-000000000102',
+                    signed_amount_minor: '-50',
+                    currency: 'USD',
+                  },
+                ],
+              },
+            ],
+          });
+          const [fastifyResponse, expressResponse] = await Promise.all([
+            requestFastify('POST', '/v1/transactions/bulk', buildPayload('fastify')),
+            requestExpress('POST', '/v1/transactions/bulk', buildPayload('express')),
+          ]);
+          expect(fastifyResponse.status).toBe(201);
+          expect(expressResponse.status).toBe(201);
+          expect(fastifyResponse.json).toEqual(
+            expect.objectContaining({ created_count: 2, idempotent_count: 0 }),
+          );
+          expect(expressResponse.json).toEqual(
+            expect.objectContaining({ created_count: 2, idempotent_count: 0 }),
+          );
+          expect(fakeLedgerService.metadataFor('bulk-metadata-fastify-nested')).toEqual({
+            provider: { framework: 'fastify' },
+            tags: ['bulk'],
+          });
+          expect(fakeLedgerService.metadataFor('bulk-metadata-fastify-empty')).toEqual({});
+          expect(fakeLedgerService.metadataFor('bulk-metadata-express-nested')).toEqual({
+            provider: { framework: 'express' },
+            tags: ['bulk'],
+          });
+          expect(fakeLedgerService.metadataFor('bulk-metadata-express-empty')).toEqual({});
+        },
+      },
+      {
+        name: 'GET transaction list and detail preserve metadata parity',
+        run: async () => {
+          const transactionId = '00000000-0000-4000-8000-000000000301';
+          const [fastifyList, expressList] = await Promise.all([
+            requestFastify('GET', '/v1/transactions'),
+            requestExpress('GET', '/v1/transactions'),
+          ]);
+          expect(fastifyList.status).toBe(200);
+          expect(expressList).toEqual(fastifyList);
+          expect(fastifyList.json).toEqual(
+            expect.objectContaining({
+              data: [expect.objectContaining({ metadata: { provider: { payment_id: 'read-1' } } })],
+            }),
+          );
+
+          const [fastifyDetail, expressDetail] = await Promise.all([
+            requestFastify('GET', `/v1/transactions/${transactionId}`),
+            requestExpress('GET', `/v1/transactions/${transactionId}`),
+          ]);
+          expect(fastifyDetail.status).toBe(200);
+          expect(expressDetail).toEqual(fastifyDetail);
+          expect(fastifyDetail.json).toEqual(
+            expect.objectContaining({ metadata: { provider: { payment_id: 'read-1' } } }),
           );
         },
       },

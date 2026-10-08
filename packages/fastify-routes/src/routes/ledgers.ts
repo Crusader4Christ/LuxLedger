@@ -90,6 +90,7 @@ export class LedgerRoutes extends BaseRoute {
             reference: request.body.reference,
             currency: request.body.currency,
             description: request.body.description,
+            metadata: request.body.metadata,
             effectiveAt:
               request.body.effective_at === undefined
                 ? undefined
@@ -134,6 +135,7 @@ export class LedgerRoutes extends BaseRoute {
               reference: transaction.reference,
               currency: transaction.currency,
               description: transaction.description,
+              metadata: transaction.metadata,
               effectiveAt:
                 transaction.effective_at === undefined
                   ? undefined

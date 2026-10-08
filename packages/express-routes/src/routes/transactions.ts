@@ -46,6 +46,7 @@ export const registerTransactionRoutes = (
         reference: body.reference,
         currency: body.currency,
         description: body.description,
+        metadata: body.metadata,
         effectiveAt: body.effective_at === undefined ? undefined : new Date(body.effective_at),
         entries: body.entries.map((entry) => ({
           accountId: entry.account_id,
@@ -80,6 +81,7 @@ export const registerTransactionRoutes = (
           reference: transaction.reference,
           currency: transaction.currency,
           description: transaction.description,
+          metadata: transaction.metadata,
           effectiveAt:
             transaction.effective_at === undefined ? undefined : new Date(transaction.effective_at),
           entries: transaction.entries.map((entry) => ({
