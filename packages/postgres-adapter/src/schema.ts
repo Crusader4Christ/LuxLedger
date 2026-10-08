@@ -56,7 +56,10 @@ export const apiKeys = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     name: text('name').notNull(),
     role: text('role').notNull(),
     keyHash: text('key_hash').notNull(),
@@ -76,7 +79,10 @@ export const ledgers = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     name: text('name').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -93,10 +99,16 @@ export const accounts = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     ledgerId: uuid('ledger_id')
       .notNull()
-      .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => ledgers.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     code: text('code'),
     name: text('name').notNull(),
     side: accountSideEnum('side').notNull(),
@@ -173,19 +185,29 @@ export const holds = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     ledgerId: uuid('ledger_id')
       .notNull()
-      .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => ledgers.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     reference: text('reference').notNull(),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     description: text('description'),
     state: holdStateEnum('state').notNull().default('HELD'),
     // Positive debit-side magnitude used to scale partial commits deterministically.
-    originalAmountMinor: bigint('original_amount_minor', { mode: 'bigint' }).notNull(),
+    originalAmountMinor: bigint('original_amount_minor', {
+      mode: 'bigint',
+    }).notNull(),
     // Uncommitted portion of originalAmountMinor; reaches zero on full commit or void.
-    remainingAmountMinor: bigint('remaining_amount_minor', { mode: 'bigint' }).notNull(),
+    remainingAmountMinor: bigint('remaining_amount_minor', {
+      mode: 'bigint',
+    }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     appliedAt: timestamp('applied_at', { withTimezone: true }),
     voidedAt: timestamp('voided_at', { withTimezone: true }),
@@ -210,15 +232,26 @@ export const holdEntries = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     holdId: uuid('hold_id')
       .notNull()
-      .references(() => holds.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => holds.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     accountId: uuid('account_id')
       .notNull()
-      .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => accounts.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     // Positive is DEBIT and negative is CREDIT; entries in one hold sum to zero.
-    signedAmountMinor: bigint('signed_amount_minor', { mode: 'bigint' }).notNull(),
+    signedAmountMinor: bigint('signed_amount_minor', {
+      mode: 'bigint',
+    }).notNull(),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -232,6 +265,11 @@ export const holdEntries = pgTable(
     holdEntriesTenantIdIdx: index('hold_entries_tenant_id_idx').on(table.tenantId),
     holdEntriesHoldIdIdx: index('hold_entries_hold_id_idx').on(table.holdId),
     holdEntriesAccountIdIdx: index('hold_entries_account_id_idx').on(table.accountId),
+    holdEntriesTenantAccountIdUq: uniqueIndex('hold_entries_tenant_account_id_uq').on(
+      table.tenantId,
+      table.accountId,
+      table.id,
+    ),
     holdEntriesSignedAmountNonzeroChk: check(
       'hold_entries_signed_amount_nonzero_chk',
       sql`${table.signedAmountMinor} <> 0`,
@@ -245,10 +283,16 @@ export const transactions = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     ledgerId: uuid('ledger_id')
       .notNull()
-      .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => ledgers.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     holdId: uuid('hold_id').references(() => holds.id, {
       onDelete: 'restrict',
       onUpdate: 'cascade',
@@ -319,15 +363,26 @@ export const entries = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     transactionId: uuid('transaction_id')
       .notNull()
-      .references(() => transactions.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => transactions.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     accountId: uuid('account_id')
       .notNull()
-      .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => accounts.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     // Positive is DEBIT and negative is CREDIT; entries in one transaction sum to zero.
-    signedAmountMinor: bigint('signed_amount_minor', { mode: 'bigint' }).notNull(),
+    signedAmountMinor: bigint('signed_amount_minor', {
+      mode: 'bigint',
+    }).notNull(),
     currency: text('currency').notNull(),
     assetId: uuid('asset_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -480,6 +535,52 @@ export const creditGrantEntries = pgTable(
   }),
 );
 
+export const creditGrantHoldAllocations = pgTable(
+  'credit_grant_hold_allocations',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'restrict' }),
+    ledgerId: uuid('ledger_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    grantId: uuid('grant_id').notNull(),
+    holdEntryId: uuid('hold_entry_id').notNull(),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    grantFk: foreignKey({
+      name: 'credit_grant_hold_allocations_grant_fk',
+      columns: [table.tenantId, table.ledgerId, table.accountId, table.grantId],
+      foreignColumns: [
+        creditGrants.tenantId,
+        creditGrants.ledgerId,
+        creditGrants.accountId,
+        creditGrants.id,
+      ],
+    }),
+    holdEntryFk: foreignKey({
+      name: 'credit_grant_hold_allocations_hold_entry_fk',
+      columns: [table.tenantId, table.accountId, table.holdEntryId],
+      foreignColumns: [holdEntries.tenantId, holdEntries.accountId, holdEntries.id],
+    }),
+    grantIdx: index('credit_grant_hold_allocations_grant_idx').on(table.tenantId, table.grantId),
+    holdEntryIdx: index('credit_grant_hold_allocations_hold_entry_idx').on(
+      table.tenantId,
+      table.holdEntryId,
+    ),
+    grantHoldEntryUq: uniqueIndex('credit_grant_hold_allocations_grant_hold_entry_uq').on(
+      table.grantId,
+      table.holdEntryId,
+    ),
+    amountPositiveChk: check(
+      'credit_grant_hold_allocations_amount_positive_chk',
+      sql`${table.amountMinor} > 0`,
+    ),
+  }),
+);
+
 export const creditGrantCapacityVersions = pgTable(
   'credit_grant_capacity_versions',
   {
@@ -550,19 +651,30 @@ export const balanceSnapshots = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     ledgerId: uuid('ledger_id')
       .notNull()
-      .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => ledgers.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     accountId: uuid('account_id')
       .notNull()
-      .references(() => accounts.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => accounts.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     eventType: balanceSnapshotEventTypeEnum('event_type').notNull(),
     sourceId: uuid('source_id').notNull(),
     // Immutable copy of accounts.balanceMinor at the event boundary.
     postedMinor: bigint('posted_minor', { mode: 'bigint' }).notNull(),
     // Immutable copy of accounts.reservedDeltaMinor at the event boundary.
-    reservedDeltaMinor: bigint('reserved_delta_minor', { mode: 'bigint' }).notNull(),
+    reservedDeltaMinor: bigint('reserved_delta_minor', {
+      mode: 'bigint',
+    }).notNull(),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -592,7 +704,10 @@ export const reconUploads = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     source: text('source').notNull(),
     recordCount: bigint('record_count', { mode: 'number' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -609,7 +724,10 @@ export const reconRecords = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     uploadId: uuid('upload_id')
       .notNull()
       .references(() => reconUploads.id, {
@@ -642,7 +760,10 @@ export const reconRules = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     name: text('name').notNull(),
     description: text('description'),
     criteria: jsonb('criteria')
@@ -672,10 +793,16 @@ export const reconRuns = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     ledgerId: uuid('ledger_id')
       .notNull()
-      .references(() => ledgers.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => ledgers.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     uploadId: uuid('upload_id')
       .notNull()
       .references(() => reconUploads.id, {
@@ -686,10 +813,14 @@ export const reconRuns = pgTable(
     status: reconRunStatusEnum('status').notNull().default('pending'),
     dryRun: boolean('dry_run').notNull().default(false),
     matchedCount: bigint('matched_count', { mode: 'number' }).notNull().default(0),
-    unmatchedExternalCount: bigint('unmatched_external_count', { mode: 'number' })
+    unmatchedExternalCount: bigint('unmatched_external_count', {
+      mode: 'number',
+    })
       .notNull()
       .default(0),
-    unmatchedInternalCount: bigint('unmatched_internal_count', { mode: 'number' })
+    unmatchedInternalCount: bigint('unmatched_internal_count', {
+      mode: 'number',
+    })
       .notNull()
       .default(0),
     mismatchedCount: bigint('mismatched_count', { mode: 'number' }).notNull().default(0),
@@ -710,10 +841,16 @@ export const reconResults = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_v7()`),
     tenantId: uuid('tenant_id')
       .notNull()
-      .references(() => tenants.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => tenants.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     runId: uuid('run_id')
       .notNull()
-      .references(() => reconRuns.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => reconRuns.id, {
+        onDelete: 'restrict',
+        onUpdate: 'cascade',
+      }),
     externalRecordId: uuid('external_record_id').references(() => reconRecords.id, {
       onDelete: 'restrict',
       onUpdate: 'cascade',

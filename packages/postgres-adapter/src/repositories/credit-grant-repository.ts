@@ -19,6 +19,7 @@ import type { DbClient, DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
+import { getActiveGrantReservations } from './grant-hold-allocation';
 import { DrizzleTransactionRepository } from './transaction-repository';
 
 type GrantRow = typeof schema.creditGrants.$inferSelect;
@@ -337,7 +338,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         select g.id as "grantId", g.account_id as "accountId",
           g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
           g.expires_at as "expiresAt", g.created_at as "createdAt",
-          capacity.remaining_minor::text as "remainingMinor",
+          greatest(capacity.remaining_minor - coalesce(reserved.amount_minor, 0), 0)::text as "remainingMinor",
           capacity.expired_minor::text as "expiredMinor", a.currency
         from credit_grants g
         join lateral (
@@ -347,11 +348,38 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           order by v.version desc
           limit 1
         ) capacity on true
+        left join lateral (
+          select sum(active.allocated - active.consumed) as amount_minor
+          from (
+            select hold.id, sum(allocation.amount_minor) as allocated,
+              coalesce((
+                select sum(lineage.amount_minor)
+                from credit_grant_entries lineage
+                join entries entry on entry.id = lineage.entry_id
+                  and entry.tenant_id = lineage.tenant_id
+                join transactions transaction on transaction.id = entry.transaction_id
+                  and transaction.tenant_id = entry.tenant_id
+                where lineage.tenant_id = g.tenant_id
+                  and lineage.grant_id = g.id
+                  and lineage.kind = 'CONSUMPTION'
+                  and transaction.hold_id = hold.id
+              ), 0) as consumed
+            from credit_grant_hold_allocations allocation
+            join hold_entries hold_entry on hold_entry.id = allocation.hold_entry_id
+              and hold_entry.tenant_id = allocation.tenant_id
+            join holds hold on hold.id = hold_entry.hold_id
+              and hold.tenant_id = hold_entry.tenant_id
+            where allocation.tenant_id = g.tenant_id
+              and allocation.grant_id = g.id
+              and hold.state = 'HELD'
+            group by hold.id
+          ) active
+        ) reserved on true
         join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
           and a.id = g.account_id
         where g.tenant_id = ${input.tenantId}
           and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
-          and capacity.remaining_minor > 0
+          and capacity.remaining_minor - coalesce(reserved.amount_minor, 0) > 0
         order by g.expires_at asc, g.created_at asc, g.id asc
         limit ${input.limit}
       )`;
@@ -403,13 +431,20 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       const capacityByGrant = new Map(
         currentCapacities.map((capacity) => [capacity.grantId, capacity]),
       );
+      const reservedByGrant = await getActiveGrantReservations(
+        tx,
+        input.tenantId,
+        lockedGrants.map((grant) => grant.grantId),
+      );
       rows = lockedGrants.flatMap((grant) => {
         const capacity = capacityByGrant.get(grant.grantId);
-        if (!capacity || capacity.remainingMinor <= 0n) return [];
+        const remainingMinor =
+          (capacity?.remainingMinor ?? 0n) - (reservedByGrant.get(grant.grantId) ?? 0n);
+        if (!capacity || remainingMinor <= 0n) return [];
         return [
           {
             ...grant,
-            remainingMinor: capacity.remainingMinor.toString(),
+            remainingMinor: remainingMinor.toString(),
             expiredMinor: capacity.expiredMinor.toString(),
           },
         ];
@@ -524,9 +559,6 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       throw new CreditGrantConflictError(
         'Credit account requires a registered asset, CREDIT side and DISALLOW overdraft',
       );
-    }
-    if (account.reservedDeltaMinor !== 0n) {
-      throw new CreditGrantConflictError('Credit account cannot have unallocated holds');
     }
     return account;
   }
@@ -690,7 +722,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     kind: 'ISSUANCE' | 'REVERSAL' | 'EXPIRATION',
   ): Promise<void> {
     const walletEntries = await tx
-      .select({ id: schema.entries.id, signedAmountMinor: schema.entries.signedAmountMinor })
+      .select({
+        id: schema.entries.id,
+        signedAmountMinor: schema.entries.signedAmountMinor,
+      })
       .from(schema.entries)
       .where(
         and(

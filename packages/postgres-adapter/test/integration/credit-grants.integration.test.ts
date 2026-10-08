@@ -9,8 +9,10 @@ import {
   accounts as accountRows,
   creditGrantCapacityVersions,
   creditGrantEntries,
+  creditGrantHoldAllocations,
   creditGrants,
   entries,
+  holdEntries,
   transactions,
 } from '../../src/schema';
 import {
@@ -934,7 +936,7 @@ describe('credit grants', () => {
     }
   });
 
-  it('rejects unattributed postings and ordinary holds before the first grant', async () => {
+  it('rejects unattributed postings and holds before the first grant', async () => {
     const tenantId = await createTenant(db, 'empty-grant-account');
     const accounts = await setup(tenantId);
     await expect(
@@ -976,7 +978,173 @@ describe('credit grants', () => {
           },
         ],
       }),
-    ).rejects.toThrow('Grant-enabled account holds require grant allocation');
+    ).rejects.toThrow('Unable to create hold: data constraints violated');
+  });
+
+  it('reserves grants in FEFO order, commits partially, and releases the remainder on void', async () => {
+    const tenantId = await createTenant(db, 'grant-hold-lifecycle');
+    const accounts = await setup(tenantId);
+    const first = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'hold-grant-1'),
+    );
+    const second = await services.creditGrants.create(
+      grantInput(tenantId, accounts, 'hold-grant-2'),
+    );
+
+    const held = await services.holds.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'grant-hold-150',
+      currency: 'USD',
+      entries: [
+        { accountId: accounts.accountId, signedAmountMinor: 150n, currency: 'USD' },
+        { accountId: accounts.fundingAccountId, signedAmountMinor: -150n, currency: 'USD' },
+      ],
+    });
+    expect(held).toMatchObject({ created: true, state: 'HELD', remainingAmountMinor: 150n });
+    const allocations = await db.select().from(creditGrantHoldAllocations);
+    expect(allocations.map(({ grantId, amountMinor }) => ({ grantId, amountMinor }))).toEqual([
+      { grantId: first.grant.id, amountMinor: 100n },
+      { grantId: second.grant.id, amountMinor: 50n },
+    ]);
+    await expect(
+      client.runTenantTx(tenantId, 'mutate allocated hold entry', (tx) =>
+        tx
+          .update(holdEntries)
+          .set({ signedAmountMinor: 149n })
+          .where(eq(holdEntries.id, allocations[0].holdEntryId)),
+      ),
+    ).rejects.toThrow('Unable to mutate allocated hold entry: data constraints violated');
+    await expect(consume(tenantId, accounts, 'spend-reserved-capacity', 51n)).rejects.toThrow(
+      'insufficient credit grant capacity',
+    );
+
+    const committed = await services.holds.commit({
+      tenantId,
+      holdId: held.holdId,
+      reference: 'grant-hold-commit-120',
+      amountMinor: 120n,
+    });
+    expect(committed).toMatchObject({ state: 'HELD', remainingAmountMinor: 30n, created: true });
+    expect(
+      lineageTotalsByGrant(
+        await services.creditGrants.listLineageByTransaction(tenantId, committed.transactionId),
+      ),
+    ).toEqual([
+      [first.grant.id, 100n],
+      [second.grant.id, 20n],
+    ]);
+
+    expect((await services.holds.void({ tenantId, holdId: held.holdId })).voided).toBeTrue();
+    await expect(
+      consume(tenantId, accounts, 'spend-released-capacity', 80n),
+    ).resolves.toMatchObject({
+      created: true,
+    });
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(0n);
+  });
+
+  it('keeps reserved capacity commit-safe across expiry and expires released remainder once', async () => {
+    const tenantId = await createTenant(db, 'grant-hold-expiry');
+    const accounts = await setup(tenantId);
+    const expiresAt = new Date(Date.now() + 500);
+    await services.creditGrants.create({
+      ...grantInput(tenantId, accounts, 'expiring-hold-grant'),
+      expiresAt,
+    });
+    const held = await services.holds.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'expiring-grant-hold',
+      currency: 'USD',
+      entries: [
+        { accountId: accounts.accountId, signedAmountMinor: 80n, currency: 'USD' },
+        { accountId: accounts.fundingAccountId, signedAmountMinor: -80n, currency: 'USD' },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    const databaseNow = await client.runTenantTx(tenantId, 'read database clock', async (tx) => {
+      const [clock] = await tx.execute<{ now: Date }>(sql`select transaction_timestamp() as now`);
+      if (!clock) throw new Error('Missing database clock');
+      return new Date(clock.now);
+    });
+
+    const firstExpiration = await services.creditGrants.runExpirations({
+      tenantId,
+      asOf: databaseNow,
+      limit: 10,
+    });
+    expect(firstExpiration.items.map((item) => item.amountMinor)).toEqual([20n]);
+    const committed = await services.holds.commit({
+      tenantId,
+      holdId: held.holdId,
+      reference: 'expired-reservation-commit',
+      amountMinor: 50n,
+    });
+    expect(committed.remainingAmountMinor).toBe(30n);
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(30n);
+
+    await services.holds.void({ tenantId, holdId: held.holdId });
+    const secondClock = await client.runTenantTx(tenantId, 'read database clock', async (tx) => {
+      const [clock] = await tx.execute<{ now: Date }>(sql`select transaction_timestamp() as now`);
+      if (!clock) throw new Error('Missing database clock');
+      return new Date(clock.now);
+    });
+    const secondExpiration = await services.creditGrants.runExpirations({
+      tenantId,
+      asOf: secondClock,
+      limit: 10,
+    });
+    expect(secondExpiration.items.map((item) => item.amountMinor)).toEqual([30n]);
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(0n);
+  });
+
+  it('serializes a grant hold against an unrelated spend without double allocation', async () => {
+    const tenantId = await createTenant(db, 'grant-hold-spend-race');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'race-grant'));
+    const secondClient = createDbClient({ databaseUrl, max: 1 });
+    try {
+      const other = createApplicationServices(secondClient);
+      const results = await Promise.allSettled([
+        services.holds.create({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          reference: 'race-hold-80',
+          currency: 'USD',
+          entries: [
+            { accountId: accounts.accountId, signedAmountMinor: 80n, currency: 'USD' },
+            { accountId: accounts.fundingAccountId, signedAmountMinor: -80n, currency: 'USD' },
+          ],
+        }),
+        other.transactions.create({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          reference: 'race-spend-30',
+          currency: 'USD',
+          entries: [
+            { accountId: accounts.accountId, signedAmountMinor: 30n, currency: 'USD' },
+            { accountId: accounts.fundingAccountId, signedAmountMinor: -30n, currency: 'USD' },
+          ],
+        }),
+      ]);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+      const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
+      const [account] = await db
+        .select()
+        .from(accountRows)
+        .where(eq(accountRows.id, accounts.accountId));
+      expect(balance.remainingMinor - account.reservedDeltaMinor).toBeGreaterThanOrEqual(0n);
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
   });
 
   it('rejects grants on ordinary accounts and keeps the capability immutable', async () => {
