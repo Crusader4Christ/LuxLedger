@@ -35,6 +35,7 @@ import { toStoredTransactionMetadata } from '../transaction-metadata';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
+import { getActiveGrantReservations } from './grant-hold-allocation';
 import { validatePosting, validatePostingEntries } from './posting-validation';
 
 type TransactionRow = typeof schema.transactions.$inferSelect;
@@ -58,7 +59,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
   public postCreditGrantReversalInTx(
     tx: PostgresJsDatabase<typeof schema>,
-    input: CreateTransactionInput & { relatedTransactionId: string; relationType: 'REVERSAL' },
+    input: CreateTransactionInput & {
+      relatedTransactionId: string;
+      relationType: 'REVERSAL';
+    },
   ): Promise<CreateTransactionResult> {
     return this.createOrResolvePostedTransaction(tx, {
       ...input,
@@ -685,7 +689,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           'Unable to create transaction: account ledger/currency mismatch',
         );
       }
-      assertAvailableBalance({ ...updatedAccount, side: parseAccountSide(updatedAccount.side) });
+      assertAvailableBalance({
+        ...updatedAccount,
+        side: parseAccountSide(updatedAccount.side),
+      });
       const [previousSnapshot] = await tx
         .select({ postedMinor: schema.balanceSnapshots.postedMinor })
         .from(schema.balanceSnapshots)
@@ -866,6 +873,17 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       for (const capacity of capacities) {
         remainingByGrant.set(capacity.grantId, capacity.remainingMinor);
       }
+      const reservedByGrant = await getActiveGrantReservations(
+        tx,
+        input.tenantId,
+        grants.map((grant) => grant.id),
+      );
+      for (const grant of grants) {
+        remainingByGrant.set(
+          grant.id,
+          (remainingByGrant.get(grant.id) ?? 0n) - (reservedByGrant.get(grant.id) ?? 0n),
+        );
+      }
       for (const entry of debitEntries) {
         let required = entry.signedAmountMinor;
         for (const grant of grants) {
@@ -993,7 +1011,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       });
       if (!posted.created) continue;
       const [walletEntry] = await tx
-        .select({ id: schema.entries.id, signedAmountMinor: schema.entries.signedAmountMinor })
+        .select({
+          id: schema.entries.id,
+          signedAmountMinor: schema.entries.signedAmountMinor,
+        })
         .from(schema.entries)
         .where(
           and(

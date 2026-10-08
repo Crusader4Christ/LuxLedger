@@ -20,7 +20,7 @@ available_minor = side == DEBIT
 
 A `DISALLOW` account must have normalized `available_minor >= 0` after a successful reservation or posting. An `ALLOW` account may go below zero. `OVERDRAFT_POLICY_VIOLATION` (HTTP 409) reports the attempted normalized available amount.
 
-Creating a hold changes only `reserved_delta_minor`. Committing it atomically adds the signed committed entries to `balance_minor` and removes their reservation delta. A partial commit retains the uncommitted reservation; void removes the remaining reservation. Failed operations roll back entries, account projections, snapshots, and hold state together. Idempotent retries do not apply any delta twice.
+Creating an ordinary hold changes only `reserved_delta_minor`. A debit hold on a grant-enabled account also appends immutable FEFO grant allocations; these allocations reserve capacity but do not create another financial balance. Committing atomically adds the signed entries to `balance_minor`, removes the matching reservation delta, and appends consumption lineage against the reserved grants. A partial commit retains the uncommitted reservation; void removes the remaining reservation. Failed operations roll back entries, account projections, snapshots, hold state, and grant allocation/lineage together. Idempotent retries do not apply any delta twice.
 
 The account row is locked by the PostgreSQL update inside the explicit transaction. This serializes competing holds and postings. `balance_snapshots` copies both projections at event boundaries for historical reads; it is not a second mutable source of current balance.
 

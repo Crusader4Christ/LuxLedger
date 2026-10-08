@@ -15,8 +15,12 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
 import * as schema from '../schema';
-import { findGrantEnabledAccountsForMutation } from './account-mutation-lock';
+import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
+import {
+  allocateGrantCapacityForHold,
+  attachReservedGrantConsumption,
+} from './grant-hold-allocation';
 import { totalDebit, validatePosting } from './posting-validation';
 
 type HoldRow = typeof schema.holds.$inferSelect;
@@ -27,14 +31,12 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
   public async create(input: CreateHoldInput): Promise<CreateHoldResult> {
     return this.client.runTenantTx(input.tenantId, 'create hold', async (tx) => {
       await validatePosting(tx, input);
-      const grantEnabledAccounts = await findGrantEnabledAccountsForMutation(
+      const grantEnabledAccounts = await lockGrantEnabledAccountsForMutation(
         tx,
         input.tenantId,
         input.entries.map((entry) => entry.accountId),
       );
-      if (grantEnabledAccounts.length > 0) {
-        throw new InvariantViolationError('Grant-enabled account holds require grant allocation');
-      }
+      const grantEnabledAccountIds = new Set(grantEnabledAccounts.map((account) => account.id));
       const [asset] = await tx
         .select({ id: schema.assets.id })
         .from(schema.assets)
@@ -120,16 +122,35 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         } satisfies CreateHoldResult;
       }
 
-      await tx.insert(schema.holdEntries).values(
-        input.entries.map((entry) => ({
-          tenantId: input.tenantId,
-          holdId: insertedHold.id,
-          accountId: entry.accountId,
-          signedAmountMinor: entry.signedAmountMinor,
-          currency: entry.currency,
-          assetId: asset.id,
-        })),
-      );
+      const insertedEntries = await tx
+        .insert(schema.holdEntries)
+        .values(
+          input.entries.map((entry) => ({
+            tenantId: input.tenantId,
+            holdId: insertedHold.id,
+            accountId: entry.accountId,
+            signedAmountMinor: entry.signedAmountMinor,
+            currency: entry.currency,
+            assetId: asset.id,
+          })),
+        )
+        .returning({
+          id: schema.holdEntries.id,
+          accountId: schema.holdEntries.accountId,
+          signedAmountMinor: schema.holdEntries.signedAmountMinor,
+        });
+
+      for (const entry of insertedEntries) {
+        if (grantEnabledAccountIds.has(entry.accountId) && entry.signedAmountMinor > 0n) {
+          await allocateGrantCapacityForHold(tx, {
+            tenantId: input.tenantId,
+            ledgerId: input.ledgerId,
+            accountId: entry.accountId,
+            holdEntryId: entry.id,
+            amountMinor: entry.signedAmountMinor,
+          });
+        }
+      }
 
       for (const entry of aggregateAccountEntries(input.entries)) {
         const reservationDeltaMinor = sql<bigint>`case
@@ -163,7 +184,10 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             'Unable to create hold: account ledger/currency mismatch',
           );
         }
-        assertAvailableBalance({ ...updatedAccount, side: parseAccountSide(updatedAccount.side) });
+        assertAvailableBalance({
+          ...updatedAccount,
+          side: parseAccountSide(updatedAccount.side),
+        });
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,
           eventType: 'HOLD_CREATED',
@@ -272,6 +296,11 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
       if (holdEntries.some((entry) => entry.currency !== hold.currency)) {
         throw new InvariantViolationError('Unable to commit hold: entry currency mismatch');
       }
+      await lockGrantEnabledAccountsForMutation(
+        tx,
+        input.tenantId,
+        holdEntries.map((entry) => entry.accountId),
+      );
 
       const [insertedTransaction] = await tx
         .insert(schema.transactions)
@@ -308,7 +337,17 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         };
       });
 
-      await tx.insert(schema.entries).values(committedEntries);
+      const insertedEntries = await tx.insert(schema.entries).values(committedEntries).returning({
+        id: schema.entries.id,
+        accountId: schema.entries.accountId,
+        signedAmountMinor: schema.entries.signedAmountMinor,
+      });
+      await attachReservedGrantConsumption(tx, {
+        tenantId: input.tenantId,
+        ledgerId: hold.ledgerId,
+        holdId: hold.id,
+        entries: insertedEntries,
+      });
 
       for (const entry of aggregateAccountEntries(committedEntries)) {
         const delta = entry.signedAmountMinor;
@@ -349,7 +388,10 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
             'Unable to commit hold: account reservation is missing',
           );
         }
-        assertAvailableBalance({ ...updatedAccount, side: parseAccountSide(updatedAccount.side) });
+        assertAvailableBalance({
+          ...updatedAccount,
+          side: parseAccountSide(updatedAccount.side),
+        });
         await insertBalanceSnapshot(tx, {
           tenantId: input.tenantId,
           eventType: 'HOLD_COMMITTED',
