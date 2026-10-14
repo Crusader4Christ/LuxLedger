@@ -980,7 +980,8 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         )
         .orderBy(desc(schema.creditGrantCapacityVersions.version))
         .limit(1);
-      const remainingMinor = capacity?.remainingMinor ?? 0n;
+      const reserved = await getActiveGrantReservations(tx, tenantId, [grant.id]);
+      const remainingMinor = (capacity?.remainingMinor ?? 0n) - (reserved.get(grant.id) ?? 0n);
       if (remainingMinor <= 0n) continue;
       const cumulativeExpiredMinor = (capacity?.expiredMinor ?? 0n) + remainingMinor;
       const [account] = await tx

@@ -348,33 +348,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           order by v.version desc
           limit 1
         ) capacity on true
-        left join lateral (
-          select sum(active.allocated - active.consumed) as amount_minor
-          from (
-            select hold.id, sum(allocation.amount_minor) as allocated,
-              coalesce((
-                select sum(lineage.amount_minor)
-                from credit_grant_entries lineage
-                join entries entry on entry.id = lineage.entry_id
-                  and entry.tenant_id = lineage.tenant_id
-                join transactions transaction on transaction.id = entry.transaction_id
-                  and transaction.tenant_id = entry.tenant_id
-                where lineage.tenant_id = g.tenant_id
-                  and lineage.grant_id = g.id
-                  and lineage.kind = 'CONSUMPTION'
-                  and transaction.hold_id = hold.id
-              ), 0) as consumed
-            from credit_grant_hold_allocations allocation
-            join hold_entries hold_entry on hold_entry.id = allocation.hold_entry_id
-              and hold_entry.tenant_id = allocation.tenant_id
-            join holds hold on hold.id = hold_entry.hold_id
-              and hold.tenant_id = hold_entry.tenant_id
-            where allocation.tenant_id = g.tenant_id
-              and allocation.grant_id = g.id
-              and hold.state = 'HELD'
-            group by hold.id
-          ) active
-        ) reserved on true
+        cross join lateral (
+          select active_credit_grant_reservation(g.tenant_id, g.id) as amount_minor
+        ) reserved
         join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
           and a.id = g.account_id
         where g.tenant_id = ${input.tenantId}

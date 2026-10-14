@@ -29,6 +29,30 @@ END $$;--> statement-breakpoint
 CREATE TRIGGER credit_grant_hold_allocations_immutable
   BEFORE UPDATE OR DELETE ON credit_grant_hold_allocations
   FOR EACH ROW EXECUTE FUNCTION reject_credit_grant_hold_allocation_change();--> statement-breakpoint
+-- Reservation authority: immutable allocations minus committed consumption for HELD holds.
+-- Financial remaining capacity stays in the ledger-derived capacity versions.
+-- Callers performing writes must hold grant-enabled accounts in ID order, then grants.
+-- VOLATILE intentionally sees lineage appended earlier in the same SQL command.
+CREATE FUNCTION active_credit_grant_reservation(p_tenant uuid, p_grant uuid)
+RETURNS numeric LANGUAGE sql VOLATILE SECURITY INVOKER AS $$
+  SELECT coalesce(sum(active.allocated - active.consumed), 0)
+    FROM (
+      SELECT h.id, sum(a.amount_minor) AS allocated,
+        coalesce((
+          SELECT sum(l.amount_minor)
+          FROM credit_grant_entries l
+          JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
+          JOIN transactions t ON t.id = e.transaction_id AND t.tenant_id = e.tenant_id
+          WHERE l.tenant_id = p_tenant AND l.grant_id = p_grant
+            AND l.kind = 'CONSUMPTION' AND t.hold_id = h.id
+        ), 0) AS consumed
+      FROM credit_grant_hold_allocations a
+      JOIN hold_entries he ON he.id = a.hold_entry_id AND he.tenant_id = a.tenant_id
+      JOIN holds h ON h.id = he.hold_id AND h.tenant_id = he.tenant_id
+      WHERE a.tenant_id = p_tenant AND a.grant_id = p_grant AND h.state = 'HELD'
+      GROUP BY h.id
+    ) active;
+$$;--> statement-breakpoint
 CREATE FUNCTION validate_credit_grant_hold_allocation() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE grant_expiration timestamptz;
 DECLARE capacity bigint;
@@ -54,23 +78,7 @@ BEGIN
     FROM credit_grant_capacity_versions
     WHERE tenant_id = NEW.tenant_id AND grant_id = NEW.grant_id
     ORDER BY version DESC LIMIT 1;
-  SELECT coalesce(sum(active.allocated - active.consumed), 0) INTO reserved
-    FROM (
-      SELECT h.id, sum(a.amount_minor) AS allocated,
-        coalesce((
-          SELECT sum(l.amount_minor)
-          FROM credit_grant_entries l
-          JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
-          JOIN transactions t ON t.id = e.transaction_id AND t.tenant_id = e.tenant_id
-          WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
-            AND l.kind = 'CONSUMPTION' AND t.hold_id = h.id
-        ), 0) AS consumed
-      FROM credit_grant_hold_allocations a
-      JOIN hold_entries he ON he.id = a.hold_entry_id AND he.tenant_id = a.tenant_id
-      JOIN holds h ON h.id = he.hold_id AND h.tenant_id = he.tenant_id
-      WHERE a.tenant_id = NEW.tenant_id AND a.grant_id = NEW.grant_id AND h.state = 'HELD'
-      GROUP BY h.id
-    ) active;
+  SELECT active_credit_grant_reservation(NEW.tenant_id, NEW.grant_id) INTO reserved;
   IF coalesce(capacity, 0) - reserved < NEW.amount_minor THEN
     RAISE EXCEPTION 'credit grant hold allocation exceeds eligible capacity';
   END IF;
@@ -103,6 +111,35 @@ END $$;--> statement-breakpoint
 CREATE CONSTRAINT TRIGGER grant_account_holds_allocated
   AFTER INSERT OR UPDATE ON hold_entries DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION assert_grant_hold_allocated();--> statement-breakpoint
+-- Appending to an existing allocation must recheck completeness, even when the
+-- hold entry itself was not modified in this transaction.
+CREATE FUNCTION assert_grant_allocation_total() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE held_amount bigint;
+DECLARE allocated numeric;
+BEGIN
+  SELECT signed_amount_minor INTO held_amount FROM hold_entries
+    WHERE tenant_id = NEW.tenant_id AND id = NEW.hold_entry_id;
+  SELECT sum(amount_minor) INTO allocated FROM credit_grant_hold_allocations
+    WHERE tenant_id = NEW.tenant_id AND hold_entry_id = NEW.hold_entry_id;
+  IF allocated IS DISTINCT FROM held_amount::numeric THEN
+    RAISE EXCEPTION 'grant hold allocation total must match immutable hold entry';
+  END IF;
+  RETURN NEW;
+END $$;--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER credit_grant_hold_allocation_total
+  AFTER INSERT ON credit_grant_hold_allocations DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION assert_grant_allocation_total();--> statement-breakpoint
+CREATE FUNCTION protect_allocated_hold_entry() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM credit_grant_hold_allocations
+    WHERE tenant_id = OLD.tenant_id AND hold_entry_id = OLD.id) THEN
+    RAISE EXCEPTION 'allocated hold entries are immutable';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END $$;--> statement-breakpoint
+CREATE TRIGGER allocated_hold_entries_immutable
+  BEFORE UPDATE OR DELETE ON hold_entries
+  FOR EACH ROW EXECUTE FUNCTION protect_allocated_hold_entry();--> statement-breakpoint
 CREATE OR REPLACE FUNCTION validate_credit_grant_entry() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE source_transaction uuid;
 DECLARE grant_expiration timestamptz;
@@ -163,23 +200,7 @@ BEGIN
     issuance_amount := coalesce(issuance_amount, 0);
     consumed_amount := coalesce(consumed_amount, 0);
     expired_amount := coalesce(expired_amount, 0);
-    SELECT coalesce(sum(active.allocated - active.consumed), 0) INTO reserved_amount
-      FROM (
-        SELECT h.id, sum(a.amount_minor) AS allocated,
-          coalesce((
-            SELECT sum(l.amount_minor)
-            FROM credit_grant_entries l
-            JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
-            JOIN transactions t ON t.id = e.transaction_id AND t.tenant_id = e.tenant_id
-            WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
-              AND l.kind = 'CONSUMPTION' AND t.hold_id = h.id
-          ), 0) AS consumed
-        FROM credit_grant_hold_allocations a
-        JOIN hold_entries he ON he.id = a.hold_entry_id AND he.tenant_id = a.tenant_id
-        JOIN holds h ON h.id = he.hold_id AND h.tenant_id = he.tenant_id
-        WHERE a.tenant_id = NEW.tenant_id AND a.grant_id = NEW.grant_id AND h.state = 'HELD'
-        GROUP BY h.id
-      ) active;
+    SELECT active_credit_grant_reservation(NEW.tenant_id, NEW.grant_id) INTO reserved_amount;
   END IF;
 
   IF NEW.kind::text = 'ISSUANCE' AND NOT (
@@ -271,23 +292,7 @@ BEGIN
     FROM credit_grant_capacity_versions
     WHERE tenant_id = NEW.tenant_id AND grant_id = NEW.grant_id
     ORDER BY version DESC LIMIT 1;
-  SELECT coalesce(sum(active.allocated - active.consumed), 0) INTO reserved_amount
-    FROM (
-      SELECT h.id, sum(a.amount_minor) AS allocated,
-        coalesce((
-          SELECT sum(l.amount_minor)
-          FROM credit_grant_entries l
-          JOIN entries e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
-          JOIN transactions t ON t.id = e.transaction_id AND t.tenant_id = e.tenant_id
-          WHERE l.tenant_id = NEW.tenant_id AND l.grant_id = NEW.grant_id
-            AND l.kind = 'CONSUMPTION' AND t.hold_id = h.id
-        ), 0) AS consumed
-      FROM credit_grant_hold_allocations a
-      JOIN hold_entries he ON he.id = a.hold_entry_id AND he.tenant_id = a.tenant_id
-      JOIN holds h ON h.id = he.hold_id AND h.tenant_id = he.tenant_id
-      WHERE a.tenant_id = NEW.tenant_id AND a.grant_id = NEW.grant_id AND h.state = 'HELD'
-      GROUP BY h.id
-    ) active;
+  SELECT active_credit_grant_reservation(NEW.tenant_id, NEW.grant_id) INTO reserved_amount;
   IF coalesce(remaining_amount, 0) <> reserved_amount THEN
     RAISE EXCEPTION 'expired credit grant cannot retain unreserved capacity';
   END IF;

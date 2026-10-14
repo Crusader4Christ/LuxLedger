@@ -122,6 +122,23 @@ const consumeInTwoEntries = (
     ],
   });
 
+const reserve = (
+  tenantId: string,
+  accounts: Awaited<ReturnType<typeof setup>>,
+  reference: string,
+  amountMinor: bigint,
+) =>
+  services.holds.create({
+    tenantId,
+    ledgerId: accounts.ledgerId,
+    reference,
+    currency: 'USD',
+    entries: [
+      { accountId: accounts.accountId, signedAmountMinor: amountMinor, currency: 'USD' },
+      { accountId: accounts.fundingAccountId, signedAmountMinor: -amountMinor, currency: 'USD' },
+    ],
+  });
+
 const lineageTotalsByGrant = (
   lineage: Awaited<ReturnType<typeof services.creditGrants.listLineageByTransaction>>,
 ) => {
@@ -1088,6 +1105,16 @@ describe('credit grants', () => {
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(30n);
 
+    // Reversing consumed credit must expire only the restored 50, preserving the held 30.
+    const reversal = await services.transactions.reverse({
+      tenantId,
+      transactionId: committed.transactionId,
+      reference: 'late-hold-reversal',
+    });
+    expect(reversal.created).toBeTrue();
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(30n);
     await services.holds.void({ tenantId, holdId: held.holdId });
     const secondClock = await client.runTenantTx(tenantId, 'read database clock', async (tx) => {
       const [clock] = await tx.execute<{ now: Date }>(sql`select transaction_timestamp() as now`);
@@ -1144,6 +1171,158 @@ describe('credit grants', () => {
       expect(balance.remainingMinor - account.reservedDeltaMinor).toBeGreaterThanOrEqual(0n);
     } finally {
       await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('serializes partial commit and void without leaking reserved capacity', async () => {
+    const tenantId = await createTenant(db, 'commit-void-race');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    const secondClient = createDbClient({ databaseUrl, max: 1 });
+    try {
+      const other = createApplicationServices(secondClient);
+      for (let iteration = 0; iteration < 5; iteration++) {
+        const hold = await reserve(tenantId, accounts, `hold-${iteration}`, 10n);
+        const [commit, release] = await Promise.allSettled([
+          services.holds.commit({
+            tenantId,
+            holdId: hold.holdId,
+            reference: `commit-${iteration}`,
+            amountMinor: 1n,
+          }),
+          other.holds.void({ tenantId, holdId: hold.holdId }),
+        ]);
+        expect(release.status).toBe('fulfilled');
+        if (commit.status === 'fulfilled') {
+          expect(commit.value.remainingAmountMinor).toBe(9n);
+        } else {
+          expect(String(commit.reason)).toContain('invalid hold state VOIDED');
+        }
+        const [account] = await db
+          .select()
+          .from(accountRows)
+          .where(eq(accountRows.id, accounts.accountId));
+        expect(account.reservedDeltaMinor).toBe(0n);
+        expect(
+          (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+        ).toBe(-account.balanceMinor);
+      }
+    } finally {
+      await secondClient.sql.end({ timeout: 5 });
+    }
+  });
+
+  it('commits the same reservation repeatedly and keeps retries and conflicts atomic', async () => {
+    const tenantId = await createTenant(db, 'repeated-commit');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    const hold = await reserve(tenantId, accounts, 'hold', 80n);
+    for (const [reference, amountMinor, remaining] of [
+      ['part-1', 20n, 60n],
+      ['part-2', 30n, 30n],
+      ['part-3', 30n, 0n],
+    ] as const) {
+      const command = { tenantId, holdId: hold.holdId, reference, amountMinor };
+      expect((await services.holds.commit(command)).remainingAmountMinor).toBe(remaining);
+      expect((await services.holds.commit(command)).created).toBeFalse();
+      await expect(
+        services.holds.commit({ ...command, amountMinor: amountMinor + 1n }),
+      ).rejects.toThrow('reference amount mismatch');
+    }
+    expect(
+      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
+    ).toBe(20n);
+  });
+
+  it('consumes multiple held debit entries without losing grant precision', async () => {
+    const tenantId = await createTenant(db, 'multi-entry-hold');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    const hold = await services.holds.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'hold',
+      currency: 'USD',
+      entries: [
+        { accountId: accounts.accountId, signedAmountMinor: 40n, currency: 'USD' },
+        { accountId: accounts.accountId, signedAmountMinor: 40n, currency: 'USD' },
+        { accountId: accounts.fundingAccountId, signedAmountMinor: -80n, currency: 'USD' },
+      ],
+    });
+    expect(
+      (await services.holds.commit({ tenantId, holdId: hold.holdId, reference: 'commit' })).state,
+    ).toBe('APPLIED');
+  });
+
+  it('rejects appended allocations and provenance reassignment without changing reservations', async () => {
+    const tenantId = await createTenant(db, 'provenance');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
+    const second = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
+    const hold = await reserve(tenantId, accounts, 'hold-1', 20n);
+    const other = await reserve(tenantId, accounts, 'hold-2', 20n);
+    const [allocation] = await db.select().from(creditGrantHoldAllocations);
+    await expect(
+      client.runTenantTx(tenantId, 'append allocation', (tx) =>
+        tx.insert(creditGrantHoldAllocations).values({
+          tenantId,
+          ledgerId: accounts.ledgerId,
+          accountId: accounts.accountId,
+          grantId: second.grant.id,
+          holdEntryId: allocation.holdEntryId,
+          amountMinor: 1n,
+        }),
+      ),
+    ).rejects.toThrow('data constraints violated');
+    await expect(
+      client.runTenantTx(tenantId, 'reassign entry', (tx) =>
+        tx
+          .update(holdEntries)
+          .set({ holdId: other.holdId })
+          .where(eq(holdEntries.id, allocation.holdEntryId)),
+      ),
+    ).rejects.toThrow('data constraints violated');
+    await expect(
+      client.runTenantTx(tenantId, 'delete allocation', (tx) =>
+        tx
+          .delete(creditGrantHoldAllocations)
+          .where(eq(creditGrantHoldAllocations.id, allocation.id)),
+      ),
+    ).rejects.toThrow('data constraints violated');
+    await expect(
+      client.runTenantTx(tenantId, 'update allocation', (tx) =>
+        tx
+          .update(creditGrantHoldAllocations)
+          .set({ amountMinor: 1n })
+          .where(eq(creditGrantHoldAllocations.id, allocation.id)),
+      ),
+    ).rejects.toThrow('data constraints violated');
+    expect(
+      (await services.holds.commit({ tenantId, holdId: hold.holdId, reference: 'commit' })).state,
+    ).toBe('APPLIED');
+  });
+
+  it('enforces allocation RLS for a non-owner role and rolls back test privileges', async () => {
+    const tenantId = await createTenant(db, 'rls-a');
+    const otherTenant = await createTenant(db, 'rls-b');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    await reserve(tenantId, accounts, 'hold', 20n);
+    const rollback = new Error('rollback test role');
+    try {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`CREATE ROLE ll101_rls_probe NOLOGIN NOSUPERUSER NOBYPASSRLS`);
+        await tx.execute(sql`GRANT USAGE ON SCHEMA public TO ll101_rls_probe`);
+        await tx.execute(sql`GRANT SELECT ON credit_grant_hold_allocations TO ll101_rls_probe`);
+        await tx.execute(sql`SET LOCAL ROLE ll101_rls_probe`);
+        await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
+        expect(await tx.select().from(creditGrantHoldAllocations)).toHaveLength(1);
+        await tx.execute(sql`select set_config('app.tenant_id', ${otherTenant}, true)`);
+        expect(await tx.select().from(creditGrantHoldAllocations)).toHaveLength(0);
+        throw rollback;
+      });
+    } catch (error) {
+      expect(error).toBe(rollback);
     }
   });
 

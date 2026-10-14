@@ -467,6 +467,13 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
           signedAmountMinor: this.remainingEntryAmount(entry.signedAmountMinor, hold),
         })),
       );
+      // Match posting/creation: all grant-enabled accounts precede ordinary balance updates.
+      // Otherwise void can hold a funding account while a posting holds the grant account.
+      await lockGrantEnabledAccountsForMutation(
+        tx,
+        input.tenantId,
+        holdEntries.map((entry) => entry.accountId),
+      );
       if (
         releases.reduce((sum, entry) => sum + entry.debitMinor, 0n) !== hold.remainingAmountMinor ||
         releases.reduce((sum, entry) => sum + entry.creditMinor, 0n) !== hold.remainingAmountMinor

@@ -12,34 +12,14 @@ const activeReservationsByGrant = async (
 ): Promise<Map<string, bigint>> => {
   if (grantIds.length === 0) return new Map();
   const rows = await tx.execute<{ grantId: string; amountMinor: string }>(sql`
-    select reserved."grantId", sum(reserved.allocated - reserved.consumed)::text as "amountMinor"
-    from (
-      select allocation.grant_id as "grantId", hold.id as "holdId",
-        sum(allocation.amount_minor) as allocated,
-        coalesce((
-          select sum(lineage.amount_minor)
-          from credit_grant_entries lineage
-          join entries entry on entry.id = lineage.entry_id and entry.tenant_id = lineage.tenant_id
-          join transactions transaction on transaction.id = entry.transaction_id
-            and transaction.tenant_id = entry.tenant_id
-          where lineage.tenant_id = ${tenantId}
-            and lineage.grant_id = allocation.grant_id
-            and lineage.kind = 'CONSUMPTION'
-            and transaction.hold_id = hold.id
-        ), 0) as consumed
-      from credit_grant_hold_allocations allocation
-      join hold_entries hold_entry on hold_entry.id = allocation.hold_entry_id
-        and hold_entry.tenant_id = allocation.tenant_id
-      join holds hold on hold.id = hold_entry.hold_id and hold.tenant_id = hold_entry.tenant_id
-      where allocation.tenant_id = ${tenantId}
-        and allocation.grant_id in (${sql.join(
-          grantIds.map((grantId) => sql`${grantId}`),
-          sql`, `,
-        )})
-        and hold.state = 'HELD'
-      group by allocation.grant_id, hold.id
-    ) reserved
-    group by reserved."grantId"
+    select g.id as "grantId",
+      active_credit_grant_reservation(g.tenant_id, g.id)::text as "amountMinor"
+    from credit_grants g
+    where g.tenant_id = ${tenantId}
+      and g.id in (${sql.join(
+        grantIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})
   `);
   return new Map(rows.map((row) => [row.grantId, BigInt(row.amountMinor)]));
 };
@@ -183,7 +163,7 @@ export const attachReservedGrantConsumption = async (
     const consumed = await tx
       .select({
         grantId: schema.creditGrantEntries.grantId,
-        amountMinor: sql<bigint>`sum(${schema.creditGrantEntries.amountMinor})`,
+        amountMinor: sql`sum(${schema.creditGrantEntries.amountMinor})`.mapWith(BigInt),
       })
       .from(schema.creditGrantEntries)
       .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
