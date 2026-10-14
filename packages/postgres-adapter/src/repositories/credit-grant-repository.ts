@@ -19,7 +19,6 @@ import type { DbClient, DrizzleDatabase } from '../client';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
-import { getActiveGrantReservations } from './grant-hold-allocation';
 import { DrizzleTransactionRepository } from './transaction-repository';
 
 type GrantRow = typeof schema.creditGrants.$inferSelect;
@@ -338,24 +337,21 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         select g.id as "grantId", g.account_id as "accountId",
           g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
           g.expires_at as "expiresAt", g.created_at as "createdAt",
-          greatest(capacity.remaining_minor - coalesce(reserved.amount_minor, 0), 0)::text as "remainingMinor",
+          greatest(capacity.remaining_minor - capacity.reserved_minor, 0)::text as "remainingMinor",
           capacity.expired_minor::text as "expiredMinor", a.currency
         from credit_grants g
         join lateral (
-          select v.remaining_minor, v.expired_minor
+          select v.remaining_minor, v.expired_minor, v.reserved_minor
           from credit_grant_capacity_versions v
           where v.tenant_id = g.tenant_id and v.grant_id = g.id
           order by v.version desc
           limit 1
         ) capacity on true
-        cross join lateral (
-          select active_credit_grant_reservation(g.tenant_id, g.id) as amount_minor
-        ) reserved
         join accounts a on a.tenant_id = g.tenant_id and a.ledger_id = g.ledger_id
           and a.id = g.account_id
         where g.tenant_id = ${input.tenantId}
           and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
-          and capacity.remaining_minor - coalesce(reserved.amount_minor, 0) > 0
+          and capacity.remaining_minor - capacity.reserved_minor > 0
         order by g.expires_at asc, g.created_at asc, g.id asc
         limit ${input.limit}
       )`;
@@ -389,6 +385,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           grantId: schema.creditGrantCapacityVersions.grantId,
           remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
           expiredMinor: schema.creditGrantCapacityVersions.expiredMinor,
+          reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
         })
         .from(schema.creditGrantCapacityVersions)
         .where(
@@ -407,15 +404,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       const capacityByGrant = new Map(
         currentCapacities.map((capacity) => [capacity.grantId, capacity]),
       );
-      const reservedByGrant = await getActiveGrantReservations(
-        tx,
-        input.tenantId,
-        lockedGrants.map((grant) => grant.grantId),
-      );
       rows = lockedGrants.flatMap((grant) => {
         const capacity = capacityByGrant.get(grant.grantId);
-        const remainingMinor =
-          (capacity?.remainingMinor ?? 0n) - (reservedByGrant.get(grant.grantId) ?? 0n);
+        const remainingMinor = (capacity?.remainingMinor ?? 0n) - (capacity?.reservedMinor ?? 0n);
         if (!capacity || remainingMinor <= 0n) return [];
         return [
           {

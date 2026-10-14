@@ -5,27 +5,6 @@ import * as schema from '../schema';
 
 type Tx = DrizzleDatabase;
 
-const activeReservationsByGrant = async (
-  tx: Tx,
-  tenantId: string,
-  grantIds: string[],
-): Promise<Map<string, bigint>> => {
-  if (grantIds.length === 0) return new Map();
-  const rows = await tx.execute<{ grantId: string; amountMinor: string }>(sql`
-    select g.id as "grantId",
-      active_credit_grant_reservation(g.tenant_id, g.id)::text as "amountMinor"
-    from credit_grants g
-    where g.tenant_id = ${tenantId}
-      and g.id in (${sql.join(
-        grantIds.map((id) => sql`${id}`),
-        sql`, `,
-      )})
-  `);
-  return new Map(rows.map((row) => [row.grantId, BigInt(row.amountMinor)]));
-};
-
-export const getActiveGrantReservations = activeReservationsByGrant;
-
 export const allocateGrantCapacityForHold = async (
   tx: Tx,
   input: {
@@ -63,6 +42,7 @@ export const allocateGrantCapacityForHold = async (
           .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
             grantId: schema.creditGrantCapacityVersions.grantId,
             remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
+            reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
           })
           .from(schema.creditGrantCapacityVersions)
           .where(
@@ -79,17 +59,15 @@ export const allocateGrantCapacityForHold = async (
             desc(schema.creditGrantCapacityVersions.version),
           );
   const capacityByGrant = new Map(
-    capacities.map((capacity) => [capacity.grantId, capacity.remainingMinor]),
-  );
-  const reservedByGrant = await activeReservationsByGrant(
-    tx,
-    input.tenantId,
-    grants.map((grant) => grant.id),
+    capacities.map((capacity) => [
+      capacity.grantId,
+      capacity.remainingMinor - capacity.reservedMinor,
+    ]),
   );
   let required = input.amountMinor;
   const allocations: Array<typeof schema.creditGrantHoldAllocations.$inferInsert> = [];
   for (const grant of grants) {
-    const available = (capacityByGrant.get(grant.id) ?? 0n) - (reservedByGrant.get(grant.id) ?? 0n);
+    const available = capacityByGrant.get(grant.id) ?? 0n;
     if (available <= 0n) continue;
     const amountMinor = available < required ? available : required;
     allocations.push({

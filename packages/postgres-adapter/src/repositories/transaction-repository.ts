@@ -35,7 +35,6 @@ import { toStoredTransactionMetadata } from '../transaction-metadata';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
-import { getActiveGrantReservations } from './grant-hold-allocation';
 import { validatePosting, validatePostingEntries } from './posting-validation';
 
 type TransactionRow = typeof schema.transactions.$inferSelect;
@@ -854,6 +853,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
           grantId: schema.creditGrantCapacityVersions.grantId,
           remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
+          reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
         })
         .from(schema.creditGrantCapacityVersions)
         .where(
@@ -871,18 +871,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         );
       const remainingByGrant = new Map(grants.map((grant) => [grant.id, 0n]));
       for (const capacity of capacities) {
-        remainingByGrant.set(capacity.grantId, capacity.remainingMinor);
-      }
-      const reservedByGrant = await getActiveGrantReservations(
-        tx,
-        input.tenantId,
-        grants.map((grant) => grant.id),
-      );
-      for (const grant of grants) {
-        remainingByGrant.set(
-          grant.id,
-          (remainingByGrant.get(grant.id) ?? 0n) - (reservedByGrant.get(grant.id) ?? 0n),
-        );
+        remainingByGrant.set(capacity.grantId, capacity.remainingMinor - capacity.reservedMinor);
       }
       for (const entry of debitEntries) {
         let required = entry.signedAmountMinor;
@@ -970,6 +959,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         .select({
           remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
           expiredMinor: schema.creditGrantCapacityVersions.expiredMinor,
+          reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
         })
         .from(schema.creditGrantCapacityVersions)
         .where(
@@ -980,8 +970,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         )
         .orderBy(desc(schema.creditGrantCapacityVersions.version))
         .limit(1);
-      const reserved = await getActiveGrantReservations(tx, tenantId, [grant.id]);
-      const remainingMinor = (capacity?.remainingMinor ?? 0n) - (reserved.get(grant.id) ?? 0n);
+      const remainingMinor = (capacity?.remainingMinor ?? 0n) - (capacity?.reservedMinor ?? 0n);
       if (remainingMinor <= 0n) continue;
       const cumulativeExpiredMinor = (capacity?.expiredMinor ?? 0n) + remainingMinor;
       const [account] = await tx

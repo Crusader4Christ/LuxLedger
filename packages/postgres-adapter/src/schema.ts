@@ -592,6 +592,10 @@ export const creditGrantCapacityVersions = pgTable(
     accountId: uuid('account_id').notNull(),
     grantId: uuid('grant_id').notNull(),
     sourceEntryId: uuid('source_entry_id'),
+    sourceAllocationId: uuid('source_allocation_id').references(
+      () => creditGrantHoldAllocations.id,
+    ),
+    sourceHoldId: uuid('source_hold_id').references(() => holds.id),
     version: bigint('version', { mode: 'bigint' }).notNull(),
     grantedMinor: bigint('granted_minor', { mode: 'bigint' }).notNull(),
     reversedMinor: bigint('reversed_minor', { mode: 'bigint' }).notNull(),
@@ -599,6 +603,7 @@ export const creditGrantCapacityVersions = pgTable(
     compensatedMinor: bigint('compensated_minor', { mode: 'bigint' }).notNull(),
     expiredMinor: bigint('expired_minor', { mode: 'bigint' }).notNull(),
     remainingMinor: bigint('remaining_minor', { mode: 'bigint' }).notNull(),
+    reservedMinor: bigint('reserved_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -609,6 +614,17 @@ export const creditGrantCapacityVersions = pgTable(
     sourceEntryUq: uniqueIndex('credit_grant_capacity_versions_source_entry_uq').on(
       table.grantId,
       table.sourceEntryId,
+    ),
+    sourceAllocationUq: uniqueIndex('credit_grant_capacity_versions_source_allocation_uq').on(
+      table.sourceAllocationId,
+    ),
+    sourceHoldUq: uniqueIndex('credit_grant_capacity_versions_source_hold_uq').on(
+      table.grantId,
+      table.sourceHoldId,
+    ),
+    reservedChk: check(
+      'credit_grant_capacity_versions_reserved_chk',
+      sql`${table.reservedMinor} >= 0 and ${table.reservedMinor} <= ${table.remainingMinor}`,
     ),
     tenantGrantVersionIdx: index('credit_grant_capacity_versions_tenant_grant_version_idx').on(
       table.tenantId,

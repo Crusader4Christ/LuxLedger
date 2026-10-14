@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { AccountSide, InvalidCreditGrantError } from '@luxledger/core';
 import { CreditGrantConflictError, CreditGrantNotFoundError } from '@luxledger/core/application';
 import { eq, sql } from 'drizzle-orm';
@@ -28,6 +28,26 @@ import {
 const client = createRepositoryTestClient();
 const db = createRepositoryTestDatabase(client);
 const services = createApplicationServices(client);
+
+const getActiveGrantReservations = async (
+  tx: DrizzleDatabase,
+  tenantId: string,
+  grantIds: string[],
+) => {
+  if (grantIds.length === 0) return new Map<string, bigint>();
+  const rows = await tx.execute<{ grantId: string; reserved: string }>(sql`
+    select latest.grant_id as "grantId", latest.reserved_minor::text as reserved
+    from unnest(ARRAY[${sql.join(
+      grantIds.map((id) => sql`${id}`),
+      sql`, `,
+    )}]::uuid[]) requested(id)
+    cross join lateral (
+      select grant_id, reserved_minor from credit_grant_capacity_versions
+      where tenant_id = ${tenantId} and grant_id = requested.id order by version desc limit 1
+    ) latest where latest.reserved_minor > 0
+  `);
+  return new Map(rows.map((row) => [row.grantId, BigInt(row.reserved)]));
+};
 
 const setup = async (tenantId: string) => {
   const ledgerId = await createLedger(db, tenantId, 'Credits');
@@ -153,6 +173,36 @@ describe('credit grants', () => {
   beforeAll(() => migrateTestDatabase(db));
   beforeEach(() => truncateTestDatabase(db));
   afterAll(() => client.sql.end({ timeout: 5 }));
+  afterEach(async () => {
+    // Test-only replay: every scenario (including failures/races) must leave the
+    // latest projection equal to immutable allocations minus held consumption.
+    const mismatches = await db.execute(sql`
+      with allocated as (
+        select a.tenant_id, a.grant_id, h.id as hold_id, sum(a.amount_minor) as amount
+        from credit_grant_hold_allocations a
+        join hold_entries he on he.id = a.hold_entry_id and he.tenant_id = a.tenant_id
+        join holds h on h.id = he.hold_id and h.tenant_id = he.tenant_id
+        where h.state = 'HELD' group by a.tenant_id, a.grant_id, h.id
+      ), consumed as (
+        select l.tenant_id, l.grant_id, t.hold_id, sum(l.amount_minor) as amount
+        from credit_grant_entries l
+        join entries e on e.id = l.entry_id and e.tenant_id = l.tenant_id
+        join transactions t on t.id = e.transaction_id and t.tenant_id = e.tenant_id
+        where l.kind = 'CONSUMPTION' group by l.tenant_id, l.grant_id, t.hold_id
+      ), expected as (
+        select a.tenant_id, a.grant_id, sum(a.amount - coalesce(c.amount, 0)) as reserved
+        from allocated a left join consumed c on c.tenant_id = a.tenant_id
+          and c.grant_id = a.grant_id and c.hold_id = a.hold_id
+        group by a.tenant_id, a.grant_id
+      ), latest as (
+        select distinct on (tenant_id, grant_id) * from credit_grant_capacity_versions
+        order by tenant_id, grant_id, version desc
+      ) select v.grant_id from latest v left join expected e
+        on e.tenant_id = v.tenant_id and e.grant_id = v.grant_id
+      where v.reserved_minor <> coalesce(e.reserved, 0)
+    `);
+    expect(mismatches).toHaveLength(0);
+  });
 
   it('posts grants and reconciles exact lot and ledger entries', async () => {
     const tenantId = await createTenant(db, 'A');
@@ -1212,6 +1262,123 @@ describe('credit grants', () => {
     }
   });
 
+  it('reads reservations for 100 grants in one batch across partial commits and voids', async () => {
+    const tenantId = await createTenant(db, 'batch-reservations');
+    const otherTenant = await createTenant(db, 'batch-reservations-other');
+    const accounts = await setup(tenantId);
+    const grantIds: string[] = [];
+    for (let index = 0; index < 100; index++) {
+      const result = await services.creditGrants.create(
+        grantInput(tenantId, accounts, `grant-${index}`),
+      );
+      grantIds.push(result.grant.id);
+    }
+    const first = await reserve(tenantId, accounts, 'first', 150n);
+    const second = await reserve(tenantId, accounts, 'second', 20n);
+    await services.holds.commit({
+      tenantId,
+      holdId: first.holdId,
+      reference: 'partial',
+      amountMinor: 60n,
+    });
+    await client.runTenantTx(tenantId, 'check batch reservations', async (tx) => {
+      const batch = await getActiveGrantReservations(tx, tenantId, grantIds);
+      expect(batch.get(grantIds[0])).toBe(40n);
+      expect(batch.get(grantIds[1])).toBe(70n);
+      expect(batch.size).toBe(2);
+      expect(await getActiveGrantReservations(tx, tenantId, [])).toEqual(new Map());
+      expect(await getActiveGrantReservations(tx, otherTenant, grantIds)).toEqual(new Map());
+      const scalar = await tx.execute<{ amount: string }>(sql`
+        select active_credit_grant_reservation(${tenantId}, ${grantIds[1]})::text as amount
+      `);
+      expect(BigInt(scalar[0].amount)).toBe(batch.get(grantIds[1]) ?? 0n);
+    });
+    await services.holds.void({ tenantId, holdId: first.holdId });
+    await services.holds.commit({ tenantId, holdId: second.holdId, reference: 'finish' });
+    await client.runTenantTx(tenantId, 'check released reservations', async (tx) => {
+      expect(await getActiveGrantReservations(tx, tenantId, grantIds)).toEqual(new Map());
+    });
+  });
+
+  it('appends immutable reservation snapshots and rolls back direct SQL transitions', async () => {
+    const tenantId = await createTenant(db, 'reservation-snapshots');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    const hold = await reserve(tenantId, accounts, 'hold', 80n);
+    const commit = { tenantId, holdId: hold.holdId, reference: 'partial', amountMinor: 30n };
+    await services.holds.commit(commit);
+    await services.holds.commit(commit);
+    const before = await db.select().from(creditGrantCapacityVersions);
+    const rollback = new Error('rollback direct void');
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(
+          sql`update holds set state = 'VOIDED', remaining_amount_minor = 0 where id = ${hold.holdId}`,
+        );
+        const [snapshot] = await tx.execute<{ reserved: string }>(sql`
+        select reserved_minor::text as reserved from credit_grant_capacity_versions order by version desc limit 1
+      `);
+        expect(snapshot.reserved).toBe('0');
+        throw rollback;
+      }),
+    ).rejects.toThrow('rollback direct void');
+    expect(await db.select().from(creditGrantCapacityVersions)).toEqual(before);
+    await expect(
+      db
+        .execute(sql`
+      update holds set state = 'APPLIED', remaining_amount_minor = 0 where id = ${hold.holdId}
+    `)
+        .execute(),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('does not match consumption') },
+    });
+    await services.holds.void({ tenantId, holdId: hold.holdId });
+    await services.holds.void({ tenantId, holdId: hold.holdId });
+    await expect(
+      db.execute(sql`update holds set state = 'HELD' where id = ${hold.holdId}`).execute(),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('invalid allocated hold state transition') },
+    });
+    const snapshots = await db
+      .select()
+      .from(creditGrantCapacityVersions)
+      .orderBy(creditGrantCapacityVersions.version);
+    expect(snapshots.map((v) => [v.remainingMinor, v.reservedMinor])).toEqual([
+      [100n, 0n],
+      [100n, 80n],
+      [70n, 50n],
+      [70n, 0n],
+    ]);
+    expect(snapshots[1].sourceAllocationId).not.toBeNull();
+    expect(snapshots[3].sourceHoldId).toBe(hold.holdId);
+    await expect(
+      db.execute(sql`update credit_grant_capacity_versions set reserved_minor = 0`).execute(),
+    ).rejects.toMatchObject({ cause: { message: expect.stringContaining('immutable') } });
+    await expect(
+      db
+        .execute(sql`
+      select append_credit_grant_reservation_version(${tenantId}, ${snapshots[0].grantId}, 1, null, ${hold.holdId})
+    `)
+        .execute(),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('require a reservation event') },
+    });
+    await expect(
+      db
+        .execute(sql`
+      insert into credit_grant_capacity_versions
+      (tenant_id, ledger_id, account_id, grant_id, source_hold_id, version,
+       granted_minor, reversed_minor, consumed_minor, compensated_minor, expired_minor, remaining_minor, reserved_minor)
+      select tenant_id, ledger_id, account_id, grant_id, ${hold.holdId}, 99,
+        granted_minor, reversed_minor, consumed_minor, compensated_minor, expired_minor, remaining_minor, 0
+      from credit_grant_capacity_versions order by version desc limit 1
+    `)
+        .execute(),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('can only be appended') },
+    });
+  });
+
   it('commits the same reservation repeatedly and keeps retries and conflicts atomic', async () => {
     const tenantId = await createTenant(db, 'repeated-commit');
     const accounts = await setup(tenantId);
@@ -1313,12 +1480,16 @@ describe('credit grants', () => {
       await db.transaction(async (tx) => {
         await tx.execute(sql`CREATE ROLE ll101_rls_probe NOLOGIN NOSUPERUSER NOBYPASSRLS`);
         await tx.execute(sql`GRANT USAGE ON SCHEMA public TO ll101_rls_probe`);
-        await tx.execute(sql`GRANT SELECT ON credit_grant_hold_allocations TO ll101_rls_probe`);
+        await tx.execute(
+          sql`GRANT SELECT ON credit_grant_hold_allocations, credit_grant_capacity_versions TO ll101_rls_probe`,
+        );
         await tx.execute(sql`SET LOCAL ROLE ll101_rls_probe`);
         await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
         expect(await tx.select().from(creditGrantHoldAllocations)).toHaveLength(1);
+        expect(await tx.select().from(creditGrantCapacityVersions)).toHaveLength(2);
         await tx.execute(sql`select set_config('app.tenant_id', ${otherTenant}, true)`);
         expect(await tx.select().from(creditGrantHoldAllocations)).toHaveLength(0);
+        expect(await tx.select().from(creditGrantCapacityVersions)).toHaveLength(0);
         throw rollback;
       });
     } catch (error) {
