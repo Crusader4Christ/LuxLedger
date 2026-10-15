@@ -5,6 +5,7 @@ import {
   OverdraftPolicyViolationError,
   RepositoryError,
 } from '@luxledger/core/application';
+import type { JsonObject } from '@luxledger/core/base';
 import {
   CrossLedgerAccountError,
   CurrencyMismatchError,
@@ -618,6 +619,196 @@ describe('Drizzle transaction repository posting', () => {
       batch: { id: 'batch-1' },
     });
     expect(transactionsByReference.get('bulk-empty-metadata')?.metadata).toEqual({});
+  });
+
+  it('rejects a bulk retry whose metadata differs and keeps the original metadata', async () => {
+    const tenantId = await createTenant('Bulk Retry Metadata Tenant');
+    const ledgerId = await createLedger(tenantId, 'Bulk Retry Metadata Ledger');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+    const item = (reference: string, metadata?: JsonObject) => ({
+      tenantId,
+      ledgerId,
+      reference,
+      currency: 'USD',
+      metadata,
+      entries: [
+        { accountId: debitAccountId, signedAmountMinor: 10n, currency: 'USD' },
+        { accountId: creditAccountId, signedAmountMinor: -10n, currency: 'USD' },
+      ],
+    });
+    await transactionRepository.createBulk({
+      tenantId,
+      transactions: [item('bulk-retry-a', { batch: 1 }), item('bulk-retry-b')],
+    });
+
+    const identical = await transactionRepository.createBulk({
+      tenantId,
+      transactions: [item('bulk-retry-a', { batch: 1 }), item('bulk-retry-b')],
+    });
+    expect(identical.createdCount).toBe(0);
+
+    await expect(
+      transactionRepository.createBulk({
+        tenantId,
+        transactions: [item('bulk-retry-new'), item('bulk-retry-b', {})],
+      }),
+    ).rejects.toThrow();
+
+    const stored = (await transactionRepository.list({ tenantId, ledgerId, limit: 10 })).data;
+    expect(stored.map((transaction) => transaction.reference).sort()).toEqual([
+      'bulk-retry-a',
+      'bulk-retry-b',
+    ]);
+    expect(
+      stored.find((transaction) => transaction.reference === 'bulk-retry-b')?.metadata,
+    ).toBeUndefined();
+  });
+
+  it('scopes metadata idempotency to the tenant and compares deep key order and empty objects', async () => {
+    const setup = async (tenantName: string) => {
+      const tenantId = await createTenant(tenantName);
+      const ledgerId = await createLedger(tenantId, 'Ledger');
+      const debitAccountId = await createAccount({
+        tenantId,
+        ledgerId,
+        name: 'Cash',
+        currency: 'USD',
+      });
+      const creditAccountId = await createAccount({
+        tenantId,
+        ledgerId,
+        name: 'Revenue',
+        currency: 'USD',
+      });
+      return {
+        tenantId,
+        ledgerId,
+        entries: [
+          { accountId: debitAccountId, signedAmountMinor: 100n, currency: 'USD' },
+          { accountId: creditAccountId, signedAmountMinor: -100n, currency: 'USD' },
+        ],
+      };
+    };
+    const first = await setup('Metadata Scope A');
+    const second = await setup('Metadata Scope B');
+
+    const createdFirst = await transactionRepository.create({
+      ...first,
+      reference: 'shared-reference',
+      currency: 'USD',
+      metadata: { order: { id: 'a', lines: [{ sku: '1', qty: 2 }] }, flags: {} },
+    });
+    const createdSecond = await transactionRepository.create({
+      ...second,
+      reference: 'shared-reference',
+      currency: 'USD',
+      metadata: { order: { id: 'b' } },
+    });
+
+    expect(createdFirst.created).toBeTrue();
+    expect(createdSecond.created).toBeTrue();
+    expect(createdSecond.transactionId).not.toBe(createdFirst.transactionId);
+    expect(
+      (await transactionRepository.findById(first.tenantId, createdFirst.transactionId))?.metadata,
+    ).toEqual({ order: { id: 'a', lines: [{ sku: '1', qty: 2 }] }, flags: {} });
+    expect(
+      (await transactionRepository.findById(second.tenantId, createdSecond.transactionId))
+        ?.metadata,
+    ).toEqual({ order: { id: 'b' } });
+
+    const reorderedRetry = await transactionRepository.create({
+      ...first,
+      reference: 'shared-reference',
+      currency: 'USD',
+      metadata: { flags: {}, order: { lines: [{ qty: 2, sku: '1' }], id: 'a' } },
+    });
+    expect(reorderedRetry).toEqual({ transactionId: createdFirst.transactionId, created: false });
+
+    const conflicting: JsonObject[] = [
+      { order: { id: 'a', lines: [{ sku: '1', qty: 3 }] }, flags: {} },
+      { order: { id: 'a', lines: [{ sku: '1', qty: 2 }] } },
+      { order: { id: 'a', lines: [{ sku: '1', qty: 2 }] }, flags: { extra: true } },
+    ];
+    for (const metadata of conflicting) {
+      await expect(
+        transactionRepository.create({
+          ...first,
+          reference: 'shared-reference',
+          currency: 'USD',
+          metadata,
+        }),
+      ).rejects.toThrow('Unable to create transaction: reference payload mismatch');
+    }
+
+    const emptyFirst = await transactionRepository.create({
+      ...first,
+      reference: 'empty-metadata',
+      currency: 'USD',
+      metadata: {},
+    });
+    const emptyRetry = await transactionRepository.create({
+      ...first,
+      reference: 'empty-metadata',
+      currency: 'USD',
+      metadata: {},
+    });
+    expect(emptyRetry).toEqual({ transactionId: emptyFirst.transactionId, created: false });
+    await expect(
+      transactionRepository.create({
+        ...first,
+        reference: 'empty-metadata',
+        currency: 'USD',
+      }),
+    ).rejects.toThrow('Unable to create transaction: reference payload mismatch');
+    expect(
+      (await transactionRepository.findById(first.tenantId, emptyFirst.transactionId))?.metadata,
+    ).toEqual({});
+  });
+
+  it('rejects primitive and array metadata before writing a transaction', async () => {
+    const tenantId = await createTenant('Metadata Shape Tenant');
+    const ledgerId = await createLedger(tenantId, 'Ledger');
+    const debitAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      currency: 'USD',
+    });
+    const creditAccountId = await createAccount({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      currency: 'USD',
+    });
+
+    for (const [index, metadata] of [[], [{}], 'metadata', 42, true].entries()) {
+      await expect(
+        transactionRepository.create({
+          tenantId,
+          ledgerId,
+          reference: `metadata-shape-${index}`,
+          currency: 'USD',
+          metadata: metadata as never,
+          entries: [
+            { accountId: debitAccountId, signedAmountMinor: 100n, currency: 'USD' },
+            { accountId: creditAccountId, signedAmountMinor: -100n, currency: 'USD' },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(InvariantViolationError);
+    }
+
+    expect(await db.select().from(transactions)).toHaveLength(0);
   });
 
   it('createTransaction serializes concurrent idempotent retries', async () => {

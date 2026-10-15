@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { AccountSide, TenantId } from '@luxledger/core';
+import { AccountSide, isDomainError, TenantId } from '@luxledger/core';
 import { createDbClient, createUnitOfWork } from '@luxledger/postgres-adapter';
 import { sql } from 'drizzle-orm';
 import { pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
@@ -271,6 +271,108 @@ describe('PostgresUnitOfWork', () => {
     ).rejects.toThrow('Unscoped operation is not allowed in a tenant unit of work');
 
     expect(await readOutbox(tenantId.value)).toHaveLength(0);
+  });
+
+  it('shares one transaction between ledger writes and host SQL and rolls both back on a host database error', async () => {
+    const tenantId = new TenantId(await createTenant(db, 'Shared tx tenant'));
+
+    const captured: { visibleCount?: string } = {};
+    const error = await unitOfWork
+      .run(tenantId, async ({ tx, services }) => {
+        await services.ledgers.create({ tenantId: tenantId.value, name: 'Uncommitted ledger' });
+        const [visible] = await tx.execute(
+          sql<{ count: string }>`select count(*)::text as count from ledgers`,
+        );
+        captured.visibleCount = String(visible?.count);
+        await tx.insert(hostOutbox).values({
+          tenantId: tenantId.value,
+          reference: 'duplicate',
+          payload: 'first',
+        });
+        await tx.insert(hostOutbox).values({
+          tenantId: tenantId.value,
+          reference: 'duplicate',
+          payload: 'second',
+        });
+      })
+      .then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
+
+    expect(captured.visibleCount).toBe('1');
+    expect(error).toBeInstanceOf(Error);
+    expect(await servicesLedgerCount(tenantId.value)).toBe(0);
+    expect(await readOutbox(tenantId.value)).toHaveLength(0);
+  });
+
+  it('surfaces a ledger idempotency conflict as a domain error and rolls back host rows', async () => {
+    const tenantId = new TenantId(await createTenant(db, 'Conflict tenant'));
+    const setup = await unitOfWork.run(tenantId, async ({ services }) => {
+      const ledger = await services.ledgers.create({ tenantId: tenantId.value, name: 'Ledger' });
+      const debit = await services.accounts.create({
+        tenantId: tenantId.value,
+        ledgerId: ledger.id,
+        name: 'Debit',
+        side: AccountSide.DEBIT,
+        currency: 'USD',
+      });
+      const credit = await services.accounts.create({
+        tenantId: tenantId.value,
+        ledgerId: ledger.id,
+        name: 'Credit',
+        side: AccountSide.CREDIT,
+        currency: 'USD',
+      });
+      return { ledgerId: ledger.id, debitId: debit.id, creditId: credit.id };
+    });
+    const post = (amount: bigint, hostReference?: string) =>
+      unitOfWork.run(tenantId, async ({ tx, services }) => {
+        if (hostReference) {
+          await tx.insert(hostOutbox).values({
+            tenantId: tenantId.value,
+            reference: hostReference,
+            payload: 'conflict',
+          });
+        }
+        return services.transactions.create({
+          tenantId: tenantId.value,
+          ledgerId: setup.ledgerId,
+          reference: 'conflict-ref',
+          currency: 'USD',
+          entries: [
+            { accountId: setup.debitId, signedAmountMinor: amount, currency: 'USD' },
+            { accountId: setup.creditId, signedAmountMinor: -amount, currency: 'USD' },
+          ],
+        });
+      });
+
+    expect((await post(100n)).created).toBeTrue();
+
+    const error = await post(200n, 'conflict-host').then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(isDomainError(error)).toBeTrue();
+    expect(await readOutbox(tenantId.value)).toHaveLength(0);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+    expect((await post(100n)).created).toBeFalse();
+  });
+
+  it('remains usable after a nested-use rejection and after a failed callback', async () => {
+    const tenantId = new TenantId(await createTenant(db, 'Reuse tenant'));
+
+    await expect(
+      unitOfWork.run(tenantId, async () => unitOfWork.run(tenantId, async () => undefined)),
+    ).rejects.toThrow('Nested unit of work is not supported');
+    await expect(
+      unitOfWork.run(tenantId, async () => {
+        throw new Error('callback failed');
+      }),
+    ).rejects.toThrow('callback failed');
+
+    expect(await unitOfWork.run(tenantId, async () => 'ok')).toBe('ok');
   });
 
   it('allows concurrent top-level units of work on one instance', async () => {
