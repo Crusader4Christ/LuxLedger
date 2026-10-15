@@ -1,5 +1,5 @@
 {
-  "id": "6c1ec218-1dc5-428b-b37d-ab370fa06253",
+  "id": "1ba694d1-518d-433e-87e3-e49c524dbf86",
   "prevId": "bb3105a5-73db-4657-95c8-76d95bf59b7d",
   "version": "7",
   "dialect": "postgresql",
@@ -711,6 +711,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source_allocation_id": {
+          "name": "source_allocation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_hold_id": {
+          "name": "source_hold_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "version": {
           "name": "version",
           "type": "bigint",
@@ -752,6 +764,13 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "reserved_minor": {
+          "name": "reserved_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
         },
         "created_at": {
           "name": "created_at",
@@ -804,6 +823,42 @@
           "method": "btree",
           "with": {}
         },
+        "credit_grant_capacity_versions_source_allocation_uq": {
+          "name": "credit_grant_capacity_versions_source_allocation_uq",
+          "columns": [
+            {
+              "expression": "source_allocation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_grant_capacity_versions_source_hold_uq": {
+          "name": "credit_grant_capacity_versions_source_hold_uq",
+          "columns": [
+            {
+              "expression": "grant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_hold_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "credit_grant_capacity_versions_tenant_grant_version_idx": {
           "name": "credit_grant_capacity_versions_tenant_grant_version_idx",
           "columns": [
@@ -846,6 +901,32 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
+        "credit_grant_capacity_versions_source_allocation_id_credit_grant_hold_allocations_id_fk": {
+          "name": "credit_grant_capacity_versions_source_allocation_id_credit_grant_hold_allocations_id_fk",
+          "tableFrom": "credit_grant_capacity_versions",
+          "tableTo": "credit_grant_hold_allocations",
+          "columnsFrom": [
+            "source_allocation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "credit_grant_capacity_versions_source_hold_id_holds_id_fk": {
+          "name": "credit_grant_capacity_versions_source_hold_id_holds_id_fk",
+          "tableFrom": "credit_grant_capacity_versions",
+          "tableTo": "holds",
+          "columnsFrom": [
+            "source_hold_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "credit_grant_capacity_versions_grant_fk": {
           "name": "credit_grant_capacity_versions_grant_fk",
           "tableFrom": "credit_grant_capacity_versions",
@@ -885,6 +966,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "credit_grant_capacity_versions_reserved_chk": {
+          "name": "credit_grant_capacity_versions_reserved_chk",
+          "value": "\"credit_grant_capacity_versions\".\"reserved_minor\" >= 0 and \"credit_grant_capacity_versions\".\"reserved_minor\" <= \"credit_grant_capacity_versions\".\"remaining_minor\""
+        },
         "credit_grant_capacity_versions_version_nonnegative_chk": {
           "name": "credit_grant_capacity_versions_version_nonnegative_chk",
           "value": "\"credit_grant_capacity_versions\".\"version\" >= 0"

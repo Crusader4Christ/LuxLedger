@@ -1,7 +1,6 @@
 import { afterAll, expect, it } from 'bun:test';
 import { sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
-import { creditGrantHoldAllocations, holdEntries, holds } from '../../src/schema';
 import {
   createLedger,
   createRepositoryTestClient,
@@ -14,16 +13,14 @@ const client = createRepositoryTestClient();
 const db = createRepositoryTestDatabase(client);
 afterAll(() => client.sql.end({ timeout: 5 }));
 
-it('upgrades active partially consumed reservations and preserves migration atomicity', async () => {
+it('upgrades existing grants from pre-LL-101 schema and preserves migration atomicity', async () => {
   const journal = await Bun.file('drizzle/meta/_journal.json').json();
-  const migration = await Bun.file(
-    'drizzle/0005_2026-10-14-grant-reservation-snapshots.sql',
-  ).text();
+  const migration = await Bun.file('drizzle/0004_grant_hold_allocations.sql').text();
   try {
     await db.transaction(async (tx) => {
       await tx.execute(sql`DROP SCHEMA public CASCADE`);
       await tx.execute(sql`CREATE SCHEMA public`);
-      for (const entry of journal.entries.filter((entry: { idx: number }) => entry.idx < 5)) {
+      for (const entry of journal.entries.filter((entry: { idx: number }) => entry.idx < 4)) {
         const content = await Bun.file(`drizzle/${entry.tag}.sql`).text();
         for (const statement of content.split('--> statement-breakpoint')) {
           if (statement.trim()) await tx.execute(sql.raw(statement));
@@ -61,60 +58,6 @@ it('upgrades active partially consumed reservations and preserves migration atom
       reference: 'grant',
       amountMinor: 100n,
     });
-    // Seed through the old schema's actual SQL guards, without the new adapter's
-    // reservation snapshot reads (those columns do not exist until migration 0005).
-    const holdId = await client.runTenantTx(tenantId, 'seed old reservation', async (tx) => {
-      const [hold] = await tx
-        .insert(holds)
-        .values({
-          tenantId,
-          ledgerId,
-          reference: 'hold',
-          currency: 'USD',
-          assetId: asset.id,
-          originalAmountMinor: 80n,
-          remainingAmountMinor: 80n,
-        })
-        .returning();
-      const [debit] = await tx
-        .insert(holdEntries)
-        .values([
-          {
-            tenantId,
-            holdId: hold.id,
-            accountId: wallet.id,
-            currency: 'USD',
-            assetId: asset.id,
-            signedAmountMinor: 80n,
-          },
-          {
-            tenantId,
-            holdId: hold.id,
-            accountId: funding.id,
-            currency: 'USD',
-            assetId: asset.id,
-            signedAmountMinor: -80n,
-          },
-        ])
-        .returning();
-      await tx.insert(creditGrantHoldAllocations).values({
-        tenantId,
-        ledgerId,
-        accountId: wallet.id,
-        grantId: grant.id,
-        holdEntryId: debit.id,
-        amountMinor: 80n,
-      });
-      await tx.execute(sql`update accounts set reserved_delta_minor = case when id = ${wallet.id} then 80 else -80 end
-        where tenant_id = ${tenantId} and id in (${wallet.id}, ${funding.id})`);
-      return hold.id;
-    });
-    await services.holds.commit({
-      tenantId,
-      holdId,
-      reference: 'before-upgrade',
-      amountMinor: 30n,
-    });
     const applyMigration = async (abort: boolean) =>
       db.transaction(async (tx) => {
         for (const statement of migration.split('--> statement-breakpoint')) {
@@ -126,19 +69,37 @@ it('upgrades active partially consumed reservations and preserves migration atom
     const columns = await db.execute(sql`select 1 from information_schema.columns
       where table_schema = 'public' and table_name = 'credit_grant_capacity_versions' and column_name = 'reserved_minor'`);
     expect(columns).toHaveLength(0);
+    const [rolledBack] = await db.execute(
+      sql`select to_regclass('public.credit_grant_hold_allocations') as allocations`,
+    );
+    expect(rolledBack.allocations).toBeNull();
+    const [original] = await db.execute(
+      sql`select remaining_minor::text as remaining from credit_grant_capacity_versions where grant_id = ${grant.id} order by version desc limit 1`,
+    );
+    expect(original.remaining).toBe('100');
     await applyMigration(false);
     const [checkpoint] = await db.execute<{ reserved: string; remaining: string }>(sql`
       select reserved_minor::text as reserved, remaining_minor::text as remaining
       from credit_grant_capacity_versions order by version desc limit 1
     `);
-    expect(checkpoint).toMatchObject({ reserved: '50', remaining: '70' });
+    expect(checkpoint).toMatchObject({ reserved: '0', remaining: '100' });
+    const { holdId } = await services.holds.create({
+      tenantId,
+      ledgerId,
+      reference: 'after-upgrade-hold',
+      currency: 'USD',
+      entries: [
+        { accountId: wallet.id, signedAmountMinor: 80n, currency: 'USD' },
+        { accountId: funding.id, signedAmountMinor: -80n, currency: 'USD' },
+      ],
+    });
     await services.holds.commit({ tenantId, holdId, reference: 'after-upgrade', amountMinor: 20n });
     await services.holds.void({ tenantId, holdId });
     const [final] = await db.execute<{ reserved: string; remaining: string }>(sql`
       select reserved_minor::text as reserved, remaining_minor::text as remaining
       from credit_grant_capacity_versions order by version desc limit 1
     `);
-    expect(final).toMatchObject({ reserved: '0', remaining: '50' });
+    expect(final).toMatchObject({ reserved: '0', remaining: '80' });
   } finally {
     await migrateTestDatabase(db);
   }
