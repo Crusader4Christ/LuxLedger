@@ -128,7 +128,8 @@ export const attachReservedGrantConsumption = async (
         asc(schema.creditGrants.createdAt),
         asc(schema.creditGrants.id),
       )
-      .for('update');
+      // Provenance is immutable; serialize consumption on the grant, not the joined history.
+      .for('update', { of: schema.creditGrants });
     if (allocations.length === 0) continue;
     const allocationByGrant = new Map<string, bigint>();
     for (const allocation of allocations) {

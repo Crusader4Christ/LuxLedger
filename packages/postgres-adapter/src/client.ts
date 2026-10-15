@@ -1,5 +1,10 @@
 import { isDomainError, type UnknownRecord } from '@luxledger/core';
-import { InvariantViolationError, RepositoryError } from '@luxledger/core/application';
+import {
+  HoldLifecycleMismatchError,
+  InsufficientReservedCapacityError,
+  InvariantViolationError,
+  RepositoryError,
+} from '@luxledger/core/application';
 import { sql as drizzleSql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -22,6 +27,7 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
   '23505',
   '23514',
   'P0001',
+  'LL003',
 ]);
 
 const isObjectRecord = (value: unknown): value is UnknownRecord =>
@@ -46,6 +52,9 @@ const throwDatabaseError = (error: unknown, operation: string): never => {
   }
 
   const databaseCode = extractDatabaseCode(error);
+  // SQLSTATE is the contract; PostgreSQL messages and DETAIL never reach API clients.
+  if (databaseCode === 'LL001') throw new HoldLifecycleMismatchError({ cause: error });
+  if (databaseCode === 'LL002') throw new InsufficientReservedCapacityError({ cause: error });
   if (databaseCode && CONSTRAINT_VIOLATION_CODES.has(databaseCode)) {
     throw new InvariantViolationError(`Unable to ${operation}: data constraints violated`, {
       cause: error,

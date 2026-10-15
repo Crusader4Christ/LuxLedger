@@ -60,11 +60,17 @@ BEGIN
     WHERE tenant_id = NEW.tenant_id AND ledger_id = NEW.ledger_id
       AND account_id = NEW.account_id AND id = NEW.grant_id
     FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'invalid tenant-scoped allocation relationship' USING ERRCODE = 'LL003';
+  END IF;
   SELECT he.signed_amount_minor, h.state INTO held_amount, held_state
     FROM hold_entries he
     JOIN holds h ON h.tenant_id = he.tenant_id AND h.id = he.hold_id
     WHERE he.tenant_id = NEW.tenant_id AND he.account_id = NEW.account_id
-      AND he.id = NEW.hold_entry_id;
+      AND he.id = NEW.hold_entry_id AND h.ledger_id = NEW.ledger_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'invalid tenant-scoped allocation relationship' USING ERRCODE = 'LL003';
+  END IF;
   IF held_amount IS NULL OR held_amount <= 0 OR held_state <> 'HELD'
     OR (grant_expiration IS NOT NULL AND grant_expiration <= transaction_timestamp()) THEN
     RAISE EXCEPTION 'credit grant hold allocation scope is invalid';
@@ -235,7 +241,7 @@ BEGIN
           AND l.kind = 'CONSUMPTION' AND t.hold_id = linked_hold;
       IF linked_signed_amount <= 0 OR NEW.amount_minor > available_amount
         OR hold_consumed + NEW.amount_minor > hold_allocation THEN
-        RAISE EXCEPTION 'credit grant consumption exceeds reserved capacity';
+        RAISE EXCEPTION 'credit grant consumption exceeds reserved capacity' USING ERRCODE = 'LL002';
       END IF;
     END IF;
   ELSIF NEW.kind::text = 'COMPENSATION' THEN
@@ -360,37 +366,13 @@ CREATE FUNCTION release_grant_hold_reservations() RETURNS trigger LANGUAGE plpgs
 DECLARE grant_row record;
 DECLARE allocated bigint;
 DECLARE consumed bigint;
-DECLARE committed numeric;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM hold_entries he JOIN credit_grant_hold_allocations a
       ON a.tenant_id = he.tenant_id AND a.hold_entry_id = he.id
       WHERE he.tenant_id = OLD.tenant_id AND he.hold_id = OLD.id) THEN
     RETURN NEW;
   END IF;
-  IF (NEW.id, NEW.tenant_id, NEW.ledger_id, NEW.asset_id, NEW.original_amount_minor)
-      IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.ledger_id, OLD.asset_id, OLD.original_amount_minor) THEN
-    RAISE EXCEPTION 'allocated hold identity is immutable';
-  END IF;
-  IF NEW.state = OLD.state THEN
-    IF NEW.state <> 'HELD' AND NEW.remaining_amount_minor <> OLD.remaining_amount_minor THEN
-      RAISE EXCEPTION 'finalized hold remaining amount is immutable'
-        USING ERRCODE = '23514', CONSTRAINT = 'grant_hold_lifecycle';
-    END IF;
-    IF NEW.state = 'HELD' THEN
-      SELECT coalesce(sum(e.signed_amount_minor), 0) INTO committed
-        FROM transactions t JOIN entries e ON e.tenant_id = t.tenant_id AND e.transaction_id = t.id
-        WHERE t.tenant_id = OLD.tenant_id AND t.hold_id = OLD.id AND e.signed_amount_minor > 0;
-      IF NEW.remaining_amount_minor > OLD.remaining_amount_minor
-        OR NEW.remaining_amount_minor <> NEW.original_amount_minor - committed THEN
-        RAISE EXCEPTION 'hold remaining amount must match committed postings'
-          USING ERRCODE = '23514', CONSTRAINT = 'grant_hold_lifecycle';
-      END IF;
-    END IF;
-    RETURN NEW;
-  END IF;
-  IF OLD.state <> 'HELD' OR NEW.state NOT IN ('APPLIED', 'VOIDED') OR NEW.remaining_amount_minor <> 0 THEN
-    RAISE EXCEPTION 'invalid allocated hold state transition';
-  END IF;
+  IF NEW.state <> 'VOIDED' THEN RETURN NEW; END IF;
   PERFORM 1 FROM accounts ac WHERE ac.tenant_id = OLD.tenant_id AND ac.grant_enabled
     AND ac.id IN (SELECT account_id FROM hold_entries WHERE tenant_id = OLD.tenant_id AND hold_id = OLD.id)
     ORDER BY ac.id FOR UPDATE;
@@ -409,10 +391,10 @@ BEGIN
       JOIN transactions t ON t.tenant_id = e.tenant_id AND t.id = e.transaction_id
       WHERE l.tenant_id = OLD.tenant_id AND l.grant_id = grant_row.id
         AND l.kind = 'CONSUMPTION' AND t.hold_id = OLD.id;
-    IF allocated < consumed OR (NEW.state = 'APPLIED' AND allocated <> consumed) THEN
-      RAISE EXCEPTION 'allocated hold finalization does not match consumption';
+    IF allocated < consumed THEN
+      RAISE EXCEPTION 'allocated hold finalization does not match consumption' USING ERRCODE = 'LL001';
     END IF;
-    IF NEW.state = 'VOIDED' AND allocated > consumed THEN
+    IF allocated > consumed THEN
       PERFORM append_credit_grant_reservation_version(OLD.tenant_id, grant_row.id,
         consumed - allocated, NULL, OLD.id);
     END IF;
@@ -421,3 +403,113 @@ BEGIN
 END $$;--> statement-breakpoint
 CREATE TRIGGER grant_hold_reservations_released BEFORE UPDATE ON holds
   FOR EACH ROW EXECUTE FUNCTION release_grant_hold_reservations();
+--> statement-breakpoint
+
+-- Every hold starts HELD. API retries return the persisted result without UPDATE.
+-- A SQL UPDATE must perform exactly one forward transition; identity is immutable.
+CREATE FUNCTION guard_hold_lifecycle() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'hold history is immutable' USING ERRCODE = 'LL001';
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.state <> 'HELD' OR NEW.original_amount_minor <= 0
+      OR NEW.remaining_amount_minor <> NEW.original_amount_minor
+      OR NEW.applied_at IS NOT NULL OR NEW.voided_at IS NOT NULL THEN
+      RAISE EXCEPTION 'hold must start with its full reservation' USING ERRCODE = 'LL001';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF (NEW.id, NEW.tenant_id, NEW.ledger_id, NEW.asset_id, NEW.currency,
+      NEW.reference, NEW.description, NEW.original_amount_minor, NEW.created_at)
+    IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.ledger_id, OLD.asset_id, OLD.currency,
+      OLD.reference, OLD.description, OLD.original_amount_minor, OLD.created_at) THEN
+    RAISE EXCEPTION 'hold identity is immutable' USING ERRCODE = 'LL001';
+  END IF;
+  IF OLD.state <> 'HELD' THEN
+    RAISE EXCEPTION 'finalized hold cannot transition' USING ERRCODE = 'LL001';
+  END IF;
+  IF NEW.state = 'HELD' AND NEW.remaining_amount_minor > 0
+    AND NEW.remaining_amount_minor < OLD.remaining_amount_minor
+    AND NEW.applied_at IS NULL AND NEW.voided_at IS NULL THEN RETURN NEW; END IF;
+  IF NEW.state = 'APPLIED' AND NEW.remaining_amount_minor = 0
+    AND NEW.applied_at IS NOT NULL AND NEW.voided_at IS NULL THEN RETURN NEW; END IF;
+  IF NEW.state = 'VOIDED' AND NEW.remaining_amount_minor = 0
+    AND NEW.applied_at IS NULL AND NEW.voided_at IS NOT NULL THEN RETURN NEW; END IF;
+  RAISE EXCEPTION 'invalid hold lifecycle transition' USING ERRCODE = 'LL001';
+END $$;--> statement-breakpoint
+CREATE TRIGGER a_hold_lifecycle_guard BEFORE INSERT OR UPDATE OR DELETE ON holds
+  FOR EACH ROW EXECUTE FUNCTION guard_hold_lifecycle();--> statement-breakpoint
+
+-- Check the final database state, not the order of writes inside a commit.
+-- Only this hold's postings are scanned. Reversals have no hold_id and do not reopen it.
+CREATE FUNCTION assert_grant_hold_consistent(p_tenant uuid, p_hold uuid)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE h holds%ROWTYPE;
+DECLARE initial numeric;
+DECLARE committed numeric;
+DECLARE net numeric;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM hold_entries he JOIN accounts a
+    ON a.tenant_id = he.tenant_id AND a.id = he.account_id
+    WHERE he.tenant_id = p_tenant AND he.hold_id = p_hold AND a.grant_enabled) THEN RETURN; END IF;
+  SELECT * INTO STRICT h FROM holds WHERE tenant_id = p_tenant AND id = p_hold;
+  SELECT coalesce(sum(signed_amount_minor) FILTER (WHERE signed_amount_minor > 0), 0),
+    coalesce(sum(signed_amount_minor), 0) INTO initial, net
+    FROM hold_entries WHERE tenant_id = p_tenant AND hold_id = p_hold;
+  IF initial <> h.original_amount_minor OR net <> 0 THEN
+    RAISE EXCEPTION 'hold entries do not match original amount' USING ERRCODE = 'LL001';
+  END IF;
+  SELECT coalesce(sum(e.signed_amount_minor) FILTER (WHERE e.signed_amount_minor > 0), 0),
+    coalesce(sum(e.signed_amount_minor), 0) INTO committed, net
+    FROM transactions t JOIN entries e ON e.tenant_id = t.tenant_id AND e.transaction_id = t.id
+    WHERE t.tenant_id = p_tenant AND t.hold_id = p_hold;
+  IF net <> 0 OR committed > initial
+    OR (h.state = 'HELD' AND h.remaining_amount_minor <> initial - committed)
+    OR (h.state = 'APPLIED' AND committed <> initial)
+    OR (h.state = 'VOIDED' AND committed >= initial) THEN
+    RAISE EXCEPTION 'hold amounts disagree with committed postings' USING ERRCODE = 'LL001';
+  END IF;
+  IF EXISTS (
+    WITH original AS (
+      SELECT account_id, sign(signed_amount_minor) AS side, sum(abs(signed_amount_minor::numeric)) AS amount
+      FROM hold_entries WHERE tenant_id = p_tenant AND hold_id = p_hold GROUP BY account_id, side
+    ), posted AS (
+      SELECT e.account_id, sign(e.signed_amount_minor) AS side, sum(abs(e.signed_amount_minor::numeric)) AS amount
+      FROM transactions t JOIN entries e ON e.tenant_id = t.tenant_id AND e.transaction_id = t.id
+      WHERE t.tenant_id = p_tenant AND t.hold_id = p_hold GROUP BY e.account_id, side
+    ) SELECT 1 FROM original o FULL JOIN posted p USING (account_id, side)
+      WHERE coalesce(p.amount, 0) * initial <> coalesce(o.amount, 0) * committed
+  ) THEN
+    RAISE EXCEPTION 'hold posting proportions do not match original entries' USING ERRCODE = 'LL001';
+  END IF;
+END $$;--> statement-breakpoint
+CREATE FUNCTION check_grant_hold_consistency() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE linked_hold uuid;
+BEGIN
+  IF TG_TABLE_NAME = 'holds' THEN linked_hold := NEW.id;
+  ELSIF TG_TABLE_NAME = 'hold_entries' THEN linked_hold := NEW.hold_id;
+  ELSE
+    SELECT hold_id INTO linked_hold FROM transactions WHERE tenant_id = NEW.tenant_id AND id = NEW.transaction_id;
+  END IF;
+  IF linked_hold IS NOT NULL THEN PERFORM assert_grant_hold_consistent(NEW.tenant_id, linked_hold); END IF;
+  RETURN NEW;
+END $$;--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER grant_hold_amounts_consistent AFTER INSERT OR UPDATE ON holds
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_grant_hold_consistency();--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER grant_hold_entries_consistent AFTER INSERT ON hold_entries
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_grant_hold_consistency();--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER grant_hold_postings_consistent AFTER INSERT ON entries
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_grant_hold_consistency();
+--> statement-breakpoint
+-- Hold reads and writes must use the same session tenant as allocation provenance.
+ALTER TABLE holds ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE holds FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE POLICY holds_tenant_rls ON holds
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);--> statement-breakpoint
+ALTER TABLE hold_entries ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE hold_entries FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE POLICY hold_entries_tenant_rls ON hold_entries
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);--> statement-breakpoint

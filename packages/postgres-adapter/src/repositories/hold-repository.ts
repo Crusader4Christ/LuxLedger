@@ -6,6 +6,8 @@ import {
   type CreateHoldInput,
   type CreateHoldResult,
   type HoldApplicationRepository,
+  HoldLifecycleMismatchError,
+  HoldNotFoundError,
   InvariantViolationError,
   RepositoryError,
   type VoidHoldInput,
@@ -212,7 +214,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
     return this.client.runTenantTx(input.tenantId, 'commit hold', async (tx) => {
       const hold = await this.lockHold(tx, input.tenantId, input.holdId);
       if (!hold) {
-        throw new InvariantViolationError('Unable to commit hold: hold not found');
+        throw new HoldNotFoundError(input.holdId);
       }
 
       const [existingTransaction] = await tx
@@ -259,16 +261,14 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         }
         return {
           holdId: hold.id,
-          state: hold.state === 'APPLIED' ? 'APPLIED' : 'HELD',
+          state: hold.state,
           remainingAmountMinor: hold.remainingAmountMinor,
           transactionId: existingTransaction.id,
           created: false,
         } satisfies CommitHoldResult;
       }
       if (hold.state !== 'HELD') {
-        throw new InvariantViolationError(
-          `Unable to commit hold: invalid hold state ${hold.state}`,
-        );
+        throw new HoldLifecycleMismatchError();
       }
       this.assertHeldAmount(hold, 'commit');
 
@@ -431,7 +431,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
     return this.client.runTenantTx(input.tenantId, 'void hold', async (tx) => {
       const hold = await this.lockHold(tx, input.tenantId, input.holdId);
       if (!hold) {
-        throw new InvariantViolationError('Unable to void hold: hold not found');
+        throw new HoldNotFoundError(input.holdId);
       }
       if (hold.state === 'VOIDED') {
         return {
@@ -442,7 +442,7 @@ export class DrizzleHoldRepository implements HoldApplicationRepository {
         } satisfies VoidHoldResult;
       }
       if (hold.state !== 'HELD') {
-        throw new InvariantViolationError(`Unable to void hold: invalid hold state ${hold.state}`);
+        throw new HoldLifecycleMismatchError();
       }
       this.assertHeldAmount(hold, 'void');
 

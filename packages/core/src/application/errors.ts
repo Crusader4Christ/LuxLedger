@@ -16,8 +16,8 @@ export class AssetNotFoundError extends DomainError {
 }
 
 export class CreditGrantNotFoundError extends DomainError {
-  public constructor(grantId: string) {
-    super(`Credit grant not found: ${grantId}`, 'CREDIT_GRANT_NOT_FOUND', 404);
+  public constructor(_grantId: string) {
+    super('Credit grant not found', 'CREDIT_GRANT_NOT_FOUND', 404);
   }
 }
 
@@ -58,7 +58,7 @@ export class HoldNotFoundError extends DomainError {
   public readonly holdId: string;
 
   public constructor(holdId: string) {
-    super(`Hold not found: ${holdId}`, 'HOLD_NOT_FOUND', 404);
+    super('Hold not found', 'HOLD_NOT_FOUND', 404);
     this.holdId = holdId;
   }
 }
@@ -76,6 +76,22 @@ export class InvariantViolationError extends DomainError {
 }
 
 export type BulkTransactionErrorCategory = 'VALIDATION' | 'CONFLICT' | 'PERSISTENCE';
+
+export class HoldLifecycleMismatchError extends InvariantViolationError {
+  public override readonly code = 'HOLD_LIFECYCLE_MISMATCH';
+  public override readonly httpStatus = 409;
+  public constructor(options?: ErrorOptions) {
+    super('Hold lifecycle or amounts do not match committed postings', options);
+  }
+}
+
+export class InsufficientReservedCapacityError extends InvariantViolationError {
+  public override readonly code = 'INSUFFICIENT_RESERVED_CAPACITY';
+  public override readonly httpStatus = 409;
+  public constructor(options?: ErrorOptions) {
+    super('Insufficient reserved grant capacity', options);
+  }
+}
 
 export class BulkTransactionError extends DomainError {
   public readonly details: {

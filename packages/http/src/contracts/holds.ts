@@ -47,7 +47,7 @@ export const commitHoldResponseSchema = {
     hold_id: { type: 'string', format: 'uuid' },
     transaction_id: { type: 'string', format: 'uuid' },
     created: { type: 'boolean' },
-    state: { type: 'string', enum: ['HELD', 'APPLIED'] },
+    state: { type: 'string', enum: ['HELD', 'APPLIED', 'VOIDED'] },
     remaining_amount_minor: { type: 'string', pattern: '^[0-9]+$' },
   },
 } as const;

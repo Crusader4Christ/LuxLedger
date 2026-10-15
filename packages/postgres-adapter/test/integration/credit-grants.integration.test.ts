@@ -1246,7 +1246,7 @@ describe('credit grants', () => {
         if (commit.status === 'fulfilled') {
           expect(commit.value.remainingAmountMinor).toBe(9n);
         } else {
-          expect(String(commit.reason)).toContain('invalid hold state VOIDED');
+          expect(commit.reason.code).toBe('HOLD_LIFECYCLE_MISMATCH');
         }
         const [account] = await db
           .select()
@@ -1364,7 +1364,7 @@ describe('credit grants', () => {
           )
           .execute(),
       ).rejects.toMatchObject({
-        cause: { code: '23514', constraint_name: 'grant_hold_lifecycle' },
+        cause: { code: 'LL001' },
       });
     }
     expect(await db.select().from(creditGrantCapacityVersions)).toEqual(before);
@@ -1372,7 +1372,7 @@ describe('credit grants', () => {
     await expect(
       db.transaction(async (tx) => {
         await tx.execute(
-          sql`update holds set state = 'VOIDED', remaining_amount_minor = 0 where id = ${hold.holdId}`,
+          sql`update holds set state = 'VOIDED', remaining_amount_minor = 0, voided_at = now() where id = ${hold.holdId}`,
         );
         const [snapshot] = await tx.execute<{ reserved: string }>(sql`
         select reserved_minor::text as reserved from credit_grant_capacity_versions order by version desc limit 1
@@ -1389,14 +1389,14 @@ describe('credit grants', () => {
     `)
         .execute(),
     ).rejects.toMatchObject({
-      cause: { message: expect.stringContaining('does not match consumption') },
+      cause: { code: 'LL001' },
     });
     await services.holds.void({ tenantId, holdId: hold.holdId });
     await services.holds.void({ tenantId, holdId: hold.holdId });
     await expect(
       db.execute(sql`update holds set state = 'HELD' where id = ${hold.holdId}`).execute(),
     ).rejects.toMatchObject({
-      cause: { message: expect.stringContaining('invalid allocated hold state transition') },
+      cause: { code: 'LL001' },
     });
     const snapshots = await db
       .select()

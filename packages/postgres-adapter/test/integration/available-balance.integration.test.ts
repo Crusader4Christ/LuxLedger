@@ -395,16 +395,16 @@ describe('DISALLOW available balance across holds and postings', () => {
     const before = await f.counts();
     await expect(
       db.update(holds).set({ remainingAmountMinor: 3n }).where(eq(holds.id, held.holdId)).execute(),
-    ).rejects.toMatchObject({ cause: { code: '23514', constraint_name: 'holds_amounts_chk' } });
+    ).rejects.toMatchObject({ cause: { code: 'LL001' } });
     await expect(
       db.update(holds).set({ remainingAmountMinor: 0n }).where(eq(holds.id, held.holdId)).execute(),
     ).rejects.toMatchObject({
-      cause: { code: '23514', constraint_name: 'holds_state_amount_chk' },
+      cause: { code: 'LL001' },
     });
     await expect(
       db.update(holds).set({ state: 'APPLIED' }).where(eq(holds.id, held.holdId)).execute(),
     ).rejects.toMatchObject({
-      cause: { code: '23514', constraint_name: 'holds_state_amount_chk' },
+      cause: { code: 'LL001' },
     });
     expect(await f.counts()).toEqual(before);
     expect(await f.state()).toEqual({ posted: 100n, reserved: -2n, available: 98n });
