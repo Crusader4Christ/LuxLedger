@@ -223,6 +223,14 @@ export const holds = pgTable(
       table.reference,
     ),
     holdsLedgerIdIdx: index('holds_ledger_id_idx').on(table.ledgerId),
+    holdsAmountsChk: check(
+      'holds_amounts_chk',
+      sql`${table.originalAmountMinor} > 0 and ${table.remainingAmountMinor} >= 0 and ${table.remainingAmountMinor} <= ${table.originalAmountMinor}`,
+    ),
+    holdsStateAmountChk: check(
+      'holds_state_amount_chk',
+      sql`(${table.state} = 'HELD' and ${table.remainingAmountMinor} > 0) or (${table.state} in ('APPLIED', 'VOIDED') and ${table.remainingAmountMinor} = 0)`,
+    ),
   }),
 );
 

@@ -1,3 +1,6 @@
+ALTER TABLE "holds" ADD CONSTRAINT "holds_amounts_chk" CHECK ("holds"."original_amount_minor" > 0 and "holds"."remaining_amount_minor" >= 0 and "holds"."remaining_amount_minor" <= "holds"."original_amount_minor");--> statement-breakpoint
+ALTER TABLE "holds" ADD CONSTRAINT "holds_state_amount_chk" CHECK (("holds"."state" = 'HELD' and "holds"."remaining_amount_minor" > 0) or ("holds"."state" in ('APPLIED', 'VOIDED') and "holds"."remaining_amount_minor" = 0));
+--> statement-breakpoint
 CREATE TABLE "credit_grant_hold_allocations" (
 	"id" uuid PRIMARY KEY DEFAULT uuid_v7() NOT NULL,
 	"tenant_id" uuid NOT NULL,
@@ -37,7 +40,7 @@ ALTER TABLE "credit_grant_capacity_versions" ADD CONSTRAINT "credit_grant_capaci
 CREATE UNIQUE INDEX "credit_grant_capacity_versions_source_allocation_uq" ON "credit_grant_capacity_versions" USING btree ("source_allocation_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_grant_capacity_versions_source_hold_uq" ON "credit_grant_capacity_versions" USING btree ("grant_id","source_hold_id");--> statement-breakpoint
 ALTER TABLE "credit_grant_capacity_versions" ADD CONSTRAINT "credit_grant_capacity_versions_reserved_chk" CHECK ("credit_grant_capacity_versions"."reserved_minor" >= 0 and "credit_grant_capacity_versions"."reserved_minor" <= "credit_grant_capacity_versions"."remaining_minor");--> statement-breakpoint
--- Reads no longer replay allocations or consumption. VOLATILE preserves visibility
+-- Reads use the latest reservation snapshot. VOLATILE preserves visibility
 -- of snapshots appended by earlier rows in the same statement.
 CREATE FUNCTION active_credit_grant_reservation(p_tenant uuid, p_grant uuid)
 RETURNS numeric LANGUAGE sql VOLATILE SECURITY INVOKER AS $$
@@ -357,6 +360,7 @@ CREATE FUNCTION release_grant_hold_reservations() RETURNS trigger LANGUAGE plpgs
 DECLARE grant_row record;
 DECLARE allocated bigint;
 DECLARE consumed bigint;
+DECLARE committed numeric;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM hold_entries he JOIN credit_grant_hold_allocations a
       ON a.tenant_id = he.tenant_id AND a.hold_entry_id = he.id
@@ -367,7 +371,23 @@ BEGIN
       IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.ledger_id, OLD.asset_id, OLD.original_amount_minor) THEN
     RAISE EXCEPTION 'allocated hold identity is immutable';
   END IF;
-  IF NEW.state = OLD.state THEN RETURN NEW; END IF;
+  IF NEW.state = OLD.state THEN
+    IF NEW.state <> 'HELD' AND NEW.remaining_amount_minor <> OLD.remaining_amount_minor THEN
+      RAISE EXCEPTION 'finalized hold remaining amount is immutable'
+        USING ERRCODE = '23514', CONSTRAINT = 'grant_hold_lifecycle';
+    END IF;
+    IF NEW.state = 'HELD' THEN
+      SELECT coalesce(sum(e.signed_amount_minor), 0) INTO committed
+        FROM transactions t JOIN entries e ON e.tenant_id = t.tenant_id AND e.transaction_id = t.id
+        WHERE t.tenant_id = OLD.tenant_id AND t.hold_id = OLD.id AND e.signed_amount_minor > 0;
+      IF NEW.remaining_amount_minor > OLD.remaining_amount_minor
+        OR NEW.remaining_amount_minor <> NEW.original_amount_minor - committed THEN
+        RAISE EXCEPTION 'hold remaining amount must match committed postings'
+          USING ERRCODE = '23514', CONSTRAINT = 'grant_hold_lifecycle';
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
   IF OLD.state <> 'HELD' OR NEW.state NOT IN ('APPLIED', 'VOIDED') OR NEW.remaining_amount_minor <> 0 THEN
     RAISE EXCEPTION 'invalid allocated hold state transition';
   END IF;

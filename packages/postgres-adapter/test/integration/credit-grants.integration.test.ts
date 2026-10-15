@@ -1300,6 +1300,53 @@ describe('credit grants', () => {
     });
   });
 
+  it('bounds capacity under contended reserves and spends and concurrent reservation retries', async () => {
+    const tenantId = await createTenant(db, 'contended-capacity');
+    const accounts = await setup(tenantId);
+    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    const concurrentClient = createDbClient({ databaseUrl, max: 10 });
+    const concurrent = createApplicationServices(concurrentClient);
+    const input = (reference: string) => ({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference,
+      currency: 'USD',
+      entries: [
+        { accountId: accounts.accountId, signedAmountMinor: 10n, currency: 'USD' },
+        { accountId: accounts.fundingAccountId, signedAmountMinor: -10n, currency: 'USD' },
+      ],
+    });
+    try {
+      const outcomes = await Promise.allSettled(
+        Array.from({ length: 40 }, (_, index) =>
+          index % 2 === 0
+            ? concurrent.holds.create(input(`reserve-${index}`))
+            : concurrent.transactions.create(input(`spend-${index}`)),
+        ),
+      );
+      expect(outcomes.filter((result) => result.status === 'fulfilled')).toHaveLength(10);
+      for (const outcome of outcomes) {
+        if (outcome.status === 'rejected') {
+          expect(outcome.reason.code).toBe('INVARIANT_VIOLATION');
+        }
+      }
+      const before = await db.select().from(creditGrantCapacityVersions);
+      for (const [index, outcome] of outcomes.entries()) {
+        if (index % 2 !== 0 || outcome.status !== 'fulfilled') continue;
+        const retries = await Promise.all(
+          Array.from({ length: 8 }, () => concurrent.holds.create(input(`reserve-${index}`))),
+        );
+        expect(retries.every((retry) => !retry.created)).toBeTrue();
+      }
+      expect(await db.select().from(creditGrantCapacityVersions)).toEqual(before);
+      const [latest] = await db.execute(sql`select remaining_minor - reserved_minor as free
+        from credit_grant_capacity_versions order by version desc limit 1`);
+      expect(String(latest.free)).toBe('0');
+    } finally {
+      await concurrentClient.sql.end({ timeout: 5 });
+    }
+  });
+
   it('appends immutable reservation snapshots and rolls back direct SQL transitions', async () => {
     const tenantId = await createTenant(db, 'reservation-snapshots');
     const accounts = await setup(tenantId);
@@ -1309,6 +1356,18 @@ describe('credit grants', () => {
     await services.holds.commit(commit);
     await services.holds.commit(commit);
     const before = await db.select().from(creditGrantCapacityVersions);
+    for (const remaining of [51, 49, 81, -1]) {
+      await expect(
+        db
+          .execute(
+            sql`update holds set remaining_amount_minor = ${remaining} where id = ${hold.holdId}`,
+          )
+          .execute(),
+      ).rejects.toMatchObject({
+        cause: { code: '23514', constraint_name: 'grant_hold_lifecycle' },
+      });
+    }
+    expect(await db.select().from(creditGrantCapacityVersions)).toEqual(before);
     const rollback = new Error('rollback direct void');
     await expect(
       db.transaction(async (tx) => {
@@ -1473,7 +1532,7 @@ describe('credit grants', () => {
     const tenantId = await createTenant(db, 'rls-a');
     const otherTenant = await createTenant(db, 'rls-b');
     const accounts = await setup(tenantId);
-    await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    const { grant } = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
     await reserve(tenantId, accounts, 'hold', 20n);
     const rollback = new Error('rollback test role');
     try {
@@ -1490,6 +1549,10 @@ describe('credit grants', () => {
         await tx.execute(sql`select set_config('app.tenant_id', ${otherTenant}, true)`);
         expect(await tx.select().from(creditGrantHoldAllocations)).toHaveLength(0);
         expect(await tx.select().from(creditGrantCapacityVersions)).toHaveLength(0);
+        const [hidden] = await tx.execute(
+          sql`select active_credit_grant_reservation(${tenantId}, ${grant.id}) as reserved`,
+        );
+        expect(String(hidden.reserved)).toBe('0');
         throw rollback;
       });
     } catch (error) {

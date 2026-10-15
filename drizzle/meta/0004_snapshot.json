@@ -1,5 +1,5 @@
 {
-  "id": "1ba694d1-518d-433e-87e3-e49c524dbf86",
+  "id": "4766b262-a295-4977-91b2-f881ce4bbf8e",
   "prevId": "bb3105a5-73db-4657-95c8-76d95bf59b7d",
   "version": "7",
   "dialect": "postgresql",
@@ -2241,7 +2241,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "holds_amounts_chk": {
+          "name": "holds_amounts_chk",
+          "value": "\"holds\".\"original_amount_minor\" > 0 and \"holds\".\"remaining_amount_minor\" >= 0 and \"holds\".\"remaining_amount_minor\" <= \"holds\".\"original_amount_minor\""
+        },
+        "holds_state_amount_chk": {
+          "name": "holds_state_amount_chk",
+          "value": "(\"holds\".\"state\" = 'HELD' and \"holds\".\"remaining_amount_minor\" > 0) or (\"holds\".\"state\" in ('APPLIED', 'VOIDED') and \"holds\".\"remaining_amount_minor\" = 0)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.ledgers": {
