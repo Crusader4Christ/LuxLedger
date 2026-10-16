@@ -58,7 +58,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
   public postCreditGrantReversalInTx(
     tx: PostgresJsDatabase<typeof schema>,
-    input: CreateTransactionInput & { relatedTransactionId: string; relationType: 'REVERSAL' },
+    input: CreateTransactionInput & {
+      relatedTransactionId: string;
+      relationType: 'REVERSAL';
+    },
   ): Promise<CreateTransactionResult> {
     return this.createOrResolvePostedTransaction(tx, {
       ...input,
@@ -685,7 +688,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           'Unable to create transaction: account ledger/currency mismatch',
         );
       }
-      assertAvailableBalance({ ...updatedAccount, side: parseAccountSide(updatedAccount.side) });
+      assertAvailableBalance({
+        ...updatedAccount,
+        side: parseAccountSide(updatedAccount.side),
+      });
       const [previousSnapshot] = await tx
         .select({ postedMinor: schema.balanceSnapshots.postedMinor })
         .from(schema.balanceSnapshots)
@@ -847,6 +853,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
           grantId: schema.creditGrantCapacityVersions.grantId,
           remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
+          reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
         })
         .from(schema.creditGrantCapacityVersions)
         .where(
@@ -864,7 +871,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         );
       const remainingByGrant = new Map(grants.map((grant) => [grant.id, 0n]));
       for (const capacity of capacities) {
-        remainingByGrant.set(capacity.grantId, capacity.remainingMinor);
+        remainingByGrant.set(capacity.grantId, capacity.remainingMinor - capacity.reservedMinor);
       }
       for (const entry of debitEntries) {
         let required = entry.signedAmountMinor;
@@ -952,6 +959,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         .select({
           remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
           expiredMinor: schema.creditGrantCapacityVersions.expiredMinor,
+          reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
         })
         .from(schema.creditGrantCapacityVersions)
         .where(
@@ -962,7 +970,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         )
         .orderBy(desc(schema.creditGrantCapacityVersions.version))
         .limit(1);
-      const remainingMinor = capacity?.remainingMinor ?? 0n;
+      const remainingMinor = (capacity?.remainingMinor ?? 0n) - (capacity?.reservedMinor ?? 0n);
       if (remainingMinor <= 0n) continue;
       const cumulativeExpiredMinor = (capacity?.expiredMinor ?? 0n) + remainingMinor;
       const [account] = await tx
@@ -993,7 +1001,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       });
       if (!posted.created) continue;
       const [walletEntry] = await tx
-        .select({ id: schema.entries.id, signedAmountMinor: schema.entries.signedAmountMinor })
+        .select({
+          id: schema.entries.id,
+          signedAmountMinor: schema.entries.signedAmountMinor,
+        })
         .from(schema.entries)
         .where(
           and(

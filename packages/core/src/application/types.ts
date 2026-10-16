@@ -202,7 +202,7 @@ export interface CommitHoldInput {
 
 export interface CommitHoldResult {
   holdId: string;
-  state: 'HELD' | 'APPLIED';
+  state: 'HELD' | 'APPLIED' | 'VOIDED';
   remainingAmountMinor: bigint;
   transactionId: string;
   created: boolean;

@@ -337,11 +337,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         select g.id as "grantId", g.account_id as "accountId",
           g.funding_account_id as "fundingAccountId", g.ledger_id as "ledgerId",
           g.expires_at as "expiresAt", g.created_at as "createdAt",
-          capacity.remaining_minor::text as "remainingMinor",
+          greatest(capacity.remaining_minor - capacity.reserved_minor, 0)::text as "remainingMinor",
           capacity.expired_minor::text as "expiredMinor", a.currency
         from credit_grants g
         join lateral (
-          select v.remaining_minor, v.expired_minor
+          select v.remaining_minor, v.expired_minor, v.reserved_minor
           from credit_grant_capacity_versions v
           where v.tenant_id = g.tenant_id and v.grant_id = g.id
           order by v.version desc
@@ -351,7 +351,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           and a.id = g.account_id
         where g.tenant_id = ${input.tenantId}
           and g.expires_at <= ${input.asOf.toISOString()}::timestamptz
-          and capacity.remaining_minor > 0
+          and capacity.remaining_minor - capacity.reserved_minor > 0
         order by g.expires_at asc, g.created_at asc, g.id asc
         limit ${input.limit}
       )`;
@@ -385,6 +385,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
           grantId: schema.creditGrantCapacityVersions.grantId,
           remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
           expiredMinor: schema.creditGrantCapacityVersions.expiredMinor,
+          reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
         })
         .from(schema.creditGrantCapacityVersions)
         .where(
@@ -405,11 +406,12 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       );
       rows = lockedGrants.flatMap((grant) => {
         const capacity = capacityByGrant.get(grant.grantId);
-        if (!capacity || capacity.remainingMinor <= 0n) return [];
+        const remainingMinor = (capacity?.remainingMinor ?? 0n) - (capacity?.reservedMinor ?? 0n);
+        if (!capacity || remainingMinor <= 0n) return [];
         return [
           {
             ...grant,
-            remainingMinor: capacity.remainingMinor.toString(),
+            remainingMinor: remainingMinor.toString(),
             expiredMinor: capacity.expiredMinor.toString(),
           },
         ];
@@ -524,9 +526,6 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       throw new CreditGrantConflictError(
         'Credit account requires a registered asset, CREDIT side and DISALLOW overdraft',
       );
-    }
-    if (account.reservedDeltaMinor !== 0n) {
-      throw new CreditGrantConflictError('Credit account cannot have unallocated holds');
     }
     return account;
   }
@@ -690,7 +689,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     kind: 'ISSUANCE' | 'REVERSAL' | 'EXPIRATION',
   ): Promise<void> {
     const walletEntries = await tx
-      .select({ id: schema.entries.id, signedAmountMinor: schema.entries.signedAmountMinor })
+      .select({
+        id: schema.entries.id,
+        signedAmountMinor: schema.entries.signedAmountMinor,
+      })
       .from(schema.entries)
       .where(
         and(

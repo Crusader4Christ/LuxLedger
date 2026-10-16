@@ -30,7 +30,8 @@ The executable schema in [`packages/postgres-adapter/src/schema.ts`](../packages
 
 - `credit_grants`: grant identity and idempotency reference; beneficiary `account_id`; `funding_account_id`; issuance `transaction_id`; optional external reference and expiry; creation time.
 - `credit_grant_entries`: allocation of a positive `amount_minor` magnitude from one ledger entry to a grant, classified as issuance, reversal, consumption, compensation, or expiration. `(grant_id, entry_id)` is the primary key.
-- `credit_grant_capacity_versions`: append-only capacity projection per grant and version. It stores non-negative granted, reversed, consumed, compensated, expired, and remaining magnitudes; `source_entry_id` identifies the allocation that produced the version.
+- `credit_grant_hold_allocations`: immutable positive allocation of a grant to a hold entry; reserves exact lots without posting financial entries.
+- `credit_grant_capacity_versions`: append-only capacity projection per grant and version. It stores non-negative granted, reversed, consumed, compensated, expired, remaining and reserved magnitudes. Available grant capacity is remaining minus reserved. New versions identify their source financial entry, hold allocation or voided hold. See the [write-path overview](./product/transaction-flows.md).
 
 ## Reconciliation
 
@@ -42,4 +43,4 @@ The executable schema in [`packages/postgres-adapter/src/schema.ts`](../packages
 
 ## Why projections exist
 
-`accounts.balance_minor` is the posted balance; there is no separate `posted_minor` on the current account row. `reserved_delta_minor` is the only current reservation aggregate. Both are updated atomically with journal or hold rows and checked against immutable data in tests. They avoid replaying an unbounded journal on every authorization while preserving entries and hold entries as the reconstructable source of truth.
+`accounts.balance_minor` is the posted balance; there is no separate `posted_minor` on the current account row. `reserved_delta_minor` is the current account-level reservation aggregate. Grant capacity versions additionally store the outstanding reservation of each grant. These projections are updated atomically with journal or hold events and checked against immutable provenance in tests. They avoid replaying an unbounded journal on every authorization while preserving entries, hold entries and grant allocations as the reconstructable source of truth.

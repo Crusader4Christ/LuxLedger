@@ -1699,7 +1699,7 @@ components:
           type: boolean
         state:
           type: string
-          enum: [HELD, APPLIED]
+          enum: [HELD, APPLIED, VOIDED]
         remaining_amount_minor:
           type: string
           pattern: '^[0-9]+$'

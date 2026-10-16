@@ -389,23 +389,27 @@ describe('DISALLOW available balance across holds and postings', () => {
     expect((await f.state()).reserved).toBe(0n);
   });
 
-  it('rejects a corrupted hold remainder above its original amount', async () => {
+  it('rejects invalid hold amounts and states at the database boundary', async () => {
     const f = await setup();
     const held = await holdRepository.create(f.request('hold', 2n));
-    await db.update(holds).set({ remainingAmountMinor: 3n }).where(eq(holds.id, held.holdId));
     const before = await f.counts();
     await expect(
-      holdRepository.commit({
-        tenantId: f.tenantId,
-        holdId: held.holdId,
-        reference: 'commit',
-      }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
+      db.update(holds).set({ remainingAmountMinor: 3n }).where(eq(holds.id, held.holdId)).execute(),
+    ).rejects.toMatchObject({ cause: { code: 'LL001' } });
     await expect(
-      holdRepository.void({ tenantId: f.tenantId, holdId: held.holdId }),
-    ).rejects.toBeInstanceOf(InvariantViolationError);
+      db.update(holds).set({ remainingAmountMinor: 0n }).where(eq(holds.id, held.holdId)).execute(),
+    ).rejects.toMatchObject({
+      cause: { code: 'LL001' },
+    });
+    await expect(
+      db.update(holds).set({ state: 'APPLIED' }).where(eq(holds.id, held.holdId)).execute(),
+    ).rejects.toMatchObject({
+      cause: { code: 'LL001' },
+    });
     expect(await f.counts()).toEqual(before);
     expect(await f.state()).toEqual({ posted: 100n, reserved: -2n, available: 98n });
+    await holdRepository.commit({ tenantId: f.tenantId, holdId: held.holdId, reference: 'commit' });
+    expect((await f.state()).reserved).toBe(0n);
   });
 
   it('rejects cross-ledger hold entry mutation at the database boundary', async () => {
