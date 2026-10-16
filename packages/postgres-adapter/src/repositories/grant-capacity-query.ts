@@ -11,6 +11,6 @@ export const grantCapacityQuery = (tenantId: string, grantIds: string[]) => sql`
   )}]::uuid[]) requested(id)
   cross join lateral (
     select grant_id, remaining_minor, reserved_minor from credit_grant_capacity_versions
-    where tenant_id = ${tenantId} and grant_id = requested.id
+    where tenant_id = ${tenantId}::uuid and grant_id = requested.id
     order by version desc limit 1
   ) latest`;

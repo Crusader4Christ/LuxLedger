@@ -17,7 +17,7 @@
     "profile:grant-reservations": "bun run scripts/profile-grant-reservations.ts",
     "test:http": "bun test $(find packages/http/src -type f -name '*.test.ts' | sort)",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
-    "lint": "bunx @biomejs/biome check packages/ scripts/release-readiness.ts scripts/release-readiness.test.ts",
+    "lint": "bunx @biomejs/biome check packages/ scripts/profile-grant-reservations.ts scripts/release-readiness.ts scripts/release-readiness.test.ts",
     "lint:fix": "bunx @biomejs/biome check --write packages/",
     "typecheck": "tsc --noEmit",
     "db:generate": "bash ./scripts/db-generate-named.sh",
