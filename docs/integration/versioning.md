@@ -1,48 +1,37 @@
 # Versioning, Migrations, and Publication
 
-## Compatibility
+## Package and contract versions
 
-LuxLedger packages are versioned independently. A host should pin compatible released versions of core, HTTP, route adapter, and PostgreSQL adapter rather than mixing arbitrary ranges. The OpenAPI `info.version` identifies the HTTP contract version; it is not a substitute for package versions.
+LuxLedger packages are versioned independently. A host should pin a coordinated
+set of core, HTTP, route-adapter, and PostgreSQL-adapter versions rather than
+mixing arbitrary ranges. OpenAPI `info.version` identifies the HTTP contract;
+it does not replace package versioning.
 
-`0000_initial-schema.sql` is the consolidated pre-production baseline. Numbered migrations after `0000` are ordered, in-place upgrades from that baseline and must preserve supported data. Existing development databases from the retired history that predates `0000` must be reset. The baseline is immutable once durable data exists.
+The current coordinated release is `0.3.0` for all public packages and the
+OpenAPI contract. Its release surface is summarized in the
+[0.3.0 release notes](../releases/0.3.0.md).
 
-## Upgrade procedure
+## Migration history
 
-1. Read release notes and compare the canonical OpenAPI contract.
-2. Upgrade all related LuxLedger packages together in a test environment.
-3. Generate or inspect the required Drizzle migration and back up any durable database.
-4. Apply migrations before starting code that depends on the new schema.
-5. Run contract verification, type checking, unit tests, and real-PostgreSQL integration tests.
-6. Exercise authentication, idempotent posting, trial balance, reversal/correction, holds, and reconciliation as applicable.
-7. Deploy with the application's normal rollback and restore plan. Database rollback is never implied by downgrading packages.
+The current pre-production chain starts at `0000_initial-schema.sql` and
+continues through the numbered migrations in `drizzle/`. The project has no
+production database or supported legacy deployment. Development databases
+created from retired migration files should be recreated from the current
+chain.
 
-## Documentation publication checklist
+## Publication checklist
 
-Every contract-affecting release must update runtime contracts, OpenAPI, examples, limitations, and migration notes in the same PR. CI runs `bun run contract:verify`; reviewers also verify links and ensure the demo pins published compatible versions. Documentation should describe only released or concurrently shipping behavior.
+Every contract-affecting release must update runtime contracts, OpenAPI,
+examples, limitations, and release notes in the same PR. Before publication:
 
-The reference demo copies the released OpenAPI contract for local Swagger UI. Its release process must verify that copy is byte-for-byte aligned with this repository and record the package versions used by the demo.
+1. run unit and real-PostgreSQL integration tests, type checking, and linting;
+2. run contract, release-readiness, and packed-package verification;
+3. publish every package in the coordinated set;
+4. install those published versions in the reference demo and regenerate its
+   lockfile;
+5. run the demo's `npm run verify:openapi` check, which compares its copied
+   OpenAPI file byte-for-byte with the file exported by installed
+   `@luxledger/http`;
+6. run the demo integration and browser tests before marking the demo PR ready.
 
-## 0.3.0 coordinated release
-
-All public LuxLedger packages and the OpenAPI contract ship as `0.3.0`. This coordinated breaking set replaces separate entry `direction` and `amount_minor` fields with non-zero `signed_amount_minor`, and migration `0002` upgrades databases created from the consolidated baseline in place. Do not mix it with `0.2.x` packages, schemas, or copied OpenAPI documents. Follow the [0.3.0 signed-entry migration guide](../releases/0.3.0.md).
-
-## 0.2.1 coordinated release
-
-All public LuxLedger packages and the OpenAPI contract ship as `0.2.1`. This release adds deterministic OSS release-readiness gates without changing ledger semantics or the clean-install-only database compatibility policy. Follow the [0.2.1 release notes](../releases/0.2.1.md).
-
-## 0.2.0 coordinated release
-
-All public LuxLedger packages ship as `0.2.0` for this breaking compatibility set. The trial-balance account contract removes `is_contra` and adds `balance_side`; account responses also add the required, nullable `code` field. Upgrade the packages together and follow the [0.2.0 migration guide](../releases/0.2.0.md).
-
-## LL-81 coordinated release checklist
-
-| Component | Release version |
-| --- | --- |
-| `@luxledger/core` | `0.1.1` |
-| `@luxledger/http` | `0.1.1` |
-| `@luxledger/postgres-adapter` | `0.1.3` |
-| `@luxledger/fastify-routes` | `0.1.2` |
-| `@luxledger/express-routes` | `0.1.1` |
-| OpenAPI `info.version` | `0.2.0` |
-
-Publish these versions as one compatibility set. This is a backward-compatible correctness release: valid identical retries and public response schemas are unchanged; retries with a reused reference and changed description now fail as the documented payload mismatch. No database migration is required. Before publishing, build and pack all packages, run unit and real-PostgreSQL integration tests, typecheck, lint, contract verification, and verify the demo's OpenAPI copy byte-for-byte against the released `@luxledger/http` file. Do not describe this compatibility set as available until every package has been published.
+Documentation must describe only released or concurrently shipping behavior.
