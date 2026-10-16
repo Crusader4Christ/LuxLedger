@@ -1,7 +1,8 @@
 import { InvariantViolationError } from '@luxledger/core/application';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { DrizzleDatabase } from '../client';
 import * as schema from '../schema';
+import { grantCapacityQuery } from './grant-capacity-query';
 
 type Tx = DrizzleDatabase;
 
@@ -38,30 +39,16 @@ export const allocateGrantCapacityForHold = async (
   const capacities =
     grants.length === 0
       ? []
-      : await tx
-          .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
-            grantId: schema.creditGrantCapacityVersions.grantId,
-            remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
-            reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
-          })
-          .from(schema.creditGrantCapacityVersions)
-          .where(
-            and(
-              eq(schema.creditGrantCapacityVersions.tenantId, input.tenantId),
-              inArray(
-                schema.creditGrantCapacityVersions.grantId,
-                grants.map((grant) => grant.id),
-              ),
-            ),
-          )
-          .orderBy(
-            schema.creditGrantCapacityVersions.grantId,
-            desc(schema.creditGrantCapacityVersions.version),
-          );
+      : await tx.execute<{ grantId: string; remainingMinor: string; reservedMinor: string }>(
+          grantCapacityQuery(
+            input.tenantId,
+            grants.map((grant) => grant.id),
+          ),
+        );
   const capacityByGrant = new Map(
     capacities.map((capacity) => [
       capacity.grantId,
-      capacity.remainingMinor - capacity.reservedMinor,
+      BigInt(capacity.remainingMinor) - BigInt(capacity.reservedMinor),
     ]),
   );
   let required = input.amountMinor;
