@@ -35,7 +35,11 @@ import { toStoredTransactionMetadata } from '../transaction-metadata';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { insertBalanceSnapshot } from './balance-snapshot';
 import { loadEntriesByTransactionIds } from './entry-loader';
-import { grantCapacityQuery } from './grant-capacity-query';
+import {
+  availableCapacityByGrant,
+  type GrantCapacityRow,
+  grantCapacityQuery,
+} from './grant-capacity-query';
 import { validatePosting, validatePostingEntries } from './posting-validation';
 
 type TransactionRow = typeof schema.transactions.$inferSelect;
@@ -850,22 +854,15 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
       const debitEntries = accountEntries.filter((entry) => entry.signedAmountMinor > 0n);
       if (debitEntries.length === 0) continue;
-      const capacities = await tx.execute<{
-        grantId: string;
-        remainingMinor: string;
-        reservedMinor: string;
-      }>(
+      const capacities = await tx.execute<GrantCapacityRow>(
         grantCapacityQuery(
           input.tenantId,
           grants.map((grant) => grant.id),
         ),
       );
       const remainingByGrant = new Map(grants.map((grant) => [grant.id, 0n]));
-      for (const capacity of capacities) {
-        remainingByGrant.set(
-          capacity.grantId,
-          BigInt(capacity.remainingMinor) - BigInt(capacity.reservedMinor),
-        );
+      for (const [grantId, available] of availableCapacityByGrant(capacities)) {
+        remainingByGrant.set(grantId, available);
       }
       for (const entry of debitEntries) {
         let required = entry.signedAmountMinor;

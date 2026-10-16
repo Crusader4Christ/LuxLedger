@@ -92,6 +92,8 @@ it('reports LL002 before a hold consumption can underflow a damaged reservation 
   // Both the temporary trigger change and corruption roll back with the failed commit.
   await expect(
     client.runTenantTx(f.tenantId, 'check reserved underflow', async (tx) => {
+      // This owner-only fault injection runs in the serialized integration suite
+      // (`--max-concurrency=1`) so the ACCESS EXCLUSIVE trigger lock is isolated.
       await tx.execute(
         sql`alter table credit_grant_capacity_versions disable trigger credit_grant_capacity_versions_immutable`,
       );

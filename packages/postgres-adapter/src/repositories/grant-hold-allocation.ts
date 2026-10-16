@@ -2,7 +2,11 @@ import { InvariantViolationError } from '@luxledger/core/application';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { DrizzleDatabase } from '../client';
 import * as schema from '../schema';
-import { grantCapacityQuery } from './grant-capacity-query';
+import {
+  availableCapacityByGrant,
+  type GrantCapacityRow,
+  grantCapacityQuery,
+} from './grant-capacity-query';
 
 type Tx = DrizzleDatabase;
 
@@ -39,18 +43,13 @@ export const allocateGrantCapacityForHold = async (
   const capacities =
     grants.length === 0
       ? []
-      : await tx.execute<{ grantId: string; remainingMinor: string; reservedMinor: string }>(
+      : await tx.execute<GrantCapacityRow>(
           grantCapacityQuery(
             input.tenantId,
             grants.map((grant) => grant.id),
           ),
         );
-  const capacityByGrant = new Map(
-    capacities.map((capacity) => [
-      capacity.grantId,
-      BigInt(capacity.remainingMinor) - BigInt(capacity.reservedMinor),
-    ]),
-  );
+  const capacityByGrant = availableCapacityByGrant(capacities);
   let required = input.amountMinor;
   const allocations: Array<typeof schema.creditGrantHoldAllocations.$inferInsert> = [];
   for (const grant of grants) {

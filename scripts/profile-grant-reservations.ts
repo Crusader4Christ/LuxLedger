@@ -1,7 +1,11 @@
 import { sql } from 'drizzle-orm';
 import { createApplicationServices } from '../packages/postgres-adapter/src/application-services';
 import type { DbClient } from '../packages/postgres-adapter/src/client';
-import { grantCapacityQuery } from '../packages/postgres-adapter/src/repositories/grant-capacity-query';
+import {
+  availableCapacityByGrant,
+  type GrantCapacityRow,
+  grantCapacityQuery,
+} from '../packages/postgres-adapter/src/repositories/grant-capacity-query';
 import {
   createRepositoryTestClient,
   createRepositoryTestDatabase,
@@ -128,17 +132,12 @@ try {
       if (String(capacity.available) !== '50')
         throw new Error('Incorrect latest reservation subtraction');
       const boundedBatch = grantCapacityQuery(tenantId, ids);
-      const capacities = await tx.execute<{
-        grantId: string;
-        remainingMinor: string;
-        reservedMinor: string;
-      }>(boundedBatch);
+      const capacities = await tx.execute<GrantCapacityRow>(boundedBatch);
+      const availableByGrant = availableCapacityByGrant(capacities);
       if (
         capacities.length !== ids.length ||
-        capacities.reduce(
-          (total, row) => total + BigInt(row.remainingMinor) - BigInt(row.reservedMinor),
-          0n,
-        ) !== BigInt(ids.length * 100 - 50)
+        [...availableByGrant.values()].reduce((total, value) => total + value, 0n) !==
+          BigInt(ids.length * 100 - 50)
       ) {
         throw new Error('Incorrect batch reservation subtraction');
       }
