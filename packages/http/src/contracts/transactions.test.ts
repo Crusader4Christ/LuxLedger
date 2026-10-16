@@ -115,6 +115,24 @@ describe('transaction contract migration parity', () => {
     });
   });
 
+  test('accepts non-zero signed amounts and rejects zero or malformed amounts', () => {
+    const validate = new Ajv({ allErrors: true, strict: false, validateFormats: false }).compile(
+      transactionEntryRequestSchema,
+    );
+    const entry = (signedAmountMinor: unknown) => ({
+      account_id: '00000000-0000-4000-8000-000000000101',
+      signed_amount_minor: signedAmountMinor,
+      currency: 'USD',
+    });
+
+    for (const accepted of ['1', '100', '-1', '-100', '9223372036854775807']) {
+      expect(validate(entry(accepted))).toBeTrue();
+    }
+    for (const rejected of ['0', '-0', '+5', '05', '-05', '1.5', '', '-', ' 5', 5, null]) {
+      expect(validate(entry(rejected))).toBeFalse();
+    }
+  });
+
   test('defines bulk transaction all-or-nothing request and response schemas', () => {
     expect(bulkCreateTransactionRequestSchema.required).toEqual(['transactions']);
     expect(bulkCreateTransactionRequestSchema.properties.transactions.minItems).toBe(1);

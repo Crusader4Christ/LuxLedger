@@ -63,6 +63,27 @@ describe('TransactionEntity', () => {
     expect(empty.metadata).toEqual({});
   });
 
+  it('passes metadata through without cloning, freezing, or validation', () => {
+    const entries = [
+      buildEntry({ accountId: 'a-1', signedAmountMinor: 100n }),
+      buildEntry({ accountId: 'a-2', signedAmountMinor: -100n }),
+    ];
+    const metadata = { provider: { ids: [3, 1, 2] }, flag: null };
+    const transaction = new TransactionEntity({
+      id: new TransactionId('tx-pass-through'),
+      ledgerId: new LedgerId('ledger-1'),
+      reference: 'ref-pass-through',
+      currency: 'USD',
+      metadata,
+      entries,
+    });
+
+    expect(transaction.metadata).toBe(metadata);
+    expect(Object.isFrozen(transaction.metadata)).toBe(false);
+    metadata.provider.ids.push(4);
+    expect(transaction.metadata?.provider).toEqual({ ids: [3, 1, 2, 4] });
+  });
+
   it('throws for less than two entries', () => {
     expect(
       () =>

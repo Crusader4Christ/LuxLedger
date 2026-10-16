@@ -592,6 +592,42 @@ describe('express adapter parity with fastify adapter', () => {
         },
       },
       {
+        name: 'POST /v1/transactions rejects zero and malformed signed amounts identically',
+        run: async () => {
+          for (const [index, signedAmount] of ['0', '-0', '+5', '1.5'].entries()) {
+            const buildPayload = (framework: string) => ({
+              ledger_id: '00000000-0000-4000-8000-000000000001',
+              reference: `invalid-signed-${framework}-${index}`,
+              currency: 'USD',
+              entries: [
+                {
+                  account_id: '00000000-0000-4000-8000-000000000101',
+                  signed_amount_minor: signedAmount,
+                  currency: 'USD',
+                },
+                {
+                  account_id: '00000000-0000-4000-8000-000000000102',
+                  signed_amount_minor: '-100',
+                  currency: 'USD',
+                },
+              ],
+            });
+            const [fastifyResponse, expressResponse] = await Promise.all([
+              requestFastify('POST', '/v1/transactions', buildPayload('fastify')),
+              requestExpress('POST', '/v1/transactions', buildPayload('express')),
+            ]);
+            expect(fastifyResponse.status).toBe(400);
+            expect(expressResponse.status).toBe(400);
+            expect(fastifyResponse.json).toEqual(
+              expect.objectContaining({ error: 'INVALID_INPUT' }),
+            );
+            expect(expressResponse.json).toEqual(
+              expect.objectContaining({ error: 'INVALID_INPUT' }),
+            );
+          }
+        },
+      },
+      {
         name: 'POST /v1/transactions/bulk forwards metadata for every item',
         run: async () => {
           const buildPayload = (framework: string) => ({
