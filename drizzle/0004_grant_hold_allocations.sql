@@ -321,6 +321,9 @@ BEGIN
       JOIN transactions t ON t.tenant_id = e.tenant_id AND t.id = e.transaction_id
       WHERE e.tenant_id = NEW.tenant_id AND e.id = NEW.source_entry_id;
       IF linked_hold IS NOT NULL THEN
+        IF NEW.reserved_minor < lineage.amount_minor THEN
+          RAISE EXCEPTION 'credit grant consumption exceeds reserved capacity' USING ERRCODE = 'LL002';
+        END IF;
         NEW.reserved_minor := NEW.reserved_minor - lineage.amount_minor;
       END IF;
     END IF;

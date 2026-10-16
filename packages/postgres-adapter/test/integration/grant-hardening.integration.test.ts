@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'bun:test';
 import { type SQL, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
-import type { DbClient, DrizzleDatabase } from '../../src/client';
+import { createDbClient, type DbClient, type DrizzleDatabase } from '../../src/client';
 import {
   createLedger,
   createRepositoryTestClient,
   createRepositoryTestDatabase,
   createTenant,
+  databaseUrl,
   migrateTestDatabase,
   truncateTestDatabase,
 } from './repository-test-support';
@@ -82,6 +83,46 @@ const publicFailure = async (action: () => Promise<unknown>) => {
   }
 };
 
+it('reports LL002 before a hold consumption can underflow a damaged reservation snapshot', async () => {
+  const f = await fixture('reservation-underflow');
+  const before = await db.execute(
+    sql`select * from credit_grant_capacity_versions order by version`,
+  );
+  // Fault injection only: normal writers cannot corrupt the immutable snapshot.
+  // Both the temporary trigger change and corruption roll back with the failed commit.
+  await expect(
+    client.runTenantTx(f.tenantId, 'check reserved underflow', async (tx) => {
+      // This owner-only fault injection runs in the serialized integration suite
+      // (`--max-concurrency=1`) so the ACCESS EXCLUSIVE trigger lock is isolated.
+      await tx.execute(
+        sql`alter table credit_grant_capacity_versions disable trigger credit_grant_capacity_versions_immutable`,
+      );
+      await tx.execute(
+        sql`update credit_grant_capacity_versions set reserved_minor = 0 where grant_id = ${f.grant.id}`,
+      );
+      await tx.execute(
+        sql`alter table credit_grant_capacity_versions enable trigger credit_grant_capacity_versions_immutable`,
+      );
+      await createApplicationServices(scopedClient(tx)).holds.commit({
+        tenantId: f.tenantId,
+        holdId: f.hold.holdId,
+        reference: 'underflow',
+        amountMinor: 20n,
+      });
+    }),
+  ).rejects.toMatchObject({
+    code: 'INSUFFICIENT_RESERVED_CAPACITY',
+    cause: { cause: { code: 'LL002' } },
+  });
+  expect(
+    await db.execute(sql`select * from credit_grant_capacity_versions order by version`),
+  ).toEqual(before);
+  const [posting] = await db.execute(
+    sql`select count(*)::int as count from transactions where hold_id = ${f.hold.holdId}`,
+  );
+  expect(posting.count).toBe(0);
+});
+
 it('rejects every illegal hold state edge and accepts only forward transitions', async () => {
   const f = await fixture('lifecycle-matrix');
   const mutations: SQL[] = [
@@ -135,6 +176,13 @@ it('rejects every illegal hold state edge and accepts only forward transitions',
         .execute(),
     ).rejects.toMatchObject({ cause: { code: 'LL001' } });
   }
+  await expect(
+    db
+      .execute(
+        sql`update holds set voided_at = voided_at + interval '1 second' where id = ${f.hold.holdId}`,
+      )
+      .execute(),
+  ).rejects.toMatchObject({ cause: { code: 'LL001' } });
   const full = await services.holds.create({
     ...f.request,
     reference: 'second',
@@ -148,7 +196,66 @@ it('rejects every illegal hold state edge and accepts only forward transitions',
         .execute(),
     ).rejects.toMatchObject({ cause: { code: 'LL001' } });
   }
+  await expect(
+    db
+      .execute(
+        sql`update holds set applied_at = applied_at + interval '1 second' where id = ${full.holdId}`,
+      )
+      .execute(),
+  ).rejects.toMatchObject({ cause: { code: 'LL001' } });
 });
+
+for (const amount of [30n, 50n]) {
+  it(`serializes distinct concurrent partial commits of ${amount} against a reservation of 80`, async () => {
+    const f = await fixture(`parallel-partial-${amount}`);
+    const concurrentClient = createDbClient({ databaseUrl, max: 2 });
+    const concurrent = createApplicationServices(concurrentClient);
+    try {
+      const commands = ['a', 'b'].map((reference) => ({
+        tenantId: f.tenantId,
+        holdId: f.hold.holdId,
+        reference,
+        amountMinor: amount,
+      }));
+      const outcomes = await Promise.allSettled(
+        commands.map((command) => concurrent.holds.commit(command)),
+      );
+      const successes = outcomes.filter((result) => result.status === 'fulfilled');
+      expect(successes).toHaveLength(amount === 30n ? 2 : 1);
+      for (const [index, outcome] of outcomes.entries()) {
+        if (outcome.status === 'rejected') {
+          expect(outcome.reason).toMatchObject({
+            code: 'INVARIANT_VIOLATION',
+            message: 'Unable to commit hold: amount exceeds remaining amount',
+          });
+        } else {
+          expect(await concurrent.holds.commit(commands[index])).toMatchObject({
+            created: false,
+            transactionId: outcome.value.transactionId,
+          });
+        }
+      }
+      const consumed = amount * BigInt(successes.length);
+      const [state] = await db.execute(
+        sql`select remaining_amount_minor::text as remaining from holds where id = ${f.hold.holdId}`,
+      );
+      expect(state.remaining).toBe(String(80n - consumed));
+      const [capacity] = await db.execute(
+        sql`select remaining_minor::text as remaining, reserved_minor::text as reserved from credit_grant_capacity_versions where grant_id = ${f.grant.id} order by version desc limit 1`,
+      );
+      expect(capacity).toMatchObject({
+        remaining: String(100n - consumed),
+        reserved: String(80n - consumed),
+      });
+      const [postings] = await db.execute(
+        sql`select count(*)::int as count from transactions where hold_id = ${f.hold.holdId}`,
+      );
+      expect(postings.count).toBe(successes.length);
+    } finally {
+      await concurrentClient.sql.end();
+    }
+  });
+}
 
 it('rejects a direct SQL partial commit without the matching hold remainder and rolls back all snapshots', async () => {
   const f = await fixture('missing-remainder');

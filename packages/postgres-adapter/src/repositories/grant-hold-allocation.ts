@@ -1,7 +1,12 @@
 import { InvariantViolationError } from '@luxledger/core/application';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { DrizzleDatabase } from '../client';
 import * as schema from '../schema';
+import {
+  availableCapacityByGrant,
+  type GrantCapacityRow,
+  grantCapacityQuery,
+} from './grant-capacity-query';
 
 type Tx = DrizzleDatabase;
 
@@ -38,32 +43,13 @@ export const allocateGrantCapacityForHold = async (
   const capacities =
     grants.length === 0
       ? []
-      : await tx
-          .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
-            grantId: schema.creditGrantCapacityVersions.grantId,
-            remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
-            reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
-          })
-          .from(schema.creditGrantCapacityVersions)
-          .where(
-            and(
-              eq(schema.creditGrantCapacityVersions.tenantId, input.tenantId),
-              inArray(
-                schema.creditGrantCapacityVersions.grantId,
-                grants.map((grant) => grant.id),
-              ),
-            ),
-          )
-          .orderBy(
-            schema.creditGrantCapacityVersions.grantId,
-            desc(schema.creditGrantCapacityVersions.version),
-          );
-  const capacityByGrant = new Map(
-    capacities.map((capacity) => [
-      capacity.grantId,
-      capacity.remainingMinor - capacity.reservedMinor,
-    ]),
-  );
+      : await tx.execute<GrantCapacityRow>(
+          grantCapacityQuery(
+            input.tenantId,
+            grants.map((grant) => grant.id),
+          ),
+        );
+  const capacityByGrant = availableCapacityByGrant(capacities);
   let required = input.amountMinor;
   const allocations: Array<typeof schema.creditGrantHoldAllocations.$inferInsert> = [];
   for (const grant of grants) {
