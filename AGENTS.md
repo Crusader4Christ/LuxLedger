@@ -34,6 +34,26 @@ packages/
 - `bunx drizzle-kit generate` — generate migration from schema
 - `bunx drizzle-kit migrate` — apply migrations
 
+## Repo Map
+- `packages/*` — all source; each package has its own `src/` (tests live beside code or in `test/integration/`)
+- `drizzle/`, `drizzle.config.ts` — SQL migrations and Drizzle config
+- `scripts/` — release, DB, and verification scripts
+- `docs/` — ADRs, runbooks, schema and product docs
+- `.github/` — CI workflows and PR template
+
+## Ignore List (do not read, edit, or commit)
+- `node_modules/`, `packages/*/dist/`, `build/`, `tmp/`, `.tmp/`, `.temp/`
+- `.env*` (only `.env.example` is tracked), `*.log`
+- `.codex/`, `.gokin/`, `ll-old/`, `.idea/`
+- `bun.lock` — change only via `bun install` after manifest edits
+- `drizzle/` generated migrations — never hand-edit; generate via `bun run db:generate`
+
+## Minimal Verification
+- Docs-only change: no checks required.
+- Code change: `bun run lint && bun run typecheck && bun run test:unit`
+- DB/schema change: add `bun run test:integration` (needs `docker compose up -d`)
+- HTTP contract change: add `bun run contract:verify`
+
 ## Local Setup
 ```sh
 docker compose up -d          # PostgreSQL on :5432, test DB on :5433
