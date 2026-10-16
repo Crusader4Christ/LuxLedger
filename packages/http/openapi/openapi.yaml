@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LuxLedger API
-  version: 0.2.1
+  version: 0.3.0
   description: Reference REST API built on top of @luxledger/core.
 servers:
   - url: http://localhost:3000

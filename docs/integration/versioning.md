@@ -22,6 +22,10 @@ Every contract-affecting release must update runtime contracts, OpenAPI, example
 
 The reference demo copies the released OpenAPI contract for local Swagger UI. Its release process must verify that copy is byte-for-byte aligned with this repository and record the package versions used by the demo.
 
+## 0.3.0 coordinated release
+
+All public LuxLedger packages and the OpenAPI contract ship as `0.3.0`. This coordinated breaking set replaces separate entry `direction` and `amount_minor` fields with non-zero `signed_amount_minor`, and migration `0002` upgrades databases created from the consolidated baseline in place. Do not mix it with `0.2.x` packages, schemas, or copied OpenAPI documents. Follow the [0.3.0 signed-entry migration guide](../releases/0.3.0.md).
+
 ## 0.2.1 coordinated release
 
 All public LuxLedger packages and the OpenAPI contract ship as `0.2.1`. This release adds deterministic OSS release-readiness gates without changing ledger semantics or the clean-install-only database compatibility policy. Follow the [0.2.1 release notes](../releases/0.2.1.md).
