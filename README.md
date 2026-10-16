@@ -64,5 +64,7 @@ The [reference API demo](https://github.com/Crusader4Christ/LuxLedger-demo) is m
 - [Ledger guarantees and invariants](docs/product/invariants.md)
 - [Integrator guide](docs/integration/README.md)
 - [Versioning, migrations, and publication](docs/integration/versioning.md)
+- [Idempotency reference](docs/integration/idempotency.md)
+- [Release policy](docs/governance/release-policy.md)
 - [Database schema and field semantics](docs/database-schema.md)
 - [Known limitations](docs/product/limitations.md)
