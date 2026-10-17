@@ -10,6 +10,7 @@
 - [Known Limitations](./product/limitations.md)
 - [Integration Guide](./integration/README.md)
 - [Versioning, Migrations, and Publication](./integration/versioning.md)
+- [Idempotency Reference](./integration/idempotency.md)
 - [Database Schema and Field Semantics](./database-schema.md)
 - [Release 0.2.0 and migration guide](./releases/0.2.0.md)
 - [Release 0.2.1 coordinated readiness](./releases/0.2.1.md)
@@ -17,6 +18,7 @@
 
 ## Governance
 
+- [Release Policy](./governance/release-policy.md)
 - [OpenAPI Contract Governance (LL-35B)](./governance/openapi-contract-governance.md)
 - [OpenAPI Contract Governance Gap Analysis (LL-35A Prep)](./governance/openapi-contract-governance-gap-analysis.md)
 

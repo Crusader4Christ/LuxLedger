@@ -13,6 +13,7 @@ async function fixture(
     dependencyRange?: string;
     openApiVersion?: string;
     releaseVersion?: string;
+    documentedOperations?: string[];
   } = {},
 ): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'luxledger-release-readiness-'));
@@ -33,13 +34,21 @@ async function fixture(
   await mkdir(join(root, 'packages/http/openapi'), { recursive: true });
   await writeFile(
     join(root, 'packages/http/openapi/openapi.yaml'),
-    `openapi: 3.1.0\ninfo:\n  title: LuxLedger\n  version: ${overrides.openApiVersion ?? version}\n`,
+    `openapi: 3.1.0\ninfo:\n  title: LuxLedger\n  version: ${overrides.openApiVersion ?? version}\npaths:\n  /v1/widgets:\n    post:\n      responses: {}\n`,
   );
   const releaseVersion = overrides.releaseVersion ?? version;
   await mkdir(join(root, 'docs/releases'), { recursive: true });
   await writeFile(
     join(root, 'docs/releases', `${version}.md`),
     packages.map((name) => `| \`@luxledger/${name}\` | \`${releaseVersion}\` |`).join('\n'),
+  );
+  await writeFile(join(root, 'CHANGELOG.md'), `# Changelog\n\n## [${version}]\n`);
+  await mkdir(join(root, 'docs/integration'), { recursive: true });
+  await writeFile(
+    join(root, 'docs/integration/idempotency.md'),
+    (overrides.documentedOperations ?? ['POST /v1/widgets'])
+      .map((operation) => `| \`${operation}\` | documented |`)
+      .join('\n'),
   );
   return root;
 }
@@ -69,5 +78,17 @@ describe('release readiness', () => {
     await expect(
       verifyReleaseReadiness(await fixture({ releaseVersion: '1.2.2' })),
     ).rejects.toThrow('Release notes do not declare @luxledger/core@1.2.3');
+  });
+
+  it('rejects invalid semantic versions', async () => {
+    await expect(verifyReleaseReadiness(await fixture({ packageVersion: '1.2' }))).rejects.toThrow(
+      'must be valid SemVer',
+    );
+  });
+
+  it('rejects state-changing operations missing from the idempotency reference', async () => {
+    await expect(
+      verifyReleaseReadiness(await fixture({ documentedOperations: [] })),
+    ).rejects.toThrow('does not cover POST /v1/widgets');
   });
 });
