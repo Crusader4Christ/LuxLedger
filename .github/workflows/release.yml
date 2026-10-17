@@ -172,12 +172,19 @@ jobs:
           NPM_TAG: ${{ inputs.npm-tag }}
           RELEASE_VERSION: ${{ needs.dry-run.outputs.version }}
         run: |
+          view_error=$(mktemp)
+          trap 'rm -f "$view_error"' EXIT
           packages=(core http postgres-adapter fastify-routes express-routes)
           for directory in "${packages[@]}"; do
             package_name="@luxledger/$directory"
-            if npm view "$package_name@$RELEASE_VERSION" version >/dev/null 2>&1; then
+            if npm view "$package_name@$RELEASE_VERSION" version >/dev/null 2>"$view_error"; then
               echo "$package_name@$RELEASE_VERSION is already published; skipping."
               continue
+            fi
+            if ! grep -Eq '(^|[[:space:]])E404([[:space:]]|$)' "$view_error"; then
+              echo "Failed to check whether $package_name@$RELEASE_VERSION is published:" >&2
+              cat "$view_error" >&2
+              exit 1
             fi
             tarball=".tmp/release-tarballs/luxledger-$directory-$RELEASE_VERSION.tgz"
             npm publish "$tarball" --access public --provenance --tag "$NPM_TAG"
