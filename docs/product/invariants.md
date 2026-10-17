@@ -16,12 +16,15 @@ These rules define the behavior integrators may rely on. The OpenAPI contract de
 - Every core record belongs to a tenant; repository operations scope reads and writes by tenant.
 - State-changing operations run inside explicit PostgreSQL transactions.
 - Bulk posting is all-or-nothing. Correction and hold transitions are atomic.
+- Credit-grant refunds remove only current unspent, unreserved, unexpired capacity and append immutable `REFUND` lineage in the same transaction as their balanced posting.
 - Posted and in-flight balances are derived within the same transaction as their source event.
 - Core tables are not soft-deleted.
 
 ## Idempotency
 
 Idempotency is layered rather than owned by a single component. Application services validate commands before persistence. The PostgreSQL adapter executes the write transaction, compares an existing payload with the retry, and returns the existing result only for an identical request. The database unique index on `(tenant_id, reference)` provides the final concurrency boundary. Reusing a reference with a different payload fails instead of silently changing state. Bulk, reversal, correction, and hold operations preserve their documented idempotent and atomic behavior.
+
+Credit-grant refund references are tenant-scoped idempotency keys. An identical grant and amount retry returns the original refund transaction; changing the grant or amount conflicts.
 
 Transaction payload identity includes ledger, currency, normalized nullable description, explicit effective time, relation metadata, and the complete entry multiset (account, signed amount, and currency). Entry order is not significant; entry multiplicity is significant. Omitting `effective_at` means the server assigns accounting time on first creation, so a retry must also omit it unless the original explicit value is known.
 
