@@ -27,6 +27,14 @@ Transaction payload identity includes ledger, currency, normalized nullable desc
 
 The behavior is covered by the [posting](../../packages/postgres-adapter/test/integration/transaction-posting.integration.test.ts), [reversal](../../packages/postgres-adapter/test/integration/transaction-reversal.integration.test.ts), and [correction](../../packages/postgres-adapter/test/integration/transaction-correction.integration.test.ts) integration suites.
 
+## Operational adjustments
+
+Operational credit and debit adjustments are balanced postings with an explicit target account and offset account. Every command requires a tenant-wide reference, positive int64 minor-unit amount, description, host-defined reason code, and opaque actor ID. The reason catalog and authorization policy remain host responsibilities.
+
+The audit envelope is stored in immutable transaction metadata in the same PostgreSQL transaction as the entries, account projections, and `ADJUSTMENT` balance snapshots. An exact retry returns the original transaction without posting again; changing the direction, accounts, amount, description, reason, actor, or optional metadata conflicts. Account `overdraft_policy` remains the negative-capacity authority, so a rejected adjustment rolls back the complete posting.
+
+A debit adjustment against a grant-enabled target account uses the normal FEFO grant-allocation path and cannot exceed unreserved eligible grant capacity. An adjustment is rejected whenever its credit leg would post to a grant-enabled account, whether that account is the target of a credit adjustment or the offset of a debit adjustment, because an unattributed credit cannot create, replenish, or relabel a grant lot. Hosts that need new spendable grant capacity must issue a grant instead.
+
 ## Authentication contract
 
 The reference HTTP composition exchanges an API key for an access token with an exact default TTL of 900 seconds. Revoking the backing API key invalidates its access tokens on the next authenticated request. Hosts remain responsible for key storage, TLS, secret rotation, and perimeter controls.

@@ -7,6 +7,8 @@ import type { ReconRule } from '../reconciliation';
 import type { TransactionEntity } from '../transaction/entity';
 import type {
   AccountPaginationQuery,
+  AdjustmentDirection,
+  AdjustmentResult,
   Asset,
   BalanceAtQuery,
   BalanceHistoryQuery,
@@ -20,6 +22,7 @@ import type {
   CorrectTransactionInput,
   CorrectTransactionResult,
   CreateAccountInput,
+  CreateAdjustmentInput,
   CreateAssetInput,
   CreateCreditGrantInput,
   CreateHoldInput,
@@ -54,6 +57,10 @@ import type {
   VoidHoldInput,
   VoidHoldResult,
 } from './types';
+
+export interface AdjustmentRepository {
+  create(direction: AdjustmentDirection, input: CreateAdjustmentInput): Promise<AdjustmentResult>;
+}
 
 export interface CreditGrantRepository {
   create(input: CreateCreditGrantInput): Promise<CreditGrantResult>;

@@ -1,4 +1,5 @@
 export * from './account-repository';
+export * from './adjustment-repository';
 export * from './api-key-repository';
 export * from './asset-repository';
 export * from './balance-repository';

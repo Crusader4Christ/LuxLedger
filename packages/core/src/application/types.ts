@@ -2,6 +2,7 @@ import type { AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
+import type { JsonObject } from '../base/json';
 import type { UnknownRecord } from '../base/object';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
@@ -127,6 +128,26 @@ export interface CreditGrantExpirationItem {
 export interface CreditGrantExpirationResult {
   asOf: Date;
   items: CreditGrantExpirationItem[];
+}
+
+export type AdjustmentDirection = 'CREDIT' | 'DEBIT';
+
+export interface CreateAdjustmentInput {
+  tenantId: string;
+  ledgerId: string;
+  accountId: string;
+  offsetAccountId: string;
+  reference: string;
+  amountMinor: bigint;
+  description: string;
+  reasonCode: string;
+  actorId: string;
+  metadata?: JsonObject;
+}
+
+export interface AdjustmentResult {
+  transactionId: string;
+  created: boolean;
 }
 export type { AccountSide, ApiKeyRole, CreateLedgerInput, OverdraftPolicy };
 export type Ledger = LedgerEntity;

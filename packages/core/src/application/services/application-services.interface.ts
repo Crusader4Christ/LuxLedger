@@ -1,4 +1,5 @@
 import type { AccountService } from './account-service';
+import type { AdjustmentService } from './adjustment-service';
 import type { ApiKeyService } from './api-key-service';
 import type { AssetService } from './asset-service';
 import type { BalanceService } from './balance-service';
@@ -10,6 +11,7 @@ import type { TransactionService } from './transaction-service';
 
 export interface ApplicationServices {
   accounts: AccountService;
+  adjustments: AdjustmentService;
   assets: AssetService;
   apiKeys: ApiKeyService;
   balances: BalanceService;
