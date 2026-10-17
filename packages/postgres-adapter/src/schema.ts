@@ -449,6 +449,11 @@ export const creditGrants = pgTable(
       table.createdAt,
       table.id,
     ),
+    tenantCreatedIdIdx: index('credit_grants_tenant_created_id_idx').on(
+      table.tenantId,
+      table.createdAt,
+      table.id,
+    ),
     tenantDueIdx: index('credit_grants_tenant_due_idx').on(
       table.tenantId,
       table.expiresAt,

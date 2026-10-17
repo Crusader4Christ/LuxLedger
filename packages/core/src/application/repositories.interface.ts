@@ -32,7 +32,11 @@ import type {
   CreditGrant,
   CreditGrantExpirationResult,
   CreditGrantLineage,
+  CreditGrantListQuery,
+  CreditGrantLotBalance,
   CreditGrantResult,
+  CreditLineageQuery,
+  CreditLotListQuery,
   HistoricalBalance,
   IngestReconRecordsInput,
   LedgerTrialBalanceQuery,
@@ -57,8 +61,9 @@ export interface CreditGrantRepository {
   reverse(input: ReverseCreditGrantInput): Promise<CreditGrantResult>;
   findById(tenantId: string, grantId: string): Promise<CreditGrant | null>;
   getBalance(tenantId: string, accountId: string): Promise<CreditBalance>;
-  listLineageByGrant(tenantId: string, grantId: string): Promise<CreditGrantLineage[]>;
-  listLineageByTransaction(tenantId: string, transactionId: string): Promise<CreditGrantLineage[]>;
+  list(query: CreditGrantListQuery): Promise<PaginatedResult<CreditGrant>>;
+  listLots(query: CreditLotListQuery): Promise<PaginatedResult<CreditGrantLotBalance>>;
+  listLineage(query: CreditLineageQuery): Promise<PaginatedResult<CreditGrantLineage>>;
   previewExpirations(
     input: ProcessCreditGrantExpirationsInput,
   ): Promise<CreditGrantExpirationResult>;

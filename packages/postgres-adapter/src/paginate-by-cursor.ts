@@ -1,16 +1,20 @@
+import { createHash } from 'node:crypto';
 import type { UnknownRecord } from '@luxledger/core';
 import { InvariantViolationError, type PaginationQuery } from '@luxledger/core/application';
 import type { AnyColumn } from 'drizzle-orm';
-import { and, asc, desc, eq, gt, lt, or, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lt, or, SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import stringify from 'safe-stable-stringify';
 import type { CursorPage } from './repository-types';
 
 type CursorDirection = 'asc' | 'desc';
 type CursorComparable = Date | number | string;
-type CursorValueType = 'date' | 'number' | 'string';
+type CursorValueType = 'date' | 'number' | 'string' | 'timestamp' | 'uuid';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
 interface CursorOrderField<Row> {
-  column: AnyColumn;
+  column: AnyColumn | SQL;
   key: string;
   type: CursorValueType;
   direction?: CursorDirection;
@@ -19,6 +23,7 @@ interface CursorOrderField<Row> {
 
 interface PaginateByCursorOptions<Row> {
   query: PaginationQuery;
+  scope: UnknownRecord;
   order: [CursorOrderField<Row>, ...CursorOrderField<Row>[]];
   selectRows: (params: {
     cursorPredicate: SQL<unknown> | SQLWrapper;
@@ -27,7 +32,38 @@ interface PaginateByCursorOptions<Row> {
   }) => Promise<Row[]>;
 }
 
+const CURSOR_VERSION = 1;
+
+const fingerprintScope = (scope: UnknownRecord): string => {
+  const serialized = stringify(scope);
+  if (serialized === undefined) {
+    throw new InvariantViolationError('Invalid cursor scope');
+  }
+
+  return createHash('sha256').update(serialized).digest('base64url');
+};
+
 const parseCursorValue = (raw: unknown, type: CursorValueType): CursorComparable => {
+  if (type === 'timestamp') {
+    if (
+      typeof raw !== 'string' ||
+      !TIMESTAMP_PATTERN.test(raw) ||
+      Number.isNaN(new Date(raw).getTime())
+    ) {
+      throw new InvariantViolationError('Invalid cursor');
+    }
+
+    return raw;
+  }
+
+  if (type === 'uuid') {
+    if (typeof raw !== 'string' || !UUID_PATTERN.test(raw)) {
+      throw new InvariantViolationError('Invalid cursor');
+    }
+
+    return raw;
+  }
+
   if (type === 'string') {
     if (typeof raw !== 'string') {
       throw new InvariantViolationError('Invalid cursor');
@@ -58,7 +94,15 @@ const parseCursorValue = (raw: unknown, type: CursorValueType): CursorComparable
 };
 
 const serializeCursorValue = (value: CursorComparable, type: CursorValueType): unknown => {
-  if (type === 'string') {
+  if (type === 'timestamp') {
+    if (typeof value !== 'string' || !TIMESTAMP_PATTERN.test(value)) {
+      throw new InvariantViolationError('Invalid cursor');
+    }
+
+    return value;
+  }
+
+  if (type === 'string' || type === 'uuid') {
     if (typeof value !== 'string') {
       throw new InvariantViolationError('Invalid cursor');
     }
@@ -83,6 +127,7 @@ const serializeCursorValue = (value: CursorComparable, type: CursorValueType): u
 
 const parseCursor = <Row>(
   cursor: string | undefined,
+  scope: UnknownRecord,
   order: [CursorOrderField<Row>, ...CursorOrderField<Row>[]],
 ): Map<string, CursorComparable> | null => {
   if (!cursor) {
@@ -103,14 +148,24 @@ const parseCursor = <Row>(
   }
 
   const payload = decoded as UnknownRecord;
+  if (
+    payload.version !== CURSOR_VERSION ||
+    payload.scope !== fingerprintScope(scope) ||
+    typeof payload.values !== 'object' ||
+    payload.values === null
+  ) {
+    throw new InvariantViolationError('Invalid cursor');
+  }
+
+  const values = payload.values as UnknownRecord;
   const cursorValues = new Map<string, CursorComparable>();
 
   for (const field of order) {
-    if (!(field.key in payload)) {
+    if (!(field.key in values)) {
       throw new InvariantViolationError('Invalid cursor');
     }
 
-    cursorValues.set(field.key, parseCursorValue(payload[field.key], field.type));
+    cursorValues.set(field.key, parseCursorValue(values[field.key], field.type));
   }
 
   return cursorValues;
@@ -118,13 +173,20 @@ const parseCursor = <Row>(
 
 const encodeCursor = <Row>(
   row: Row,
+  scope: UnknownRecord,
   order: [CursorOrderField<Row>, ...CursorOrderField<Row>[]],
 ): string => {
-  const payload: UnknownRecord = {};
+  const values: UnknownRecord = {};
 
   for (const field of order) {
-    payload[field.key] = serializeCursorValue(field.getValue(row), field.type);
+    values[field.key] = serializeCursorValue(field.getValue(row), field.type);
   }
+
+  const payload: UnknownRecord = {
+    version: CURSOR_VERSION,
+    scope: fingerprintScope(scope),
+    values,
+  };
 
   const serialized = stringify(payload);
   if (serialized === undefined) {
@@ -151,15 +213,23 @@ const buildCursorPredicate = <Row>(
     }
 
     const direction: CursorDirection = field.direction ?? 'asc';
-    const step =
-      direction === 'desc' ? lt(field.column, cursorValue) : gt(field.column, cursorValue);
+    const column = field.column as SQL;
+    // Raw SQL expressions have no column encoder, and exact timestamps are kept as strings so
+    // JavaScript cannot discard PostgreSQL's microseconds.
+    const bound =
+      field.type === 'timestamp'
+        ? sql`${cursorValue}::timestamptz`
+        : cursorValue instanceof Date && field.column instanceof SQL
+          ? sql`${cursorValue.toISOString()}::timestamptz`
+          : cursorValue;
+    const step = direction === 'desc' ? lt(column, bound) : gt(column, bound);
     const clause = previousEquals ? and(previousEquals, step) : step;
 
     if (clause) {
       clauses.push(clause);
     }
 
-    const equals = eq(field.column, cursorValue);
+    const equals = eq(column, bound);
     previousEquals = previousEquals ? (and(previousEquals, equals) ?? equals) : equals;
   }
 
@@ -175,7 +245,7 @@ const buildOrderBy = <Row>(order: [CursorOrderField<Row>, ...CursorOrderField<Ro
 export const paginateByCursor = async <Row>(
   options: PaginateByCursorOptions<Row>,
 ): Promise<CursorPage<Row>> => {
-  const cursorValues = parseCursor(options.query.cursor, options.order);
+  const cursorValues = parseCursor(options.query.cursor, options.scope, options.order);
   const cursorPredicate = buildCursorPredicate(cursorValues, options.order);
   const orderBy = buildOrderBy(options.order);
   const rows = await options.selectRows({
@@ -190,6 +260,6 @@ export const paginateByCursor = async <Row>(
 
   return {
     rows: pageRows,
-    nextCursor: hasNext && last ? encodeCursor(last, options.order) : null,
+    nextCursor: hasNext && last ? encodeCursor(last, options.scope, options.order) : null,
   };
 };

@@ -196,6 +196,7 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('CreateApiKeyRequest:');
     expect(openapi).toContain('/v1/credit-grants:');
     expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');
+    expect(openapi).toContain('CreditGrantLineagePage:');
     expect(openapi).toContain('CreateCreditGrantRequest:');
   });
 });

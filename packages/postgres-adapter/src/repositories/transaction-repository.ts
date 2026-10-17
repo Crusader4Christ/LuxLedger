@@ -251,6 +251,11 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
 
       const page = await paginateByCursor<TransactionRow>({
         query,
+        scope: {
+          resource: 'transactions',
+          tenantId: query.tenantId,
+          ledgerId: query.ledgerId ?? null,
+        },
         order: [
           {
             column: schema.transactions.createdAt,
@@ -320,6 +325,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     return this.client.runTenantTx(query.tenantId, 'list entries', async (tx) => {
       const page = await paginateByCursor<EntryRow>({
         query,
+        scope: { resource: 'entries', tenantId: query.tenantId },
         order: [
           {
             column: schema.entries.createdAt,
