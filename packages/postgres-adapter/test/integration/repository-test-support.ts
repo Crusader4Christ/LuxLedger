@@ -120,6 +120,7 @@ export const createAccount = async (
     name: string;
     side?: AccountSide;
     overdraftPolicy?: 'ALLOW' | 'DISALLOW';
+    grantEnabled?: boolean;
     currency: string;
     balanceMinor?: bigint;
     createdAt?: Date;
@@ -135,6 +136,7 @@ export const createAccount = async (
       name: input.name,
       side: input.side ?? 'DEBIT',
       overdraftPolicy: input.overdraftPolicy ?? 'ALLOW',
+      grantEnabled: input.grantEnabled ?? false,
       currency: input.currency,
       assetId,
       balanceMinor: input.balanceMinor ?? 0n,
