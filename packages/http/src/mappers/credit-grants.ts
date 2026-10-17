@@ -3,11 +3,11 @@ import type {
   CreditGrant,
   CreditGrantExpirationResult,
   CreditGrantLineage,
+  CreditGrantLotBalance,
 } from '@luxledger/core/application';
 import type {
   CreditBalanceResponse,
   CreditGrantExpirationResponse,
-  CreditGrantLineageResponse,
   CreditGrantResponse,
 } from '../contracts/credit-grants';
 
@@ -32,19 +32,20 @@ export const toCreditBalanceResponse = (balance: CreditBalance): CreditBalanceRe
   asset_id: balance.assetId,
   ledger_balance_minor: balance.ledgerBalanceMinor.toString(),
   remaining_minor: balance.remainingMinor.toString(),
-  lots: balance.lots.map((lot) => ({
-    grant_id: lot.grantId,
-    reference: lot.reference,
-    external_reference: lot.externalReference,
-    created_at: lot.createdAt.toISOString(),
-    expires_at: lot.expiresAt?.toISOString() ?? null,
-    granted_minor: lot.grantedMinor.toString(),
-    reversed_minor: lot.reversedMinor.toString(),
-    consumed_minor: lot.consumedMinor.toString(),
-    compensated_minor: lot.compensatedMinor.toString(),
-    expired_minor: lot.expiredMinor.toString(),
-    remaining_minor: lot.remainingMinor.toString(),
-  })),
+});
+
+export const toCreditGrantLotResponse = (lot: CreditGrantLotBalance) => ({
+  grant_id: lot.grantId,
+  reference: lot.reference,
+  external_reference: lot.externalReference,
+  created_at: lot.createdAt.toISOString(),
+  expires_at: lot.expiresAt?.toISOString() ?? null,
+  granted_minor: lot.grantedMinor.toString(),
+  reversed_minor: lot.reversedMinor.toString(),
+  consumed_minor: lot.consumedMinor.toString(),
+  compensated_minor: lot.compensatedMinor.toString(),
+  expired_minor: lot.expiredMinor.toString(),
+  remaining_minor: lot.remainingMinor.toString(),
 });
 
 export const toCreditGrantExpirationResponse = (
@@ -62,15 +63,11 @@ export const toCreditGrantExpirationResponse = (
   })),
 });
 
-export const toCreditGrantLineageResponse = (
-  allocations: CreditGrantLineage[],
-): CreditGrantLineageResponse => ({
-  allocations: allocations.map((allocation) => ({
-    grant_id: allocation.grantId,
-    entry_id: allocation.entryId,
-    transaction_id: allocation.transactionId,
-    kind: allocation.kind,
-    amount_minor: allocation.amountMinor.toString(),
-    created_at: allocation.createdAt.toISOString(),
-  })),
+export const toCreditGrantLineageItemResponse = (allocation: CreditGrantLineage) => ({
+  grant_id: allocation.grantId,
+  entry_id: allocation.entryId,
+  transaction_id: allocation.transactionId,
+  kind: allocation.kind,
+  amount_minor: allocation.amountMinor.toString(),
+  created_at: allocation.createdAt.toISOString(),
 });

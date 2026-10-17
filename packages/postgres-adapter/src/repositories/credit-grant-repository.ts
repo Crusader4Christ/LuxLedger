@@ -7,15 +7,23 @@ import {
   type CreditGrantExpirationItem,
   type CreditGrantExpirationResult,
   type CreditGrantLineage,
+  type CreditGrantListQuery,
+  type CreditGrantLotBalance,
   CreditGrantNotFoundError,
   type CreditGrantRepository,
   type CreditGrantResult,
+  type CreditLineageQuery,
+  type CreditLotListQuery,
   InvariantViolationError,
+  type PaginatedResult,
+  type PaginationQuery,
   type ProcessCreditGrantExpirationsInput,
   type ReverseCreditGrantInput,
 } from '@luxledger/core/application';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import type { AnyColumn } from 'drizzle-orm';
+import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
+import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
 import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
@@ -28,6 +36,9 @@ type ExpirationCandidate = CreditGrantExpirationItem & {
   currency: string;
   createdAt: Date;
 };
+
+// Postgres stores microseconds but JS dates carry milliseconds; compare at millisecond precision so cursors never repeat rows.
+const millisecondTimestamp = (column: AnyColumn): SQL => sql`date_trunc('milliseconds', ${column})`;
 
 export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   private readonly transactions: DrizzleTransactionRepository;
@@ -211,8 +222,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       if (priorUse) {
         throw new CreditGrantConflictError('Consumed or expired grant cannot be fully reversed');
       }
-      const balance = await this.balanceInTx(tx, input.tenantId, row.accountId);
-      const lot = balance.lots.find((candidate) => candidate.grantId === row.id);
+      const balanceAccount = await this.findCreditAccount(tx, input.tenantId, row.accountId);
+      await this.balanceInTx(tx, input.tenantId, row.accountId);
+      const [lot] = await this.toLots(tx, balanceAccount, [row]);
       if (!lot || lot.remainingMinor !== grant.amountMinor) {
         throw new CreditGrantConflictError('Consumed grant cannot be fully reversed');
       }
@@ -266,19 +278,113 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
     );
   }
 
-  public listLineageByGrant(tenantId: string, grantId: string): Promise<CreditGrantLineage[]> {
-    return this.client.runTenantTx(tenantId, 'list credit grant lineage', (tx) =>
-      this.listLineageInTx(tx, tenantId, { grantId }),
-    );
+  public list(query: CreditGrantListQuery): Promise<PaginatedResult<CreditGrant>> {
+    return this.client.runTenantTx(query.tenantId, 'list credit grants', async (tx) => {
+      const predicates = [eq(schema.creditGrants.tenantId, query.tenantId)];
+      if (query.accountId) predicates.push(eq(schema.creditGrants.accountId, query.accountId));
+      if (query.reference) predicates.push(eq(schema.creditGrants.reference, query.reference));
+      if (query.externalReference) {
+        predicates.push(eq(schema.creditGrants.externalReference, query.externalReference));
+      }
+      const page = await this.selectGrantPage(tx, query, predicates);
+      const data: CreditGrant[] = [];
+      for (const row of page.rows) data.push(await this.toGrant(tx, row));
+      return { data, nextCursor: page.nextCursor };
+    });
   }
 
-  public listLineageByTransaction(
-    tenantId: string,
-    transactionId: string,
-  ): Promise<CreditGrantLineage[]> {
-    return this.client.runTenantTx(tenantId, 'list transaction credit lineage', (tx) =>
-      this.listLineageInTx(tx, tenantId, { transactionId }),
-    );
+  public listLots(query: CreditLotListQuery): Promise<PaginatedResult<CreditGrantLotBalance>> {
+    return this.client.runTenantTx(query.tenantId, 'list credit grant lots', async (tx) => {
+      const account = await this.findCreditAccount(tx, query.tenantId, query.accountId);
+      const page = await this.selectGrantPage(tx, query, [
+        eq(schema.creditGrants.tenantId, query.tenantId),
+        eq(schema.creditGrants.accountId, query.accountId),
+      ]);
+      return { data: await this.toLots(tx, account, page.rows), nextCursor: page.nextCursor };
+    });
+  }
+
+  public listLineage(query: CreditLineageQuery): Promise<PaginatedResult<CreditGrantLineage>> {
+    return this.client.runTenantTx(query.tenantId, 'list credit grant lineage', async (tx) => {
+      const predicates = [
+        eq(schema.creditGrantEntries.tenantId, query.tenantId),
+        sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION', 'EXPIRATION')`,
+      ];
+      if (query.grantId) predicates.push(eq(schema.creditGrantEntries.grantId, query.grantId));
+      if (query.transactionId) {
+        predicates.push(eq(schema.entries.transactionId, query.transactionId));
+      }
+      type LineageRow = Omit<CreditGrantLineage, 'kind'> & { kind: string };
+      const page = await paginateByCursor<LineageRow>({
+        query,
+        order: [
+          {
+            column: millisecondTimestamp(schema.entries.createdAt),
+            key: 'created_at',
+            type: 'date',
+            getValue: (row) => row.createdAt,
+          },
+          {
+            column: schema.creditGrantEntries.entryId,
+            key: 'entry_id',
+            type: 'uuid',
+            getValue: (row) => row.entryId,
+          },
+          {
+            column: schema.creditGrantEntries.grantId,
+            key: 'grant_id',
+            type: 'uuid',
+            getValue: (row) => row.grantId,
+          },
+        ],
+        selectRows: ({ cursorPredicate, limit, orderBy }) =>
+          tx
+            .select({
+              grantId: schema.creditGrantEntries.grantId,
+              entryId: schema.creditGrantEntries.entryId,
+              transactionId: schema.entries.transactionId,
+              kind: schema.creditGrantEntries.kind,
+              amountMinor: schema.creditGrantEntries.amountMinor,
+              createdAt: schema.entries.createdAt,
+            })
+            .from(schema.creditGrantEntries)
+            .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
+            .where(and(...predicates, cursorPredicate))
+            .orderBy(...orderBy)
+            .limit(limit),
+      });
+      return {
+        data: page.rows.map((row) => ({ ...row, kind: row.kind as CreditGrantLineage['kind'] })),
+        nextCursor: page.nextCursor,
+      };
+    });
+  }
+
+  private selectGrantPage(tx: Tx, query: PaginationQuery, predicates: SQL[]) {
+    return paginateByCursor<GrantRow>({
+      query,
+      order: [
+        {
+          column: millisecondTimestamp(schema.creditGrants.createdAt),
+          key: 'created_at',
+          type: 'date',
+          getValue: (row) => row.createdAt,
+        },
+        {
+          column: schema.creditGrants.id,
+          key: 'id',
+          type: 'uuid',
+          getValue: (row) => row.id,
+        },
+      ],
+      selectRows: ({ cursorPredicate, limit, orderBy }) =>
+        tx
+          .select()
+          .from(schema.creditGrants)
+          .where(and(...predicates, cursorPredicate))
+          .orderBy(...orderBy)
+          .limit(limit),
+    });
   }
 
   public previewExpirations(
@@ -556,33 +662,43 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   private async balanceInTx(tx: Tx, tenantId: string, accountId: string): Promise<CreditBalance> {
     const account = await this.findCreditAccount(tx, tenantId, accountId);
-    const rows = await tx
-      .select({
-        id: schema.creditGrants.id,
-        ledgerId: schema.creditGrants.ledgerId,
-        reference: schema.creditGrants.reference,
-        externalReference: schema.creditGrants.externalReference,
-        transactionId: schema.creditGrants.transactionId,
-        createdAt: schema.creditGrants.createdAt,
-        expiresAt: schema.creditGrants.expiresAt,
+    const latest = tx
+      .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
+        remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
       })
-      .from(schema.creditGrants)
+      .from(schema.creditGrantCapacityVersions)
       .where(
         and(
-          eq(schema.creditGrants.tenantId, tenantId),
-          eq(schema.creditGrants.accountId, accountId),
+          eq(schema.creditGrantCapacityVersions.tenantId, tenantId),
+          eq(schema.creditGrantCapacityVersions.accountId, accountId),
         ),
       )
-      .orderBy(schema.creditGrants.createdAt, schema.creditGrants.id);
-    if (rows.length === 0) {
-      return {
-        accountId,
-        assetId: account.assetId,
-        ledgerBalanceMinor: await this.ledgerTotalInTx(tx, tenantId, accountId),
-        remainingMinor: 0n,
-        lots: [],
-      };
+      .orderBy(
+        schema.creditGrantCapacityVersions.grantId,
+        desc(schema.creditGrantCapacityVersions.version),
+      )
+      .as('latest_capacity');
+    const [summary] = await tx
+      .select({ remaining: sql<string>`coalesce(sum(${latest.remainingMinor}), 0)::text` })
+      .from(latest);
+    const remainingMinor = BigInt(summary?.remaining ?? '0');
+    const ledgerBalanceMinor = await this.ledgerTotalInTx(tx, tenantId, accountId);
+    if (remainingMinor !== ledgerBalanceMinor) {
+      throw new CreditGrantConflictError(
+        'Credit grant lot totals do not reconcile with ledger balance',
+      );
     }
+    return { accountId, assetId: account.assetId, ledgerBalanceMinor, remainingMinor };
+  }
+
+  private async toLots(
+    tx: Tx,
+    account: typeof schema.accounts.$inferSelect,
+    rows: GrantRow[],
+  ): Promise<CreditGrantLotBalance[]> {
+    if (rows.length === 0) return [];
+    const accountId = account.id;
+    const tenantId = account.tenantId;
     const capacities = await tx
       .selectDistinctOn([schema.creditGrantCapacityVersions.grantId], {
         grantId: schema.creditGrantCapacityVersions.grantId,
@@ -610,9 +726,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         desc(schema.creditGrantCapacityVersions.version),
       );
     const capacityByGrant = new Map(capacities.map((capacity) => [capacity.grantId, capacity]));
-    const lots: CreditBalance['lots'] = [];
-    let total = 0n;
-    for (const row of rows) {
+    return rows.map((row) => {
       if (row.ledgerId !== account.ledgerId) {
         throw new CreditGrantConflictError('Grant account ledger mismatch');
       }
@@ -620,7 +734,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       if (!capacity || capacity.grantedMinor <= 0n) {
         throw new CreditGrantConflictError('Grant issuance entry is missing');
       }
-      const lot: CreditBalance['lots'][number] = {
+      return {
         grantId: row.id,
         reference: row.reference,
         externalReference: row.externalReference,
@@ -633,53 +747,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         expiredMinor: capacity.expiredMinor,
         remainingMinor: capacity.remainingMinor,
       };
-      lots.push(lot);
-      total += lot.remainingMinor;
-    }
-    const ledgerBalanceMinor = await this.ledgerTotalInTx(tx, tenantId, accountId);
-    if (total !== ledgerBalanceMinor) {
-      throw new CreditGrantConflictError(
-        'Credit grant lot totals do not reconcile with ledger balance',
-      );
-    }
-    return {
-      accountId,
-      assetId: account.assetId,
-      ledgerBalanceMinor,
-      remainingMinor: total,
-      lots,
-    };
-  }
-
-  private async listLineageInTx(
-    tx: Tx,
-    tenantId: string,
-    filter: { grantId?: string; transactionId?: string },
-  ): Promise<CreditGrantLineage[]> {
-    const predicates = [
-      eq(schema.creditGrantEntries.tenantId, tenantId),
-      sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION', 'EXPIRATION')`,
-    ];
-    if (filter.grantId) predicates.push(eq(schema.creditGrantEntries.grantId, filter.grantId));
-    if (filter.transactionId)
-      predicates.push(eq(schema.entries.transactionId, filter.transactionId));
-    const rows = await tx
-      .select({
-        grantId: schema.creditGrantEntries.grantId,
-        entryId: schema.creditGrantEntries.entryId,
-        transactionId: schema.entries.transactionId,
-        kind: schema.creditGrantEntries.kind,
-        amountMinor: schema.creditGrantEntries.amountMinor,
-        createdAt: schema.entries.createdAt,
-      })
-      .from(schema.creditGrantEntries)
-      .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
-      .where(and(...predicates))
-      .orderBy(schema.entries.createdAt, schema.entries.id, schema.creditGrantEntries.grantId);
-    return rows.map((row) => ({
-      ...row,
-      kind: row.kind as CreditGrantLineage['kind'],
-    }));
+    });
   }
 
   private async linkWalletEntry(

@@ -29,6 +29,41 @@ const client = createRepositoryTestClient();
 const db = createRepositoryTestDatabase(client);
 const services = createApplicationServices(client);
 
+const PAGE_LIMIT = 200;
+
+const collectPages = async <T>(
+  fetchPage: (cursor: string | undefined) => Promise<{ data: T[]; nextCursor: string | null }>,
+): Promise<T[]> => {
+  const all: T[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await fetchPage(cursor);
+    all.push(...page.data);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  return all;
+};
+
+const lotsOf = (tenantId: string, accountId: string) =>
+  collectPages((cursor) =>
+    services.creditGrants.listLots({ tenantId, accountId, limit: PAGE_LIMIT, cursor }),
+  );
+
+const lineageByGrant = (tenantId: string, grantId: string) =>
+  collectPages((cursor) =>
+    services.creditGrants.listLineageByGrant({ tenantId, grantId, limit: PAGE_LIMIT, cursor }),
+  );
+
+const lineageByTransaction = (tenantId: string, transactionId: string) =>
+  collectPages((cursor) =>
+    services.creditGrants.listLineageByTransaction({
+      tenantId,
+      transactionId,
+      limit: PAGE_LIMIT,
+      cursor,
+    }),
+  );
+
 const getActiveGrantReservations = async (
   tx: DrizzleDatabase,
   tenantId: string,
@@ -159,9 +194,7 @@ const reserve = (
     ],
   });
 
-const lineageTotalsByGrant = (
-  lineage: Awaited<ReturnType<typeof services.creditGrants.listLineageByTransaction>>,
-) => {
+const lineageTotalsByGrant = (lineage: Awaited<ReturnType<typeof lineageByTransaction>>) => {
   const totals = new Map<string, bigint>();
   for (const allocation of lineage) {
     totals.set(allocation.grantId, (totals.get(allocation.grantId) ?? 0n) + allocation.amountMinor);
@@ -216,7 +249,10 @@ describe('credit grants', () => {
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.ledgerBalanceMinor).toBe(200n);
     expect(balance.remainingMinor).toBe(200n);
-    expect(balance.lots.map((lot) => lot.remainingMinor)).toEqual([100n, 100n]);
+    expect((await lotsOf(tenantId, accounts.accountId)).map((lot) => lot.remainingMinor)).toEqual([
+      100n,
+      100n,
+    ]);
     const posted = await db
       .select()
       .from(entries)
@@ -240,22 +276,18 @@ describe('credit grants', () => {
     const second = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
 
     const consumed = await consume(tenantId, accounts, 'consume-150', 150n);
-    const transactionLineage = await services.creditGrants.listLineageByTransaction(
-      tenantId,
-      consumed.transactionId,
-    );
+    const transactionLineage = await lineageByTransaction(tenantId, consumed.transactionId);
     expect(
       transactionLineage.map(({ grantId, amountMinor, kind }) => ({ grantId, amountMinor, kind })),
     ).toEqual([
       { grantId: first.grant.id, amountMinor: 100n, kind: 'CONSUMPTION' },
       { grantId: second.grant.id, amountMinor: 50n, kind: 'CONSUMPTION' },
     ]);
-    expect(await services.creditGrants.listLineageByGrant(tenantId, first.grant.id)).toHaveLength(
-      1,
-    );
+    expect(await lineageByGrant(tenantId, first.grant.id)).toHaveLength(1);
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.remainingMinor).toBe(50n);
-    expect(balance.lots.map((lot) => [lot.consumedMinor, lot.remainingMinor])).toEqual([
+    const lots = await lotsOf(tenantId, accounts.accountId);
+    expect(lots.map((lot) => [lot.consumedMinor, lot.remainingMinor])).toEqual([
       [100n, 0n],
       [50n, 50n],
     ]);
@@ -274,10 +306,7 @@ describe('credit grants', () => {
     const second = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
 
     const consumed = await consumeInTwoEntries(tenantId, accounts, 'consume-split-projection');
-    const lineage = await services.creditGrants.listLineageByTransaction(
-      tenantId,
-      consumed.transactionId,
-    );
+    const lineage = await lineageByTransaction(tenantId, consumed.transactionId);
     const entryIds = [...new Set(lineage.map((allocation) => allocation.entryId))];
 
     expect(entryIds).toHaveLength(2);
@@ -353,10 +382,7 @@ describe('credit grants', () => {
       ],
     });
 
-    const lineage = await services.creditGrants.listLineageByTransaction(
-      tenantId,
-      consumed.transactionId,
-    );
+    const lineage = await lineageByTransaction(tenantId, consumed.transactionId);
     expect(lineage).toHaveLength(2);
     expect(lineage.map(({ grantId, amountMinor }) => ({ grantId, amountMinor }))).toEqual(
       expect.arrayContaining([
@@ -462,15 +488,14 @@ describe('credit grants', () => {
       transactionId: consumed.transactionId,
       reference: 'reverse-consume-60',
     });
-    expect(
-      await services.creditGrants.listLineageByTransaction(tenantId, reversed.transactionId),
-    ).toEqual([
+    expect(await lineageByTransaction(tenantId, reversed.transactionId)).toEqual([
       expect.objectContaining({ grantId: grant.grant.id, kind: 'COMPENSATION', amountMinor: 60n }),
     ]);
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.remainingMinor).toBe(100n);
-    expect(balance.lots[0]?.consumedMinor).toBe(60n);
-    expect(balance.lots[0]?.compensatedMinor).toBe(60n);
+    const lots = await lotsOf(tenantId, accounts.accountId);
+    expect(lots[0]?.consumedMinor).toBe(60n);
+    expect(lots[0]?.compensatedMinor).toBe(60n);
   });
 
   it('corrects consumption by compensating the original and allocating the replacement', async () => {
@@ -496,18 +521,12 @@ describe('credit grants', () => {
         },
       ],
     });
-    expect(
-      await services.creditGrants.listLineageByTransaction(
-        tenantId,
-        corrected.reversalTransactionId,
-      ),
-    ).toEqual([expect.objectContaining({ kind: 'COMPENSATION', amountMinor: 60n })]);
-    expect(
-      await services.creditGrants.listLineageByTransaction(
-        tenantId,
-        corrected.correctedTransactionId,
-      ),
-    ).toEqual([expect.objectContaining({ kind: 'CONSUMPTION', amountMinor: 40n })]);
+    expect(await lineageByTransaction(tenantId, corrected.reversalTransactionId)).toEqual([
+      expect.objectContaining({ kind: 'COMPENSATION', amountMinor: 60n }),
+    ]);
+    expect(await lineageByTransaction(tenantId, corrected.correctedTransactionId)).toEqual([
+      expect.objectContaining({ kind: 'CONSUMPTION', amountMinor: 40n }),
+    ]);
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.remainingMinor).toBe(60n);
   });
@@ -518,19 +537,13 @@ describe('credit grants', () => {
     await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
     await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
     const consumed = await consumeInTwoEntries(tenantId, accounts, 'consume-split');
-    const originalLineage = await services.creditGrants.listLineageByTransaction(
-      tenantId,
-      consumed.transactionId,
-    );
+    const originalLineage = await lineageByTransaction(tenantId, consumed.transactionId);
     const reversed = await services.transactions.reverse({
       tenantId,
       transactionId: consumed.transactionId,
       reference: 'reverse-consume-split',
     });
-    const compensationLineage = await services.creditGrants.listLineageByTransaction(
-      tenantId,
-      reversed.transactionId,
-    );
+    const compensationLineage = await lineageByTransaction(tenantId, reversed.transactionId);
     expect(lineageTotalsByGrant(compensationLineage)).toEqual(
       lineageTotalsByGrant(originalLineage),
     );
@@ -637,10 +650,7 @@ describe('credit grants', () => {
     await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-1'));
     await services.creditGrants.create(grantInput(tenantId, accounts, 'grant-2'));
     const consumed = await consumeInTwoEntries(tenantId, accounts, 'correct-split-original');
-    const originalLineage = await services.creditGrants.listLineageByTransaction(
-      tenantId,
-      consumed.transactionId,
-    );
+    const originalLineage = await lineageByTransaction(tenantId, consumed.transactionId);
     const corrected = await services.transactions.correct({
       tenantId,
       transactionId: consumed.transactionId,
@@ -659,7 +669,7 @@ describe('credit grants', () => {
         },
       ],
     });
-    const compensationLineage = await services.creditGrants.listLineageByTransaction(
+    const compensationLineage = await lineageByTransaction(
       tenantId,
       corrected.reversalTransactionId,
     );
@@ -669,12 +679,7 @@ describe('credit grants', () => {
     expect(
       (await services.creditGrants.getBalance(tenantId, accounts.accountId)).remainingMinor,
     ).toBe(150n);
-    expect(
-      await services.creditGrants.listLineageByTransaction(
-        tenantId,
-        corrected.correctedTransactionId,
-      ),
-    ).toEqual([
+    expect(await lineageByTransaction(tenantId, corrected.correctedTransactionId)).toEqual([
       expect.objectContaining({
         grantId: originalLineage[0].grantId,
         kind: 'CONSUMPTION',
@@ -729,9 +734,7 @@ describe('credit grants', () => {
       ],
     });
 
-    expect(
-      await services.creditGrants.listLineageByTransaction(tenantId, posted.transactionId),
-    ).toEqual([]);
+    expect(await lineageByTransaction(tenantId, posted.transactionId)).toEqual([]);
     const balances = await db
       .select({ id: accountRows.id, balanceMinor: accountRows.balanceMinor })
       .from(accountRows);
@@ -883,7 +886,7 @@ describe('credit grants', () => {
     );
     const bonusBalance = await services.creditGrants.getBalance(tenantId, bonusAccount.id);
     expect(bonusBalance.assetId).toBe(bonusAsset.id);
-    expect(bonusBalance.lots[0]?.remainingMinor).toBe(100n);
+    expect((await lotsOf(tenantId, bonusAccount.id))[0]?.remainingMinor).toBe(100n);
   });
 
   it('accepts identical retry, rejects conflicts and foreign tenant or asset access', async () => {
@@ -997,7 +1000,10 @@ describe('credit grants', () => {
       ).rejects.toBeInstanceOf(CreditGrantConflictError);
       const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
       expect(balance.ledgerBalanceMinor).toBe(400n + accepted.value.grant.amountMinor);
-      expect(balance.lots.find((lot) => lot.grantId === a.grant.id)?.reversedMinor).toBe(100n);
+      expect(
+        (await lotsOf(tenantId, accounts.accountId)).find((lot) => lot.grantId === a.grant.id)
+          ?.reversedMinor,
+      ).toBe(100n);
     } finally {
       await secondClient.sql.end({ timeout: 5 });
     }
@@ -1094,9 +1100,7 @@ describe('credit grants', () => {
     });
     expect(committed).toMatchObject({ state: 'HELD', remainingAmountMinor: 30n, created: true });
     expect(
-      lineageTotalsByGrant(
-        await services.creditGrants.listLineageByTransaction(tenantId, committed.transactionId),
-      ),
+      lineageTotalsByGrant(await lineageByTransaction(tenantId, committed.transactionId)),
     ).toEqual([
       [first.grant.id, 100n],
       [second.grant.id, 20n],
@@ -1874,7 +1878,7 @@ describe('credit grants', () => {
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.ledgerBalanceMinor).toBe(100n);
     expect(balance.remainingMinor).toBe(100n);
-    expect(balance.lots[0]?.remainingMinor).toBe(100n);
+    expect((await lotsOf(tenantId, accounts.accountId))[0]?.remainingMinor).toBe(100n);
   });
 
   it('enforces tenant and ledger scope in PostgreSQL foreign keys', async () => {
@@ -2268,7 +2272,7 @@ describe('credit grants', () => {
       expiresAt: sooner,
     });
     await consume(tenantId, accounts, 'fefo-spend', 350n);
-    const lots = (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots;
+    const lots = await lotsOf(tenantId, accounts.accountId);
     const consumed = new Map(lots.map((lot) => [lot.grantId, lot.consumedMinor]));
     expect(consumed.get(tiedFirst.grant.id)).toBe(100n);
     expect(consumed.get(tiedSecond.grant.id)).toBe(100n);
@@ -2383,7 +2387,11 @@ describe('credit grants', () => {
     ).toMatchObject({ items: [] });
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.remainingMinor).toBe(0n);
-    expect(balance.lots.map((lot) => lot.expiredMinor)).toEqual([60n, 100n, 100n]);
+    expect((await lotsOf(tenantId, accounts.accountId)).map((lot) => lot.expiredMinor)).toEqual([
+      60n,
+      100n,
+      100n,
+    ]);
     await expect(
       services.creditGrants.reverse({
         tenantId,
@@ -2539,9 +2547,10 @@ describe('credit grants', () => {
         limit: 10,
       }),
     ).rejects.toThrow('reference payload mismatch');
-    expect(
-      (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0],
-    ).toMatchObject({ expiredMinor: 0n, remainingMinor: 100n });
+    expect((await lotsOf(tenantId, accounts.accountId))[0]).toMatchObject({
+      expiredMinor: 0n,
+      remainingMinor: 100n,
+    });
   });
 
   it('re-expires late reversal and correction capacity atomically', async () => {
@@ -2559,14 +2568,14 @@ describe('credit grants', () => {
       transactionId: consumed.transactionId,
       reference: 'late-reversal',
     });
-    const lot = (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0];
+    const lot = (await lotsOf(tenantId, accounts.accountId))[0];
     expect(lot).toMatchObject({
       consumedMinor: 80n,
       compensatedMinor: 80n,
       expiredMinor: 100n,
       remainingMinor: 0n,
     });
-    const lineage = await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id);
+    const lineage = await lineageByGrant(tenantId, grant.grant.id);
     expect(lineage.map((item) => item.kind)).toEqual(['CONSUMPTION', 'COMPENSATION', 'EXPIRATION']);
 
     const correctionTenantId = await createTenant(db, 'late-correction');
@@ -2604,9 +2613,7 @@ describe('credit grants', () => {
         },
       ],
     });
-    const correctedLots = (
-      await services.creditGrants.getBalance(correctionTenantId, correctionAccounts.accountId)
-    ).lots;
+    const correctedLots = await lotsOf(correctionTenantId, correctionAccounts.accountId);
     expect(correctedLots.find((item) => item.grantId === expiring.grant.id)).toMatchObject({
       compensatedMinor: 80n,
       expiredMinor: 100n,
@@ -2638,9 +2645,9 @@ describe('credit grants', () => {
       ]);
       expect([first, second].filter((result) => result.status === 'fulfilled')).toHaveLength(2);
       expect(spend.status).toBe('rejected');
-      const expiration = (
-        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
-      ).filter((item) => item.kind === 'EXPIRATION');
+      const expiration = (await lineageByGrant(tenantId, grant.grant.id)).filter(
+        (item) => item.kind === 'EXPIRATION',
+      );
       expect(expiration).toHaveLength(1);
       expect(expiration[0]?.amountMinor).toBe(100n);
     } finally {
@@ -2677,16 +2684,16 @@ describe('credit grants', () => {
       expect(run.items.length).toBeLessThanOrEqual(1);
       expect(reversal.created).toBeTrue();
 
-      const lot = (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0];
+      const lot = (await lotsOf(tenantId, accounts.accountId))[0];
       expect(lot).toMatchObject({
         consumedMinor: 80n,
         compensatedMinor: 80n,
         expiredMinor: 100n,
         remainingMinor: 0n,
       });
-      const expiration = (
-        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
-      ).filter((item) => item.kind === 'EXPIRATION');
+      const expiration = (await lineageByGrant(tenantId, grant.grant.id)).filter(
+        (item) => item.kind === 'EXPIRATION',
+      );
       expect(expiration.reduce((sum, item) => sum + item.amountMinor, 0n)).toBe(100n);
       expect(new Set(expiration.map((item) => item.transactionId)).size).toBe(expiration.length);
     } finally {
@@ -2784,13 +2791,14 @@ describe('credit grants', () => {
       expect(injectedExpiration).toBeTrue();
       expect(result.items).toHaveLength(1);
       expect(result.items[0]?.amountMinor).toBe(60n);
-      const expiration = (
-        await services.creditGrants.listLineageByGrant(tenantId, grant.grant.id)
-      ).filter((item) => item.kind === 'EXPIRATION');
+      const expiration = (await lineageByGrant(tenantId, grant.grant.id)).filter(
+        (item) => item.kind === 'EXPIRATION',
+      );
       expect(expiration.map((item) => item.amountMinor)).toEqual([40n, 60n]);
-      expect(
-        (await services.creditGrants.getBalance(tenantId, accounts.accountId)).lots[0],
-      ).toMatchObject({ expiredMinor: 100n, remainingMinor: 0n });
+      expect((await lotsOf(tenantId, accounts.accountId))[0]).toMatchObject({
+        expiredMinor: 100n,
+        remainingMinor: 0n,
+      });
     } finally {
       await hookedBaseClient.sql.end({ timeout: 5 });
     }

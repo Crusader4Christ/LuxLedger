@@ -7,7 +7,12 @@ import {
   creditGrantExpirationResponseSchema,
   creditGrantIdParamsSchema,
   creditGrantLineageResponseSchema,
+  creditGrantLotsPageResponseSchema,
   creditGrantResponseSchema,
+  creditGrantsPageResponseSchema,
+  type ListCreditGrantsQuery,
+  listCreditGrantsQuerySchema,
+  type PaginationQuery,
   type ProcessCreditGrantExpirationsRequest,
   processCreditGrantExpirationsBodySchema,
   type ReverseCreditGrantRequest,
@@ -16,10 +21,13 @@ import {
 import {
   toCreditBalanceResponse,
   toCreditGrantExpirationResponse,
-  toCreditGrantLineageResponse,
+  toCreditGrantLineageItemResponse,
+  toCreditGrantLotResponse,
   toCreditGrantResponse,
+  toPaginatedResponse,
 } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
 import { BaseRoute } from '../routing/base-route';
 
 export class CreditGrantRoutes extends BaseRoute {
@@ -80,6 +88,28 @@ export class CreditGrantRoutes extends BaseRoute {
       );
     }
 
+    server.get<{ Querystring: ListCreditGrantsQuery }>(
+      '/v1/credit-grants',
+      {
+        schema: {
+          querystring: listCreditGrantsQuerySchema,
+          response: { 200: creditGrantsPageResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const page = await this.grants.list({
+            tenantId: request.tenantId as string,
+            limit: resolvePaginationLimit(request.query.limit),
+            cursor: request.query.cursor,
+            accountId: request.query.account_id,
+            reference: request.query.reference,
+            externalReference: request.query.external_reference,
+          });
+          return reply.status(200).send(toPaginatedResponse(page, toCreditGrantResponse));
+        }),
+    );
+
     server.get<{ Params: CreditGrantIdParams }>(
       '/v1/credit-grants/:id',
       {
@@ -117,46 +147,78 @@ export class CreditGrantRoutes extends BaseRoute {
         }),
     );
 
-    server.get<{ Params: CreditGrantIdParams }>(
+    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
       '/v1/credit-grants/:id/allocations',
       {
         schema: {
           params: creditGrantIdParamsSchema,
+          querystring: createPaginationQuerySchema({}),
           response: { 200: creditGrantLineageResponseSchema },
         },
       },
       async (request, reply) =>
         this.handle(reply, async () =>
-          reply
-            .status(200)
-            .send(
-              toCreditGrantLineageResponse(
-                await this.grants.listLineageByGrant(request.tenantId as string, request.params.id),
-              ),
+          reply.status(200).send(
+            toPaginatedResponse(
+              await this.grants.listLineageByGrant({
+                tenantId: request.tenantId as string,
+                grantId: request.params.id,
+                limit: resolvePaginationLimit(request.query.limit),
+                cursor: request.query.cursor,
+              }),
+              toCreditGrantLineageItemResponse,
             ),
+          ),
         ),
     );
 
-    server.get<{ Params: CreditGrantIdParams }>(
+    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
       '/v1/transactions/:id/credit-allocations',
       {
         schema: {
           params: creditGrantIdParamsSchema,
+          querystring: createPaginationQuerySchema({}),
           response: { 200: creditGrantLineageResponseSchema },
         },
       },
       async (request, reply) =>
         this.handle(reply, async () =>
-          reply
-            .status(200)
-            .send(
-              toCreditGrantLineageResponse(
-                await this.grants.listLineageByTransaction(
-                  request.tenantId as string,
-                  request.params.id,
-                ),
-              ),
+          reply.status(200).send(
+            toPaginatedResponse(
+              await this.grants.listLineageByTransaction({
+                tenantId: request.tenantId as string,
+                transactionId: request.params.id,
+                limit: resolvePaginationLimit(request.query.limit),
+                cursor: request.query.cursor,
+              }),
+              toCreditGrantLineageItemResponse,
             ),
+          ),
+        ),
+    );
+
+    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
+      '/v1/accounts/:id/credit-lots',
+      {
+        schema: {
+          params: creditGrantIdParamsSchema,
+          querystring: createPaginationQuerySchema({}),
+          response: { 200: creditGrantLotsPageResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () =>
+          reply.status(200).send(
+            toPaginatedResponse(
+              await this.grants.listLots({
+                tenantId: request.tenantId as string,
+                accountId: request.params.id,
+                limit: resolvePaginationLimit(request.query.limit),
+                cursor: request.query.cursor,
+              }),
+              toCreditGrantLotResponse,
+            ),
+          ),
         ),
     );
 

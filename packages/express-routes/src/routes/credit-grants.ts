@@ -10,15 +10,24 @@ import {
 import {
   toCreditBalanceResponse,
   toCreditGrantExpirationResponse,
-  toCreditGrantLineageResponse,
+  toCreditGrantLineageItemResponse,
+  toCreditGrantLotResponse,
   toCreditGrantResponse,
+  toPaginatedResponse,
 } from '@luxledger/http/mappers';
+import { parseUuidQuery } from '@luxledger/http/query/pagination';
 import { parseUuidParam } from '@luxledger/http/validation-utils';
 import type { Application, Response } from 'express';
 import { sendInvalidInput, withDomainErrorHandling } from '../errors/handlers';
+import { parsePaginationQuery } from '../query/pagination';
 import { requireContext } from '../request/context';
 import { validate } from '../request/validation';
 import type { RequestWithContext } from '../types';
+
+const parseNonEmptyQuery = (value: unknown): string | null | undefined => {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+};
 
 export const registerCreditGrantRoutes = (
   app: Application,
@@ -70,6 +79,34 @@ export const registerCreditGrantRoutes = (
     );
   }
 
+  app.get('/v1/credit-grants', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const pagination = parsePaginationQuery(req.query);
+      const accountId = parseUuidQuery(req.query.account_id);
+      const reference = parseNonEmptyQuery(req.query.reference);
+      const externalReference = parseNonEmptyQuery(req.query.external_reference);
+      if (
+        pagination === null ||
+        (req.query.account_id !== undefined && accountId === null) ||
+        reference === null ||
+        externalReference === null
+      ) {
+        sendInvalidInput(res, 'Invalid querystring');
+        return;
+      }
+      const { tenantId } = requireContext(req);
+      const page = await services.creditGrants.list({
+        tenantId,
+        limit: pagination.limit,
+        cursor: pagination.cursor,
+        accountId: accountId ?? undefined,
+        reference,
+        externalReference,
+      });
+      res.status(200).json(toPaginatedResponse(page, toCreditGrantResponse));
+    }),
+  );
+
   app.get('/v1/credit-grants/:id', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
       const params = parseUuidParam(req.params.id, 'id');
@@ -102,42 +139,51 @@ export const registerCreditGrantRoutes = (
     }),
   );
 
-  app.get('/v1/credit-grants/:id/allocations', async (req: RequestWithContext, res: Response) =>
-    withDomainErrorHandling(res, async () => {
-      const params = parseUuidParam(req.params.id, 'id');
-      if (!params) {
-        sendInvalidInput(res, 'Invalid path parameter');
-        return;
-      }
-      const { tenantId } = requireContext(req);
-      res
-        .status(200)
-        .json(
-          toCreditGrantLineageResponse(
-            await services.creditGrants.listLineageByGrant(tenantId, params.id),
-          ),
-        );
-    }),
-  );
-
-  app.get(
-    '/v1/transactions/:id/credit-allocations',
-    async (req: RequestWithContext, res: Response) =>
+  const registerPagedGet = <Item, Dto>(
+    path: string,
+    load: (
+      tenantId: string,
+      id: string,
+      page: { limit: number; cursor?: string },
+    ) => Promise<{ data: Item[]; nextCursor: string | null }>,
+    toDto: (item: Item) => Dto,
+  ): void => {
+    app.get(path, async (req: RequestWithContext, res: Response) =>
       withDomainErrorHandling(res, async () => {
         const params = parseUuidParam(req.params.id, 'id');
         if (!params) {
           sendInvalidInput(res, 'Invalid path parameter');
           return;
         }
+        const pagination = parsePaginationQuery(req.query);
+        if (pagination === null) {
+          sendInvalidInput(res, 'Invalid querystring');
+          return;
+        }
         const { tenantId } = requireContext(req);
         res
           .status(200)
-          .json(
-            toCreditGrantLineageResponse(
-              await services.creditGrants.listLineageByTransaction(tenantId, params.id),
-            ),
-          );
+          .json(toPaginatedResponse(await load(tenantId, params.id, pagination), toDto));
       }),
+    );
+  };
+
+  registerPagedGet(
+    '/v1/credit-grants/:id/allocations',
+    (tenantId, grantId, page) =>
+      services.creditGrants.listLineageByGrant({ tenantId, grantId, ...page }),
+    toCreditGrantLineageItemResponse,
+  );
+  registerPagedGet(
+    '/v1/transactions/:id/credit-allocations',
+    (tenantId, transactionId, page) =>
+      services.creditGrants.listLineageByTransaction({ tenantId, transactionId, ...page }),
+    toCreditGrantLineageItemResponse,
+  );
+  registerPagedGet(
+    '/v1/accounts/:id/credit-lots',
+    (tenantId, accountId, page) => services.creditGrants.listLots({ tenantId, accountId, ...page }),
+    toCreditGrantLotResponse,
   );
 
   app.get('/v1/accounts/:id/credit-balance', async (req: RequestWithContext, res: Response) =>

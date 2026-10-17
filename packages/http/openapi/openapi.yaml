@@ -788,6 +788,35 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+    get:
+      summary: List credit grants with bounded cursor pagination and exact reference lookup
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: account_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: reference
+          in: query
+          required: false
+          description: Exact tenant grant reference, for recovery after an unknown create outcome
+          schema: { type: string, minLength: 1 }
+        - name: external_reference
+          in: query
+          required: false
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Grants ordered by creation time then id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantsPage'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
   /v1/credit-grants/{id}:
     get:
       summary: Read a credit grant
@@ -892,13 +921,15 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
-          description: Immutable allocation lineage ordered by entry creation
+          description: Immutable allocation lineage page ordered by entry creation, entry id, then grant id
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreditGrantLineage'
+                $ref: '#/components/schemas/CreditGrantLineagePage'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
@@ -911,20 +942,22 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
-          description: Immutable allocation lineage ordered by entry creation
+          description: Immutable allocation lineage page ordered by entry creation, entry id, then grant id
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreditGrantLineage'
+                $ref: '#/components/schemas/CreditGrantLineagePage'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
   /v1/accounts/{id}/credit-balance:
     get:
-      summary: Read reconciled credit grant lots for an account
+      summary: Read the reconciled credit balance summary for an account
       parameters:
         - name: id
           in: path
@@ -932,13 +965,36 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200':
-          description: Grant lots reconciled with the ledger
+          description: Summary reconciled with the ledger
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreditBalance'
         '409':
           $ref: '#/components/responses/ConflictError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/accounts/{id}/credit-lots:
+    get:
+      summary: List credit grant lots for an account with bounded cursor pagination
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Lots ordered by grant creation time then grant id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantLotsPage'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
@@ -1079,34 +1135,53 @@ components:
     CreditBalance:
       type: object
       additionalProperties: false
-      required: [account_id, asset_id, ledger_balance_minor, remaining_minor, lots]
+      required: [account_id, asset_id, ledger_balance_minor, remaining_minor]
       properties:
         account_id: { type: string, format: uuid }
         asset_id: { type: string, format: uuid }
         ledger_balance_minor: { type: string, pattern: '^[0-9]+$' }
         remaining_minor: { type: string, pattern: '^[0-9]+$' }
-        lots:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreditGrantLot'
     CreditGrantLineage:
       type: object
       additionalProperties: false
-      required: [allocations]
+      required: [grant_id, entry_id, transaction_id, kind, amount_minor, created_at]
       properties:
-        allocations:
+        grant_id: { type: string, format: uuid }
+        entry_id: { type: string, format: uuid }
+        transaction_id: { type: string, format: uuid }
+        kind: { type: string, enum: [CONSUMPTION, COMPENSATION, EXPIRATION] }
+        amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+        created_at: { type: string, format: date-time }
+    CreditGrantLineagePage:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
           type: array
           items:
-            type: object
-            additionalProperties: false
-            required: [grant_id, entry_id, transaction_id, kind, amount_minor, created_at]
-            properties:
-              grant_id: { type: string, format: uuid }
-              entry_id: { type: string, format: uuid }
-              transaction_id: { type: string, format: uuid }
-              kind: { type: string, enum: [CONSUMPTION, COMPENSATION, EXPIRATION] }
-              amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
-              created_at: { type: string, format: date-time }
+            $ref: '#/components/schemas/CreditGrantLineage'
+        next_cursor: { type: string, nullable: true }
+    CreditGrantsPage:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditGrant'
+        next_cursor: { type: string, nullable: true }
+    CreditGrantLotsPage:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditGrantLot'
+        next_cursor: { type: string, nullable: true }
     ProcessCreditGrantExpirationsRequest:
       type: object
       additionalProperties: false

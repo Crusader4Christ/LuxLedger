@@ -1,6 +1,7 @@
 import { validateCreditGrant } from '../../credit-grant';
 import { assertNonEmpty } from '../../utils';
 import { CreditGrantNotFoundError, InvariantViolationError } from '../errors';
+import { validatePaginationQuery } from '../pagination-query';
 import type { CreditGrantRepository } from '../repositories.interface';
 import type {
   CreateCreditGrantInput,
@@ -8,7 +9,12 @@ import type {
   CreditGrant,
   CreditGrantExpirationResult,
   CreditGrantLineage,
+  CreditGrantListQuery,
+  CreditGrantLotBalance,
   CreditGrantResult,
+  CreditLotListQuery,
+  PaginatedResult,
+  PaginationQuery,
   ProcessCreditGrantExpirationsInput,
   ReverseCreditGrantInput,
 } from '../types';
@@ -59,22 +65,40 @@ export class CreditGrantService {
     return this.repository.getBalance(tenantId, accountId);
   }
 
+  public async list(query: CreditGrantListQuery): Promise<PaginatedResult<CreditGrant>> {
+    validatePaginationQuery(query);
+    for (const [name, value] of Object.entries({
+      accountId: query.accountId,
+      reference: query.reference,
+      externalReference: query.externalReference,
+    })) {
+      if (value !== undefined) assertNonEmpty(value, `${name} must not be empty`);
+    }
+    return this.repository.list(query);
+  }
+
+  public async listLots(
+    query: CreditLotListQuery,
+  ): Promise<PaginatedResult<CreditGrantLotBalance>> {
+    validatePaginationQuery(query);
+    assertNonEmpty(query.accountId, 'accountId is required');
+    return this.repository.listLots(query);
+  }
+
   public async listLineageByGrant(
-    tenantId: string,
-    grantId: string,
-  ): Promise<CreditGrantLineage[]> {
-    assertNonEmpty(tenantId, 'tenantId is required');
-    assertNonEmpty(grantId, 'grantId is required');
-    return this.repository.listLineageByGrant(tenantId, grantId);
+    query: PaginationQuery & { grantId: string },
+  ): Promise<PaginatedResult<CreditGrantLineage>> {
+    validatePaginationQuery(query);
+    assertNonEmpty(query.grantId, 'grantId is required');
+    return this.repository.listLineage(query);
   }
 
   public async listLineageByTransaction(
-    tenantId: string,
-    transactionId: string,
-  ): Promise<CreditGrantLineage[]> {
-    assertNonEmpty(tenantId, 'tenantId is required');
-    assertNonEmpty(transactionId, 'transactionId is required');
-    return this.repository.listLineageByTransaction(tenantId, transactionId);
+    query: PaginationQuery & { transactionId: string },
+  ): Promise<PaginatedResult<CreditGrantLineage>> {
+    validatePaginationQuery(query);
+    assertNonEmpty(query.transactionId, 'transactionId is required');
+    return this.repository.listLineage(query);
   }
 
   public async previewExpirations(

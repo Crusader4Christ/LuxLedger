@@ -238,7 +238,10 @@ describe('express adapter parity with fastify adapter', () => {
           assetId: '00000000-0000-4000-8000-000000000903',
           ledgerBalanceMinor: 100n,
           remainingMinor: 100n,
-          lots: [
+        }),
+        list: async () => ({ data: lastGrant ? [lastGrant] : [], nextCursor: 'next-cursor' }),
+        listLots: async () => ({
+          data: [
             {
               grantId: '00000000-0000-4000-8000-000000000901',
               reference: 'parity-grant',
@@ -253,9 +256,10 @@ describe('express adapter parity with fastify adapter', () => {
               remainingMinor: 100n,
             },
           ],
+          nextCursor: null,
         }),
-        listLineageByGrant: async () => [],
-        listLineageByTransaction: async () => [],
+        listLineageByGrant: async () => ({ data: [], nextCursor: null }),
+        listLineageByTransaction: async () => ({ data: [], nextCursor: null }),
         previewExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
         runExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
       },
@@ -916,6 +920,31 @@ describe('express adapter parity with fastify adapter', () => {
     ]);
     expect(fastifyLineage.status).toBe(200);
     expect(expressLineage).toEqual(fastifyLineage);
+    for (const boundedPath of [
+      `/v1/credit-grants?account_id=${payload.account_id}&reference=parity-grant&limit=10`,
+      `/v1/accounts/${payload.account_id}/credit-lots?limit=10&cursor=abc`,
+      `/v1/transactions/${payload.account_id}/credit-allocations?limit=10`,
+    ]) {
+      const [fastifyPage, expressPage] = await Promise.all([
+        requestFastify('GET', boundedPath),
+        requestExpress('GET', boundedPath),
+      ]);
+      expect(fastifyPage.status).toBe(200);
+      expect(expressPage).toEqual(fastifyPage);
+    }
+    for (const invalidPath of [
+      '/v1/credit-grants?limit=0',
+      '/v1/credit-grants?limit=201',
+      `/v1/accounts/${payload.account_id}/credit-lots?limit=abc`,
+      `${grantPath}/allocations?cursor=`,
+    ]) {
+      const [fastifyInvalid, expressInvalid] = await Promise.all([
+        requestFastify('GET', invalidPath),
+        requestExpress('GET', invalidPath),
+      ]);
+      expect(fastifyInvalid.status).toBe(400);
+      expect(expressInvalid.status).toBe(400);
+    }
     const expirationPayload = { as_of: '2027-01-01T00:00:00.000Z', limit: 10 };
     for (const expirationPath of [
       '/v1/credit-grants/expiration/preview',

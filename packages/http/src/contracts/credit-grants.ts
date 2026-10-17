@@ -1,5 +1,6 @@
 import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
+import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
 
 const uuid = { type: 'string', format: 'uuid' } as const;
 const minor = { type: 'string', pattern: '^[1-9][0-9]*$' } as const;
@@ -103,39 +104,48 @@ export const creditGrantLotResponseSchema = {
 export const creditBalanceResponseSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['account_id', 'asset_id', 'ledger_balance_minor', 'remaining_minor', 'lots'],
+  required: ['account_id', 'asset_id', 'ledger_balance_minor', 'remaining_minor'],
   properties: {
     account_id: uuid,
     asset_id: uuid,
     ledger_balance_minor: amount,
     remaining_minor: amount,
-    lots: { type: 'array', items: creditGrantLotResponseSchema },
   },
 } as const;
 
-export const creditGrantLineageResponseSchema = {
+export const creditGrantLineageItemSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['allocations'],
+  required: ['grant_id', 'entry_id', 'transaction_id', 'kind', 'amount_minor', 'created_at'],
   properties: {
-    allocations: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['grant_id', 'entry_id', 'transaction_id', 'kind', 'amount_minor', 'created_at'],
-        properties: {
-          grant_id: uuid,
-          entry_id: uuid,
-          transaction_id: uuid,
-          kind: { type: 'string', enum: ['CONSUMPTION', 'COMPENSATION', 'EXPIRATION'] },
-          amount_minor: minor,
-          created_at: { type: 'string', format: 'date-time' },
-        },
-      },
-    },
+    grant_id: uuid,
+    entry_id: uuid,
+    transaction_id: uuid,
+    kind: { type: 'string', enum: ['CONSUMPTION', 'COMPENSATION', 'EXPIRATION'] },
+    amount_minor: minor,
+    created_at: { type: 'string', format: 'date-time' },
   },
 } as const;
+
+export const creditGrantLineageResponseSchema = createPaginatedResponseSchema(
+  creditGrantLineageItemSchema,
+);
+export const creditGrantsPageResponseSchema =
+  createPaginatedResponseSchema(creditGrantResponseSchema);
+export const creditGrantLotsPageResponseSchema = createPaginatedResponseSchema(
+  creditGrantLotResponseSchema,
+);
+
+export const listCreditGrantsQuerySchemaExtra = {
+  properties: {
+    account_id: uuid,
+    reference: NonEmptyTrimmedStringSchema,
+    external_reference: NonEmptyTrimmedStringSchema,
+  },
+} as const;
+export const listCreditGrantsQuerySchema = mergePaginationQuerySchema(
+  listCreditGrantsQuerySchemaExtra,
+);
 
 export const processCreditGrantExpirationsBodySchema = {
   type: 'object',
@@ -187,6 +197,9 @@ export type CreditGrantResponse = InferSchema<typeof creditGrantResponseSchema>;
 export type CreditBalanceResponse = InferSchema<typeof creditBalanceResponseSchema>;
 export type CreditGrantIdParams = InferSchema<typeof creditGrantIdParamsSchema>;
 export type CreditGrantLineageResponse = InferSchema<typeof creditGrantLineageResponseSchema>;
+export type CreditGrantsPageResponse = InferSchema<typeof creditGrantsPageResponseSchema>;
+export type CreditGrantLotsPageResponse = InferSchema<typeof creditGrantLotsPageResponseSchema>;
+export type ListCreditGrantsQuery = InferSchema<typeof listCreditGrantsQuerySchema>;
 export type ProcessCreditGrantExpirationsRequest = InferSchema<
   typeof processCreditGrantExpirationsBodySchema
 >;

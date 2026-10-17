@@ -85,7 +85,18 @@ export interface CreditBalance {
   assetId: string;
   ledgerBalanceMinor: bigint;
   remainingMinor: bigint;
-  lots: CreditGrantLotBalance[];
+}
+export interface CreditGrantListQuery extends PaginationQuery {
+  accountId?: string;
+  reference?: string;
+  externalReference?: string;
+}
+export interface CreditLotListQuery extends PaginationQuery {
+  accountId: string;
+}
+export interface CreditLineageQuery extends PaginationQuery {
+  grantId?: string;
+  transactionId?: string;
 }
 export type CreditGrantLineageKind = 'CONSUMPTION' | 'COMPENSATION' | 'EXPIRATION';
 export interface CreditGrantLineage {
@@ -401,10 +412,10 @@ export interface BootstrapAdminResult {
 }
 
 export type {
-  ReconRecord,
   ReconMatchCriterion,
-  ReconRule,
+  ReconRecord,
   ReconResultStatus,
+  ReconRule,
   ReconRunStatus,
   ReconStrategy,
 };
