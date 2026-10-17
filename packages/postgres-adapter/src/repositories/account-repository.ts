@@ -82,6 +82,11 @@ export class DrizzleAccountRepository implements AccountRepository {
 
       const page = await paginateByCursor<typeof schema.accounts.$inferSelect>({
         query,
+        scope: {
+          resource: 'accounts',
+          tenantId: query.tenantId,
+          ledgerId: query.ledgerId ?? null,
+        },
         order: [
           {
             column: schema.accounts.createdAt,

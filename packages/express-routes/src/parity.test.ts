@@ -920,6 +920,7 @@ describe('express adapter parity with fastify adapter', () => {
     ]);
     expect(fastifyLineage.status).toBe(200);
     expect(expressLineage).toEqual(fastifyLineage);
+    expect(fastifyLineage.json).toEqual({ data: [], next_cursor: null });
     for (const boundedPath of [
       `/v1/credit-grants?account_id=${payload.account_id}&reference=parity-grant&limit=10`,
       `/v1/accounts/${payload.account_id}/credit-lots?limit=10&cursor=abc`,

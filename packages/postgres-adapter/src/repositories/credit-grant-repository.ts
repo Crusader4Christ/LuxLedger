@@ -21,7 +21,7 @@ import {
   type ReverseCreditGrantInput,
 } from '@luxledger/core/application';
 import type { AnyColumn } from 'drizzle-orm';
-import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
@@ -30,6 +30,7 @@ import { lockGrantEnabledAccountsForMutation } from './account-mutation-lock';
 import { DrizzleTransactionRepository } from './transaction-repository';
 
 type GrantRow = typeof schema.creditGrants.$inferSelect;
+type GrantPageRow = GrantRow & { cursorCreatedAt: string };
 type Tx = DrizzleDatabase;
 type ExpirationCandidate = CreditGrantExpirationItem & {
   ledgerId: string;
@@ -37,8 +38,8 @@ type ExpirationCandidate = CreditGrantExpirationItem & {
   createdAt: Date;
 };
 
-// Postgres stores microseconds but JS dates carry milliseconds; compare at millisecond precision so cursors never repeat rows.
-const millisecondTimestamp = (column: AnyColumn): SQL => sql`date_trunc('milliseconds', ${column})`;
+const exactTimestamp = (column: AnyColumn): SQL<string> =>
+  sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   private readonly transactions: DrizzleTransactionRepository;
@@ -286,21 +287,40 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       if (query.externalReference) {
         predicates.push(eq(schema.creditGrants.externalReference, query.externalReference));
       }
-      const page = await this.selectGrantPage(tx, query, predicates);
-      const data: CreditGrant[] = [];
-      for (const row of page.rows) data.push(await this.toGrant(tx, row));
-      return { data, nextCursor: page.nextCursor };
+      const page = await this.selectGrantPage(tx, query, predicates, {
+        resource: 'credit-grants',
+        tenantId: query.tenantId,
+        accountId: query.accountId ?? null,
+        reference: query.reference ?? null,
+        externalReference: query.externalReference ?? null,
+      });
+      return {
+        data: await this.toGrants(tx, page.rows),
+        nextCursor: page.nextCursor,
+      };
     });
   }
 
   public listLots(query: CreditLotListQuery): Promise<PaginatedResult<CreditGrantLotBalance>> {
     return this.client.runTenantTx(query.tenantId, 'list credit grant lots', async (tx) => {
       const account = await this.findCreditAccount(tx, query.tenantId, query.accountId);
-      const page = await this.selectGrantPage(tx, query, [
-        eq(schema.creditGrants.tenantId, query.tenantId),
-        eq(schema.creditGrants.accountId, query.accountId),
-      ]);
-      return { data: await this.toLots(tx, account, page.rows), nextCursor: page.nextCursor };
+      const page = await this.selectGrantPage(
+        tx,
+        query,
+        [
+          eq(schema.creditGrants.tenantId, query.tenantId),
+          eq(schema.creditGrants.accountId, query.accountId),
+        ],
+        {
+          resource: 'credit-grant-lots',
+          tenantId: query.tenantId,
+          accountId: query.accountId,
+        },
+      );
+      return {
+        data: await this.toLots(tx, account, page.rows),
+        nextCursor: page.nextCursor,
+      };
     });
   }
 
@@ -314,15 +334,24 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       if (query.transactionId) {
         predicates.push(eq(schema.entries.transactionId, query.transactionId));
       }
-      type LineageRow = Omit<CreditGrantLineage, 'kind'> & { kind: string };
+      type LineageRow = Omit<CreditGrantLineage, 'kind'> & {
+        cursorCreatedAt: string;
+        kind: string;
+      };
       const page = await paginateByCursor<LineageRow>({
         query,
+        scope: {
+          resource: 'credit-grant-lineage',
+          tenantId: query.tenantId,
+          grantId: query.grantId ?? null,
+          transactionId: query.transactionId ?? null,
+        },
         order: [
           {
-            column: millisecondTimestamp(schema.entries.createdAt),
+            column: schema.entries.createdAt,
             key: 'created_at',
-            type: 'date',
-            getValue: (row) => row.createdAt,
+            type: 'timestamp',
+            getValue: (row) => row.cursorCreatedAt,
           },
           {
             column: schema.creditGrantEntries.entryId,
@@ -346,6 +375,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
               kind: schema.creditGrantEntries.kind,
               amountMinor: schema.creditGrantEntries.amountMinor,
               createdAt: schema.entries.createdAt,
+              cursorCreatedAt: exactTimestamp(schema.entries.createdAt),
             })
             .from(schema.creditGrantEntries)
             .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
@@ -354,21 +384,30 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
             .limit(limit),
       });
       return {
-        data: page.rows.map((row) => ({ ...row, kind: row.kind as CreditGrantLineage['kind'] })),
+        data: page.rows.map(({ cursorCreatedAt: _, ...row }) => ({
+          ...row,
+          kind: row.kind as CreditGrantLineage['kind'],
+        })),
         nextCursor: page.nextCursor,
       };
     });
   }
 
-  private selectGrantPage(tx: Tx, query: PaginationQuery, predicates: SQL[]) {
-    return paginateByCursor<GrantRow>({
+  private selectGrantPage(
+    tx: Tx,
+    query: PaginationQuery,
+    predicates: SQL[],
+    scope: Record<string, string | null>,
+  ) {
+    return paginateByCursor<GrantPageRow>({
       query,
+      scope,
       order: [
         {
-          column: millisecondTimestamp(schema.creditGrants.createdAt),
+          column: schema.creditGrants.createdAt,
           key: 'created_at',
-          type: 'date',
-          getValue: (row) => row.createdAt,
+          type: 'timestamp',
+          getValue: (row) => row.cursorCreatedAt,
         },
         {
           column: schema.creditGrants.id,
@@ -379,7 +418,10 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       ],
       selectRows: ({ cursorPredicate, limit, orderBy }) =>
         tx
-          .select()
+          .select({
+            ...getTableColumns(schema.creditGrants),
+            cursorCreatedAt: exactTimestamp(schema.creditGrants.createdAt),
+          })
           .from(schema.creditGrants)
           .where(and(...predicates, cursorPredicate))
           .orderBy(...orderBy)
@@ -679,7 +721,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       )
       .as('latest_capacity');
     const [summary] = await tx
-      .select({ remaining: sql<string>`coalesce(sum(${latest.remainingMinor}), 0)::text` })
+      .select({
+        remaining: sql<string>`coalesce(sum(${latest.remainingMinor}), 0)::text`,
+      })
       .from(latest);
     const remainingMinor = BigInt(summary?.remaining ?? '0');
     const ledgerBalanceMinor = await this.ledgerTotalInTx(tx, tenantId, accountId);
@@ -688,7 +732,12 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         'Credit grant lot totals do not reconcile with ledger balance',
       );
     }
-    return { accountId, assetId: account.assetId, ledgerBalanceMinor, remainingMinor };
+    return {
+      accountId,
+      assetId: account.assetId,
+      ledgerBalanceMinor,
+      remainingMinor,
+    };
   }
 
   private async toLots(
@@ -802,8 +851,21 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   }
 
   private async toGrant(tx: Tx, row: GrantRow): Promise<CreditGrant> {
-    const [issuance] = await tx
+    const [grant] = await this.toGrants(tx, [row]);
+    if (!grant) throw new CreditGrantConflictError('Grant issuance entry is missing');
+    return grant;
+  }
+
+  private async toGrants(tx: Tx, rows: GrantRow[]): Promise<CreditGrant[]> {
+    if (rows.length === 0) return [];
+    const tenantId = rows[0]?.tenantId;
+    if (!tenantId || rows.some((row) => row.tenantId !== tenantId)) {
+      throw new CreditGrantConflictError('Grant tenant scope mismatch');
+    }
+    const issuances = await tx
       .select({
+        grantId: schema.creditGrantEntries.grantId,
+        transactionId: schema.entries.transactionId,
         signedAmountMinor: schema.entries.signedAmountMinor,
         assetId: schema.entries.assetId,
       })
@@ -811,31 +873,60 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       .innerJoin(schema.entries, eq(schema.creditGrantEntries.entryId, schema.entries.id))
       .where(
         and(
-          eq(schema.creditGrantEntries.tenantId, row.tenantId),
-          eq(schema.creditGrantEntries.grantId, row.id),
-          eq(schema.entries.transactionId, row.transactionId),
+          eq(schema.creditGrantEntries.tenantId, tenantId),
+          inArray(
+            schema.creditGrantEntries.grantId,
+            rows.map((row) => row.id),
+          ),
           eq(schema.creditGrantEntries.kind, 'ISSUANCE'),
         ),
-      )
-      .limit(1);
-    if (!issuance) throw new CreditGrantConflictError('Grant issuance entry is missing');
-    const reversal = await this.findReversal(tx, row);
-    return {
-      id: row.id,
-      tenantId: row.tenantId,
-      ledgerId: row.ledgerId,
-      accountId: row.accountId,
-      fundingAccountId: row.fundingAccountId,
-      assetId: issuance.assetId,
-      reference: row.reference,
-      externalReference: row.externalReference,
-      amountMinor:
-        issuance.signedAmountMinor < 0n ? -issuance.signedAmountMinor : issuance.signedAmountMinor,
-      transactionId: row.transactionId,
-      createdAt: row.createdAt,
-      expiresAt: row.expiresAt,
-      reversedByTransactionId: reversal?.id ?? null,
-    };
+      );
+    const reversals = await tx
+      .select({
+        id: schema.transactions.id,
+        relatedTransactionId: schema.transactions.relatedTransactionId,
+      })
+      .from(schema.transactions)
+      .where(
+        and(
+          eq(schema.transactions.tenantId, tenantId),
+          eq(schema.transactions.relationType, 'REVERSAL'),
+          inArray(
+            schema.transactions.relatedTransactionId,
+            rows.map((row) => row.transactionId),
+          ),
+        ),
+      );
+    const issuanceByGrant = new Map(issuances.map((issuance) => [issuance.grantId, issuance]));
+    const reversalByTransaction = new Map(
+      reversals.flatMap((reversal) =>
+        reversal.relatedTransactionId ? [[reversal.relatedTransactionId, reversal.id]] : [],
+      ),
+    );
+    return rows.map((row) => {
+      const issuance = issuanceByGrant.get(row.id);
+      if (!issuance || issuance.transactionId !== row.transactionId) {
+        throw new CreditGrantConflictError('Grant issuance entry is missing');
+      }
+      return {
+        id: row.id,
+        tenantId: row.tenantId,
+        ledgerId: row.ledgerId,
+        accountId: row.accountId,
+        fundingAccountId: row.fundingAccountId,
+        assetId: issuance.assetId,
+        reference: row.reference,
+        externalReference: row.externalReference,
+        amountMinor:
+          issuance.signedAmountMinor < 0n
+            ? -issuance.signedAmountMinor
+            : issuance.signedAmountMinor,
+        transactionId: row.transactionId,
+        createdAt: row.createdAt,
+        expiresAt: row.expiresAt,
+        reversedByTransactionId: reversalByTransaction.get(row.transactionId) ?? null,
+      };
+    });
   }
 
   private samePayload(grant: CreditGrant, input: CreateCreditGrantInput): boolean {

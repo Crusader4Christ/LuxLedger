@@ -90,7 +90,11 @@ describe('bounded credit grant queries', () => {
       nextCursor: null,
     });
     expect(
-      await services.creditGrants.listLots({ tenantId, accountId: accounts.accountId, limit: 10 }),
+      await services.creditGrants.listLots({
+        tenantId,
+        accountId: accounts.accountId,
+        limit: 10,
+      }),
     ).toEqual({ data: [], nextCursor: null });
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     expect(balance.remainingMinor).toBe(0n);
@@ -168,6 +172,40 @@ describe('bounded credit grant queries', () => {
     );
   });
 
+  it('preserves PostgreSQL microseconds in the cursor while ordering by created_at', async () => {
+    const tenantId = await createTenant(db, 'microseconds');
+    const accounts = await setup(tenantId);
+    const created = [];
+    for (let index = 0; index < 3; index += 1) {
+      created.push((await grant(tenantId, accounts, `micro-${index}`)).grant.id);
+    }
+
+    // Test-only: force distinct database timestamps that collapse to one JavaScript millisecond.
+    await db.execute(sql`alter table credit_grants disable trigger user`);
+    try {
+      await db.execute(
+        sql`update credit_grants set created_at = '2026-01-01T00:00:00.123200Z'::timestamptz
+          where tenant_id = ${tenantId} and id = ${created[0]}`,
+      );
+      await db.execute(
+        sql`update credit_grants set created_at = '2026-01-01T00:00:00.123300Z'::timestamptz
+          where tenant_id = ${tenantId} and id = ${created[1]}`,
+      );
+      await db.execute(
+        sql`update credit_grants set created_at = '2026-01-01T00:00:00.123100Z'::timestamptz
+          where tenant_id = ${tenantId} and id = ${created[2]}`,
+      );
+    } finally {
+      await db.execute(sql`alter table credit_grants enable trigger user`);
+    }
+
+    const page = await collect(
+      (cursor) => services.creditGrants.list({ tenantId, limit: 1, cursor }),
+      1,
+    );
+    expect(page.items.map((item) => item.id)).toEqual([created[2], created[0], created[1]]);
+  });
+
   it('rejects invalid limits and cursors with application errors', async () => {
     const tenantId = await createTenant(db, 'invalid');
     const accounts = await setup(tenantId);
@@ -200,6 +238,25 @@ describe('bounded credit grant queries', () => {
     }
   });
 
+  it('rejects a valid cursor when it is reused for another collection', async () => {
+    const tenantId = await createTenant(db, 'cursor-scope');
+    const accounts = await setup(tenantId);
+    await grant(tenantId, accounts, 'scope-1');
+    await grant(tenantId, accounts, 'scope-2');
+
+    const grants = await services.creditGrants.list({ tenantId, limit: 1 });
+    expect(grants.nextCursor).not.toBeNull();
+
+    await expect(
+      services.creditGrants.listLots({
+        tenantId,
+        accountId: accounts.accountId,
+        limit: 1,
+        cursor: grants.nextCursor as string,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
   it('keeps the summary reconciled with the paged lots', async () => {
     const tenantId = await createTenant(db, 'summary');
     const accounts = await setup(tenantId);
@@ -210,13 +267,26 @@ describe('bounded credit grant queries', () => {
       reference: 'spend-1',
       currency: 'USD',
       entries: [
-        { accountId: accounts.accountId, signedAmountMinor: 250n, currency: 'USD' },
-        { accountId: accounts.fundingAccountId, signedAmountMinor: -250n, currency: 'USD' },
+        {
+          accountId: accounts.accountId,
+          signedAmountMinor: 250n,
+          currency: 'USD',
+        },
+        {
+          accountId: accounts.fundingAccountId,
+          signedAmountMinor: -250n,
+          currency: 'USD',
+        },
       ],
     });
     const balance = await services.creditGrants.getBalance(tenantId, accounts.accountId);
     const lots = await collect((cursor) =>
-      services.creditGrants.listLots({ tenantId, accountId: accounts.accountId, limit: 2, cursor }),
+      services.creditGrants.listLots({
+        tenantId,
+        accountId: accounts.accountId,
+        limit: 2,
+        cursor,
+      }),
     );
     const total = lots.items.reduce((sum, lot) => sum + lot.remainingMinor, 0n);
     expect(balance.remainingMinor).toBe(250n);
@@ -237,8 +307,16 @@ describe('bounded credit grant queries', () => {
       reference: 'spend-all',
       currency: 'USD',
       entries: [
-        { accountId: accounts.accountId, signedAmountMinor: 300n, currency: 'USD' },
-        { accountId: accounts.fundingAccountId, signedAmountMinor: -300n, currency: 'USD' },
+        {
+          accountId: accounts.accountId,
+          signedAmountMinor: 300n,
+          currency: 'USD',
+        },
+        {
+          accountId: accounts.fundingAccountId,
+          signedAmountMinor: -300n,
+          currency: 'USD',
+        },
       ],
     });
     const full = await collect((cursor) =>
@@ -263,7 +341,12 @@ describe('bounded credit grant queries', () => {
     expect(paged.pages).toBe(3);
     expect(paged.items).toEqual(full.items);
     const byGrant = await collect((cursor) =>
-      services.creditGrants.listLineageByGrant({ tenantId, grantId: grants[0], limit: 1, cursor }),
+      services.creditGrants.listLineageByGrant({
+        tenantId,
+        grantId: grants[0],
+        limit: 1,
+        cursor,
+      }),
     );
     expect(byGrant.items.map((item) => item.grantId)).toEqual([grants[0]]);
   });
@@ -282,10 +365,22 @@ describe('bounded credit grant queries', () => {
     });
     expect(byReference.data.map((item) => item.id)).toEqual([target.grant.id]);
     expect(
-      (await services.creditGrants.list({ tenantId, limit: 10, reference: 'missing' })).data,
+      (
+        await services.creditGrants.list({
+          tenantId,
+          limit: 10,
+          reference: 'missing',
+        })
+      ).data,
     ).toEqual([]);
     expect(
-      (await services.creditGrants.list({ tenantId, limit: 10, externalReference: 'ext-1' })).data,
+      (
+        await services.creditGrants.list({
+          tenantId,
+          limit: 10,
+          externalReference: 'ext-1',
+        })
+      ).data,
     ).toHaveLength(2);
     expect(
       (
