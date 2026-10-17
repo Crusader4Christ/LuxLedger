@@ -996,6 +996,25 @@ describe('express adapter parity with fastify adapter', () => {
             { method: 'POST' as const, url: '/v1/holds', payload: {} },
             {
               method: 'POST' as const,
+              url: '/v1/holds/not-a-uuid/void',
+              payload: { reference: 'void' },
+            },
+            { method: 'POST' as const, url: '/v1/credit-grants', payload: {} },
+            {
+              method: 'POST' as const,
+              url: '/v1/credit-grants/00000000-0000-4000-8000-000000000901/reversal',
+              payload: {},
+            },
+            { method: 'GET' as const, url: '/v1/credit-grants/not-a-uuid/allocations' },
+            { method: 'GET' as const, url: '/v1/transactions/not-a-uuid/credit-allocations' },
+            { method: 'GET' as const, url: '/v1/accounts/not-a-uuid/credit-balance' },
+            {
+              method: 'POST' as const,
+              url: '/v1/credit-grants/expiration/run',
+              payload: { as_of: '2027-01-01T00:00:00.000Z', limit: 101 },
+            },
+            {
+              method: 'POST' as const,
               url: '/v1/holds/00000000-0000-4000-8000-000000000400/commit',
               payload: { reference: 'commit', amount_minor: '0' },
             },
