@@ -1,0 +1,1 @@
+ALTER TYPE "public"."credit_grant_entry_kind" ADD VALUE 'REFUND';

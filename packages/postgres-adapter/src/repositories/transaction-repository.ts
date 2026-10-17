@@ -15,6 +15,7 @@ import {
   type CorrectTransactionResult,
   type CreateTransactionInput,
   type CreateTransactionResult,
+  CreditGrantConflictError,
   InvariantViolationError,
   type PaginatedResult,
   type PaginationQuery,
@@ -88,6 +89,21 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       effectiveAt: input.effectiveAt ?? undefined,
       compareDescriptionOnRetry: true,
       payloadMismatchMessage: 'Unable to expire credit grant: reference payload mismatch',
+      skipGrantLineage: true,
+    });
+  }
+
+  public postCreditGrantRefundInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput,
+  ): Promise<CreateTransactionResult> {
+    return this.createOrResolvePostedTransaction(tx, {
+      ...input,
+      description: input.description ?? null,
+      effectiveAt: input.effectiveAt ?? undefined,
+      compareDescriptionOnRetry: true,
+      payloadMismatchMessage: 'Credit grant refund reference payload mismatch',
+      payloadMismatchError: (message) => new CreditGrantConflictError(message),
       skipGrantLineage: true,
     });
   }
@@ -390,6 +406,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       }>;
       compareDescriptionOnRetry?: boolean;
       payloadMismatchMessage: string;
+      payloadMismatchError?: (message: string) => Error;
     },
   ): Promise<{ transactionId: string; created: boolean }> {
     const effectiveAt = this.resolveEffectiveAt(input.effectiveAt);
@@ -477,7 +494,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       (existing.relatedTransactionId ?? null) !== (input.relatedTransactionId ?? null) ||
       (existing.relationType ?? null) !== (input.relationType ?? null)
     ) {
-      throw new InvariantViolationError(input.payloadMismatchMessage);
+      throw (
+        input.payloadMismatchError?.(input.payloadMismatchMessage) ??
+        new InvariantViolationError(input.payloadMismatchMessage)
+      );
     }
     const existingEntriesByTransactionId = await this.loadEntriesByTransactionIds(
       tx,
@@ -486,7 +506,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     );
     const existingEntries = existingEntriesByTransactionId.get(existing.id) ?? [];
     if (!this.areEquivalentTransactionEntries(existingEntries, input.entries)) {
-      throw new InvariantViolationError(input.payloadMismatchMessage);
+      throw (
+        input.payloadMismatchError?.(input.payloadMismatchMessage) ??
+        new InvariantViolationError(input.payloadMismatchMessage)
+      );
     }
     return { transactionId: existing.id, created: false };
   }
