@@ -307,6 +307,20 @@ describe('operational adjustments', () => {
         actorId: 'operator',
       }),
     ).rejects.toBeInstanceOf(AdjustmentConflictError);
+
+    await expect(
+      repository.create('DEBIT', {
+        tenantId,
+        ledgerId,
+        accountId: fundingAccountId,
+        offsetAccountId: accountId,
+        reference: 'grant-offset-debit-adjustment',
+        amountMinor: 10n,
+        description: 'Invalid grant offset credit',
+        reasonCode: 'MANUAL_DEBIT',
+        actorId: 'operator',
+      }),
+    ).rejects.toBeInstanceOf(AdjustmentConflictError);
     expect(await db.select().from(transactions)).toHaveLength(2);
   });
 });

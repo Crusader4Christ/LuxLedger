@@ -33,7 +33,7 @@ Operational credit and debit adjustments are balanced postings with an explicit 
 
 The audit envelope is stored in immutable transaction metadata in the same PostgreSQL transaction as the entries, account projections, and `ADJUSTMENT` balance snapshots. An exact retry returns the original transaction without posting again; changing the direction, accounts, amount, description, reason, actor, or optional metadata conflicts. Account `overdraft_policy` remains the negative-capacity authority, so a rejected adjustment rolls back the complete posting.
 
-A debit adjustment against a grant-enabled account uses the normal FEFO grant-allocation path and cannot exceed unreserved eligible grant capacity. A credit adjustment against a grant-enabled account is rejected because an unattributed credit cannot create, replenish, or relabel a grant lot. Hosts that need new spendable grant capacity must issue a grant instead.
+A debit adjustment against a grant-enabled target account uses the normal FEFO grant-allocation path and cannot exceed unreserved eligible grant capacity. An adjustment is rejected whenever its credit leg would post to a grant-enabled account, whether that account is the target of a credit adjustment or the offset of a debit adjustment, because an unattributed credit cannot create, replenish, or relabel a grant lot. Hosts that need new spendable grant capacity must issue a grant instead.
 
 ## Authentication contract
 

@@ -7,7 +7,7 @@ import {
   type AdjustmentResult,
   type CreateAdjustmentInput,
 } from '@luxledger/core/application';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { DbClient } from '../client';
 import * as schema from '../schema';
 import { DrizzleTransactionRepository } from './transaction-repository';
@@ -24,8 +24,9 @@ export class DrizzleAdjustmentRepository implements AdjustmentRepository {
     input: CreateAdjustmentInput,
   ): Promise<AdjustmentResult> {
     return this.client.runTenantTx(input.tenantId, 'create adjustment', async (tx) => {
-      const [account] = await tx
+      const adjustmentAccounts = await tx
         .select({
+          id: schema.accounts.id,
           currency: schema.accounts.currency,
           grantEnabled: schema.accounts.grantEnabled,
         })
@@ -33,14 +34,17 @@ export class DrizzleAdjustmentRepository implements AdjustmentRepository {
         .where(
           and(
             eq(schema.accounts.tenantId, input.tenantId),
-            eq(schema.accounts.id, input.accountId),
+            inArray(schema.accounts.id, [input.accountId, input.offsetAccountId]),
           ),
-        )
-        .limit(1);
+        );
+      const account = adjustmentAccounts.find(({ id }) => id === input.accountId);
+      const offsetAccount = adjustmentAccounts.find(({ id }) => id === input.offsetAccountId);
       if (!account) throw new AccountNotFoundError(input.accountId);
-      if (direction === 'CREDIT' && account.grantEnabled) {
+      if (!offsetAccount) throw new AccountNotFoundError(input.offsetAccountId);
+      const creditedAccount = direction === 'CREDIT' ? account : offsetAccount;
+      if (creditedAccount.grantEnabled) {
         throw new AdjustmentConflictError(
-          'Credit adjustments cannot create grant capacity; issue a credit grant instead',
+          'Adjustments cannot credit a grant-enabled account; issue a credit grant instead',
         );
       }
 
