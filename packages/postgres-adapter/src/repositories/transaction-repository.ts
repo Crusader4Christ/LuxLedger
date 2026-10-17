@@ -16,6 +16,7 @@ import {
   type CorrectTransactionResult,
   type CreateTransactionInput,
   type CreateTransactionResult,
+  CreditGrantConflictError,
   InvariantViolationError,
   type PaginatedResult,
   type PaginationQuery,
@@ -105,6 +106,21 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
       payloadMismatchMessage: 'Adjustment reference payload mismatch',
       payloadMismatchError: (message) => new AdjustmentConflictError(message),
       balanceSnapshotEventType: 'ADJUSTMENT',
+    });
+  }
+
+  public postCreditGrantRefundInTx(
+    tx: PostgresJsDatabase<typeof schema>,
+    input: CreateTransactionInput,
+  ): Promise<CreateTransactionResult> {
+    return this.createOrResolvePostedTransaction(tx, {
+      ...input,
+      description: input.description ?? null,
+      effectiveAt: input.effectiveAt ?? undefined,
+      compareDescriptionOnRetry: true,
+      payloadMismatchMessage: 'Credit grant refund reference payload mismatch',
+      payloadMismatchError: (message) => new CreditGrantConflictError(message),
+      skipGrantLineage: true,
     });
   }
 

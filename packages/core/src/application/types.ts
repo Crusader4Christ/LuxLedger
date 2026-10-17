@@ -68,6 +68,15 @@ export interface ReverseCreditGrantInput {
   grantId: string;
   reference: string;
 }
+export interface RefundCreditGrantInput extends ReverseCreditGrantInput {
+  amountMinor: bigint;
+}
+export interface CreditGrantRefundResult {
+  grantId: string;
+  transactionId: string;
+  amountMinor: bigint;
+  created: boolean;
+}
 export interface CreditGrantLotBalance {
   grantId: string;
   reference: string;
@@ -99,7 +108,7 @@ export interface CreditLineageQuery extends PaginationQuery {
   grantId?: string;
   transactionId?: string;
 }
-export type CreditGrantLineageKind = 'CONSUMPTION' | 'COMPENSATION' | 'EXPIRATION';
+export type CreditGrantLineageKind = 'CONSUMPTION' | 'COMPENSATION' | 'EXPIRATION' | 'REFUND';
 export interface CreditGrantLineage {
   grantId: string;
   entryId: string;

@@ -37,6 +37,7 @@ import type {
   CreditGrantLineage,
   CreditGrantListQuery,
   CreditGrantLotBalance,
+  CreditGrantRefundResult,
   CreditGrantResult,
   CreditLineageQuery,
   CreditLotListQuery,
@@ -48,6 +49,7 @@ import type {
   ProcessCreditGrantExpirationsInput,
   ReconRun,
   ReconUpload,
+  RefundCreditGrantInput,
   ReverseCreditGrantInput,
   ReverseTransactionInput,
   ReverseTransactionResult,
@@ -66,6 +68,8 @@ export interface CreditGrantRepository {
   create(input: CreateCreditGrantInput): Promise<CreditGrantResult>;
   /** Reverses only the specified grant when its own remaining capacity equals its original amount. */
   reverse(input: ReverseCreditGrantInput): Promise<CreditGrantResult>;
+  /** Removes only current unspent, unreserved, and unexpired capacity from one grant. */
+  refund(input: RefundCreditGrantInput): Promise<CreditGrantRefundResult>;
   findById(tenantId: string, grantId: string): Promise<CreditGrant | null>;
   getBalance(tenantId: string, accountId: string): Promise<CreditBalance>;
   list(query: CreditGrantListQuery): Promise<PaginatedResult<CreditGrant>>;

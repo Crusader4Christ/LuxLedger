@@ -11,11 +11,13 @@ import type {
   CreditGrantLineage,
   CreditGrantListQuery,
   CreditGrantLotBalance,
+  CreditGrantRefundResult,
   CreditGrantResult,
   CreditLotListQuery,
   PaginatedResult,
   PaginationQuery,
   ProcessCreditGrantExpirationsInput,
+  RefundCreditGrantInput,
   ReverseCreditGrantInput,
 } from '../types';
 
@@ -49,6 +51,14 @@ export class CreditGrantService {
     assertNonEmpty(input.grantId, 'grantId is required');
     assertNonEmpty(input.reference, 'reference is required');
     return this.repository.reverse(input);
+  }
+
+  public async refund(input: RefundCreditGrantInput): Promise<CreditGrantRefundResult> {
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.grantId, 'grantId is required');
+    assertNonEmpty(input.reference, 'reference is required');
+    validateCreditGrant(input);
+    return this.repository.refund(input);
   }
 
   public async getById(tenantId: string, grantId: string): Promise<CreditGrant> {
