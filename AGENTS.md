@@ -27,6 +27,19 @@ packages/
   postgres-adapter/ — narrow Drizzle/PostgreSQL persistence adapter
 ```
 
+## Instruction Scope and Precedence
+
+- This root file applies repository-wide.
+- A package-local `AGENTS.md` applies only within its directory tree and may add or override rules for
+  that package.
+- When rules differ, follow the most specific applicable instruction. A local rule does not weaken an
+  unrelated repository-wide safety, privacy, or workflow requirement.
+- If applicable instructions still conflict or would require a structural ownership change, do not
+  guess. Stop and ask before moving code or changing public behavior.
+- These instructions describe intended constraints, not proof that the current code already satisfies
+  them. Verify the implementation. Treat a mismatch as technical debt or a follow-up unless the task
+  explicitly includes correcting that boundary.
+
 ## Package Architecture
 
 - `@luxledger/core` owns domain types, invariants, application services, persistence ports, and
@@ -42,9 +55,9 @@ packages/
   Drizzle schema/query implementations, row mapping, locking primitives, and database-error
   translation.
 - Some persistence-neutral orchestration currently lives in `packages/postgres-adapter`; that is
-  migration debt, not a precedent. Do not add more generic policy there. Move reusable domain policy,
-  application workflows, and generic composition to `core` or an appropriate non-PostgreSQL package
-  when the touched code can be separated safely.
+  migration debt, not a precedent or evidence that the boundary is already enforced. Do not add new
+  reusable policy there. Existing misplaced code may remain until an explicitly scoped extraction
+  task moves it.
 
 Dependency direction:
 
@@ -62,7 +75,17 @@ postgres-adapter -> core
 - `http` must not import route frameworks, database libraries, database adapters, or host
   applications.
 - `postgres-adapter` must not import `http`, route adapters, or host applications.
-- Package-local `AGENTS.md` files add stricter rules for their directory and take precedence there.
+
+## Change Discipline
+
+- Prefer the smallest change that satisfies the task and preserve existing behavior unless the task
+  explicitly changes it.
+- Do not perform a cross-package refactor merely to make existing code match the intended architecture.
+  Move code across boundaries only when the task explicitly includes that cleanup or the requested
+  change cannot be implemented correctly without it.
+- When an out-of-scope boundary violation is discovered, avoid extending it and report or track it as
+  follow-up work.
+- Documentation-only tasks must not trigger source-code churn by default.
 
 ## Host Composition Boundary
 
@@ -97,7 +120,8 @@ postgres-adapter -> core
 - `drizzle/` generated migrations — never hand-edit; generate via `bun run db:generate`
 
 ## Minimal Verification
-- Docs-only change: no checks required.
+- Docs/instructions-only change: run `git diff --check` and confirm statements match either the current
+  implementation or are clearly labeled as intended architecture/technical debt.
 - Code change: `bun run lint && bun run typecheck && bun run test:unit`
 - DB/schema change: add `bun run test:integration` (needs `docker compose up -d`)
 - HTTP contract change: add `bun run contract:verify`
@@ -110,11 +134,25 @@ postgres-adapter -> core
 
 - Treat `package.json` `exports`, package entry-point `index.ts` files, declaration build inputs, and
   README usage as one public API surface; update them together.
-- Import another workspace package through its public `@luxledger/*` export, not through relative
-  paths into that package's `src` directory. Cross-package source imports are allowed only in tests
+- Only paths declared by a package's `package.json` `exports` are public entry points. Unexported
+  modules, including any `internal`, `private`, or implementation directory, are internal APIs even if
+  TypeScript can resolve them.
+- Import another workspace package through an exported `@luxledger/*` entry point. Do not deep-import
+  its `src`, `lib`, internal, or private files. Cross-package source imports are allowed only in tests
   that explicitly enforce repository-wide boundaries.
 - Keep coordinated package versions and internal dependency ranges aligned for releases.
 - Avoid exporting adapter internals merely to make tests convenient.
+
+## Boundary Review Checklist
+
+Before finishing a change, verify:
+
+- the package dependency direction still points inward toward `core`;
+- new imports use public exports and do not create cross-boundary coupling;
+- public exports, barrel files, declaration build inputs, and package metadata remain aligned;
+- all package-local instructions applicable to the changed files were followed;
+- documentation distinguishes current behavior from intended architecture; and
+- the verification commands match the type of change described above.
 
 ## Local Setup
 ```sh

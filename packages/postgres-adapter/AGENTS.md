@@ -21,11 +21,13 @@ different database implementation?** If yes, it does not belong here. Put domain
 policy in `@luxledger/core`, persistence-neutral application orchestration behind core ports, HTTP
 behavior in `@luxledger/http`, and host composition in the host or a dedicated composition package.
 
-In particular, do not add new generic application-service composition, posting policy, grant
-allocation policy, reconciliation policy, validation rules, cursor semantics, or other reusable
-workflow logic merely because the current adapter already contains related code. When touching such
-existing code, extract a coherent persistence-neutral slice when that can be done without broadening
-the requested change; otherwise avoid increasing the debt and record the remaining boundary issue.
+Do not add any new reusable application policy or orchestration that would remain useful with another
+persistence backend. This includes generic application-service composition, posting policy, grant
+allocation policy, reconciliation policy, validation rules, cursor semantics, and reusable workflow
+logic. Existing misplaced code may remain only until an explicitly scoped extraction task moves it;
+its presence never permits adding adjacent policy. Unless the current task explicitly includes
+boundary cleanup, avoid expanding that code and record the extraction as follow-up work instead of
+performing an incidental refactor.
 
 ## Dependency and Error Boundaries
 
