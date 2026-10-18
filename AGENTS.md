@@ -87,6 +87,21 @@ postgres-adapter -> core
   follow-up work.
 - Documentation-only tasks must not trigger source-code churn by default.
 
+## Parallel Agent Workflow
+
+- Assume the worktree may contain concurrent user or agent edits. Check `git status` and the relevant
+  diff before editing, then re-read a file immediately before changing it if another process may have
+  touched it.
+- Preserve changes you did not create. Do not reset, revert, overwrite, reformat, or delete unrelated
+  work to make the tree clean.
+- Keep edits narrowly scoped and avoid repository-wide format/fix commands unless the task explicitly
+  requires them.
+- Before committing, inspect the staged diff and stage only the files intended for the current task.
+  Do not absorb another agent's changes into the commit merely because they share the worktree.
+- If concurrent edits overlap the same lines or make ownership ambiguous, stop and coordinate instead
+  of choosing one version silently.
+- Rebase, amend, force-push, or rewrite shared history only with explicit user authorization.
+
 ## Host Composition Boundary
 
 - Host applications are thin composition roots. They own process bootstrap, dependency injection,

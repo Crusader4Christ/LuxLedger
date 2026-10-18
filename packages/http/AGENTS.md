@@ -4,6 +4,8 @@ These rules extend the repository root instructions for `packages/http`.
 
 ## Ownership
 
+- `@luxledger/http` is the source of truth for transport contracts; framework adapters consume those
+  contracts and must not redefine or fork them locally.
 - Own framework-neutral request/response contracts, runtime schemas, DTO mappers, validation helpers,
   transport-safe error mapping, shared route primitives, and the canonical OpenAPI document at
   `openapi/openapi.yaml`.

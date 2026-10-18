@@ -22,12 +22,11 @@ policy in `@luxledger/core`, persistence-neutral application orchestration behin
 behavior in `@luxledger/http`, and host composition in the host or a dedicated composition package.
 
 Do not add any new reusable application policy or orchestration that would remain useful with another
-persistence backend. This includes generic application-service composition, posting policy, grant
-allocation policy, reconciliation policy, validation rules, cursor semantics, and reusable workflow
-logic. Existing misplaced code may remain only until an explicitly scoped extraction task moves it;
-its presence never permits adding adjacent policy. Unless the current task explicitly includes
-boundary cleanup, avoid expanding that code and record the extraction as follow-up work instead of
-performing an incidental refactor.
+persistence backend. Examples include generic service composition, business validation/allocation
+policy, and backend-neutral workflow or cursor semantics. Existing misplaced code may remain only
+until an explicitly scoped extraction task moves it; its presence never permits adding adjacent
+policy. Unless the current task explicitly includes boundary cleanup, avoid expanding that code and
+record the extraction as follow-up work instead of performing an incidental refactor.
 
 ## Dependency and Error Boundaries
 

@@ -28,3 +28,4 @@ These rules extend the repository root instructions for `packages/fastify-routes
 - Add focused Fastify injection tests for changed framework behavior.
 - Run the root code-change checks, `bun run contract:verify` for contract changes, and the adapter
   parity suite with `bun test packages/express-routes/src/parity.test.ts` for shared route behavior.
+  The shared parity test intentionally lives in the Express package and exercises both adapters.
