@@ -174,7 +174,7 @@ Before finishing a change, verify:
 docker compose up -d          # PostgreSQL on :5432, test DB on :5433
 cp .env.example .env          # configure DATABASE_URL
 bun install
-bunx drizzle-kit migrate
+bun run db:migrate
 ```
 
 The reference API demo app lives in a separate repository. This repository owns the reusable packages, migrations, and HTTP/OpenAPI contract.
@@ -262,4 +262,3 @@ The reference API demo app lives in a separate repository. This repository owns 
 - Any dependency addition must be justified in PR description.
 - Keep dependencies package-specific and minimal; never add a framework or database dependency to a
   more central package for adapter convenience.
-- Tests required for all `@luxledger/core` invariants (double-entry balance, idempotency)
