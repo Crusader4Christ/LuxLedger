@@ -6,6 +6,7 @@ import {
   type CreditLotMovement,
   type CreditLotStatement,
   type CreditLotStatementQuery,
+  RepositoryError,
   type StatementBalance,
   type StatementRepository,
 } from '@luxledger/core/application';
@@ -20,10 +21,11 @@ type CapacityRow = {
   id: string;
   grantId: string;
   sourceEntryId: string | null;
+  sourceAllocationId: string | null;
   sourceTransactionId: string | null;
   sourceHoldId: string | null;
   sourceAllocationHoldId: string | null;
-  lineageKind: string | null;
+  lineageKind: typeof schema.creditGrantEntries.$inferSelect.kind | null;
   version: bigint;
   remainingMinor: bigint;
   reservedMinor: bigint;
@@ -191,6 +193,7 @@ export class DrizzleStatementRepository implements StatementRepository {
                 id: schema.creditGrantCapacityVersions.id,
                 grantId: schema.creditGrantCapacityVersions.grantId,
                 sourceEntryId: schema.creditGrantCapacityVersions.sourceEntryId,
+                sourceAllocationId: schema.creditGrantCapacityVersions.sourceAllocationId,
                 sourceTransactionId: schema.entries.transactionId,
                 sourceHoldId: schema.creditGrantCapacityVersions.sourceHoldId,
                 sourceAllocationHoldId: schema.holdEntries.holdId,
@@ -233,16 +236,17 @@ export class DrizzleStatementRepository implements StatementRepository {
         }),
       ]);
 
-      const previous = await this.previousCapacities(tx, query.tenantId, page.rows);
+      const previous = await this.previousCapacities(
+        tx,
+        query.tenantId,
+        query.accountId,
+        page.rows,
+      );
       const data: CreditLotMovement[] = page.rows.map((row) => {
         const prior = previous.get(`${row.grantId}:${row.version - 1n}`);
         const priorAvailable = prior ? prior.remainingMinor - prior.reservedMinor : 0n;
         const availableMinor = row.remainingMinor - row.reservedMinor;
-        const kind = row.lineageKind
-          ? (row.lineageKind as CreditLotMovement['kind'])
-          : row.sourceAllocationHoldId
-            ? 'HOLD_RESERVED'
-            : 'HOLD_RELEASED';
+        const kind = this.creditLotMovementKind(row);
         return {
           id: row.id,
           grantId: row.grantId,
@@ -382,7 +386,35 @@ export class DrizzleStatementRepository implements StatementRepository {
     return BigInt(summary?.available ?? '0');
   }
 
-  private async previousCapacities(tx: Tx, tenantId: string, rows: CapacityRow[]) {
+  private creditLotMovementKind(row: CapacityRow): CreditLotMovement['kind'] {
+    const sourceCount = [row.sourceEntryId, row.sourceAllocationId, row.sourceHoldId].filter(
+      (source) => source !== null,
+    ).length;
+    if (sourceCount !== 1) {
+      throw new RepositoryError('Credit lot movement has invalid provenance');
+    }
+    if (row.sourceEntryId !== null) {
+      if (row.lineageKind === null) {
+        throw new RepositoryError('Credit lot movement is missing lineage provenance');
+      }
+      return row.lineageKind;
+    }
+    if (row.sourceAllocationId !== null) {
+      if (row.sourceAllocationHoldId === null) {
+        throw new RepositoryError('Credit lot movement is missing hold allocation provenance');
+      }
+      return 'HOLD_RESERVED';
+    }
+    if (row.sourceHoldId !== null) return 'HOLD_RELEASED';
+    throw new RepositoryError('Credit lot movement provenance is unsupported');
+  }
+
+  private async previousCapacities(
+    tx: Tx,
+    tenantId: string,
+    accountId: string,
+    rows: CapacityRow[],
+  ) {
     const keys = rows.filter((row) => row.version > 0n);
     if (keys.length === 0)
       return new Map<string, { remainingMinor: bigint; reservedMinor: bigint }>();
@@ -407,6 +439,7 @@ export class DrizzleStatementRepository implements StatementRepository {
       ) requested(grant_id, version)
       join credit_grant_capacity_versions capacity
         on capacity.tenant_id = ${tenantId}::uuid
+        and capacity.account_id = ${accountId}::uuid
         and capacity.grant_id = requested.grant_id
         and capacity.version = requested.version
     `);

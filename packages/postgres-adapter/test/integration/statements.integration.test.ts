@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { AccountSide } from '@luxledger/core';
-import { AccountNotFoundError } from '@luxledger/core/application';
+import { AccountNotFoundError, RepositoryError } from '@luxledger/core/application';
 import { sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
 import {
@@ -184,6 +184,112 @@ describe('bounded statements', () => {
     expect(lotMovements.reduce((sum, item) => sum + item.availableDeltaMinor, 0n)).toBe(
       firstLotPage.closingAvailableMinor - firstLotPage.openingAvailableMinor,
     );
+  });
+
+  it('classifies hold reservation, partial consumption, and release without overlap', async () => {
+    const tenantId = await createTenant(db, 'statement-hold-provenance');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      accountId: accounts.walletId,
+      fundingAccountId: accounts.fundingId,
+      reference: 'statement-hold-grant',
+      amountMinor: 100n,
+    });
+    const hold = await services.holds.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'statement-hold-reserve',
+      currency: 'USD',
+      entries: [
+        { accountId: accounts.walletId, signedAmountMinor: 40n, currency: 'USD' },
+        { accountId: accounts.fundingId, signedAmountMinor: -40n, currency: 'USD' },
+      ],
+    });
+    const commit = await services.holds.commit({
+      tenantId,
+      holdId: hold.holdId,
+      reference: 'statement-hold-partial-commit',
+      amountMinor: 15n,
+    });
+    await services.holds.void({ tenantId, holdId: hold.holdId });
+
+    const statement = await services.statements.getCreditLotStatement({
+      tenantId,
+      accountId: accounts.walletId,
+      grantId: grant.grant.id,
+      from: new Date('2020-01-01T00:00:00.000Z'),
+      asOf: await databaseTime(),
+      limit: 20,
+    });
+
+    expect(statement.data).toHaveLength(4);
+    expect(statement.data.map((movement) => movement.kind)).toEqual([
+      'ISSUANCE',
+      'HOLD_RESERVED',
+      'CONSUMPTION',
+      'HOLD_RELEASED',
+    ]);
+    expect(statement.data[1]).toMatchObject({
+      sourceHoldId: hold.holdId,
+      availableDeltaMinor: -40n,
+    });
+    expect(statement.data[2]).toMatchObject({
+      sourceTransactionId: commit.transactionId,
+      availableDeltaMinor: 0n,
+    });
+    expect(statement.data[3]).toMatchObject({
+      sourceHoldId: hold.holdId,
+      availableDeltaMinor: 25n,
+    });
+    expect(statement.closingAvailableMinor).toBe(85n);
+  });
+
+  it('fails closed when a capacity version has no classifiable provenance', async () => {
+    const tenantId = await createTenant(db, 'statement-invalid-provenance');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      accountId: accounts.walletId,
+      fundingAccountId: accounts.fundingId,
+      reference: 'statement-invalid-provenance-grant',
+      amountMinor: 100n,
+    });
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`alter table credit_grant_capacity_versions disable trigger credit_grant_capacity_baseline_guard`,
+      );
+      await tx.execute(sql`
+        insert into credit_grant_capacity_versions (
+          tenant_id, ledger_id, account_id, grant_id, version,
+          granted_minor, reversed_minor, consumed_minor, compensated_minor,
+          expired_minor, remaining_minor, reserved_minor
+        )
+        select tenant_id, ledger_id, account_id, grant_id, version + 1,
+          granted_minor, reversed_minor, consumed_minor, compensated_minor,
+          expired_minor, remaining_minor, reserved_minor
+        from credit_grant_capacity_versions
+        where tenant_id = ${tenantId} and grant_id = ${grant.grant.id}
+        order by version desc
+        limit 1
+      `);
+      await tx.execute(
+        sql`alter table credit_grant_capacity_versions enable trigger credit_grant_capacity_baseline_guard`,
+      );
+    });
+
+    await expect(
+      services.statements.getCreditLotStatement({
+        tenantId,
+        accountId: accounts.walletId,
+        grantId: grant.grant.id,
+        from: new Date('2020-01-01T00:00:00.000Z'),
+        asOf: await databaseTime(),
+        limit: 20,
+      }),
+    ).rejects.toBeInstanceOf(RepositoryError);
   });
 
   it('keeps an empty range stable, excludes later writes, and isolates tenants', async () => {

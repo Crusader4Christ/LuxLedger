@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { CREDIT_LOT_MOVEMENT_KINDS } from '@luxledger/core/application';
 import {
   accountResponseSchema,
   accountStatementResponseSchema,
@@ -145,6 +146,9 @@ describe('framework-agnostic contract suite', () => {
             expect(creditLotStatementResponseSchema.required).toContain('opening_available_minor');
             expect(creditLotStatementResponseSchema.required).toContain('closing_available_minor');
             expect(creditLotStatementResponseSchema.properties.data.type).toBe('array');
+            expect(
+              creditLotStatementResponseSchema.properties.data.items.properties.kind.enum,
+            ).toEqual(CREDIT_LOT_MOVEMENT_KINDS);
           },
         },
       ],
@@ -226,5 +230,6 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('/v1/accounts/{id}/credit-statement:');
     expect(openapi).toContain('AccountStatement:');
     expect(openapi).toContain('CreditLotStatement:');
+    expect(openapi).toContain(`enum: [${CREDIT_LOT_MOVEMENT_KINDS.join(', ')}]`);
   });
 });

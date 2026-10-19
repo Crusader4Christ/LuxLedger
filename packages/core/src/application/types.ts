@@ -374,12 +374,18 @@ export interface AccountStatement {
   nextCursor: string | null;
 }
 
-export type CreditLotMovementKind =
-  | CreditGrantLineageKind
-  | 'ISSUANCE'
-  | 'REVERSAL'
-  | 'HOLD_RESERVED'
-  | 'HOLD_RELEASED';
+export const CREDIT_LOT_MOVEMENT_KINDS = [
+  'ISSUANCE',
+  'REVERSAL',
+  'CONSUMPTION',
+  'COMPENSATION',
+  'EXPIRATION',
+  'REFUND',
+  'HOLD_RESERVED',
+  'HOLD_RELEASED',
+] as const;
+
+export type CreditLotMovementKind = (typeof CREDIT_LOT_MOVEMENT_KINDS)[number];
 
 export interface CreditLotStatementQuery extends AccountStatementQuery {
   grantId?: string;

@@ -1,3 +1,4 @@
+import { CREDIT_LOT_MOVEMENT_KINDS } from '@luxledger/core/application';
 import type { InferSchema } from '../schema-types';
 import { mergePaginationQuerySchema } from './pagination';
 
@@ -15,10 +16,9 @@ export const statementQuerySchemaExtra = {
 export const statementQuerySchema = mergePaginationQuerySchema(statementQuerySchemaExtra);
 
 export const creditLotStatementQuerySchema = mergePaginationQuerySchema({
-  required: ['from', 'as_of'],
+  ...statementQuerySchemaExtra,
   properties: {
-    from: { type: 'string', format: 'date-time' },
-    as_of: { type: 'string', format: 'date-time' },
+    ...statementQuerySchemaExtra.properties,
     grant_id: uuid,
   },
 } as const);
@@ -108,16 +108,7 @@ const creditLotMovementSchema = {
     grant_id: uuid,
     kind: {
       type: 'string',
-      enum: [
-        'ISSUANCE',
-        'REVERSAL',
-        'CONSUMPTION',
-        'COMPENSATION',
-        'EXPIRATION',
-        'REFUND',
-        'HOLD_RESERVED',
-        'HOLD_RELEASED',
-      ],
+      enum: CREDIT_LOT_MOVEMENT_KINDS,
     },
     source_transaction_id: { type: 'string', format: 'uuid', nullable: true },
     source_hold_id: { type: 'string', format: 'uuid', nullable: true },
