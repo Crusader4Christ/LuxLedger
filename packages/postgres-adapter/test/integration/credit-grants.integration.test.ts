@@ -1897,13 +1897,35 @@ describe('credit grants', () => {
       remainingMinor: 0n,
     });
 
+    const expiresAt = new Date(Date.now() + 60_000);
     const expiring = await services.creditGrants.create({
       ...grantInput(tenantId, accounts, 'expiring'),
-      expiresAt: new Date(Date.now() + 100),
+      expiresAt,
     });
-    await new Promise((resolve) => setTimeout(resolve, 140));
+    const clockedClient: DbClient = {
+      ...client,
+      runTenantTx: async <T>(
+        scopedTenantId: string,
+        operation: string,
+        action: (tx: DrizzleDatabase) => Promise<T>,
+      ): Promise<T> =>
+        client.runTenantTx(scopedTenantId, operation, async (tx) => {
+          if (operation !== 'refund credit grant') return action(tx);
+          const clockedTx = new Proxy(tx, {
+            get(target, property) {
+              if (property === 'execute') {
+                return async () => [{ databaseNow: new Date(expiresAt.getTime() + 1) }];
+              }
+              const value = Reflect.get(target, property, target);
+              return typeof value === 'function' ? value.bind(target) : value;
+            },
+          }) as DrizzleDatabase;
+          return action(clockedTx);
+        }),
+    };
+    const clockedServices = createApplicationServices(clockedClient);
     await expect(
-      services.creditGrants.refund({
+      clockedServices.creditGrants.refund({
         tenantId,
         grantId: expiring.grant.id,
         reference: 'expired',
