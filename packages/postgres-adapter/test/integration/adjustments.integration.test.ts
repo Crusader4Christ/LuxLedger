@@ -85,8 +85,6 @@ describe('operational adjustments', () => {
         direction,
         actor_id: 'operator-42',
         reason_code: 'SUPPORT_COMPENSATION',
-        description: row?.description,
-        reference: row?.reference,
         metadata: { ticket_id: 'SUP-42' },
       },
     });

@@ -56,8 +56,6 @@ export class DrizzleAdjustmentRepository implements AdjustmentRepository {
           direction,
           actor_id: input.actorId,
           reason_code: input.reasonCode,
-          description: input.description,
-          reference: input.reference,
           metadata: input.metadata ?? null,
         },
       };
