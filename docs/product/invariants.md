@@ -27,6 +27,14 @@ Transaction payload identity includes ledger, currency, normalized nullable desc
 
 The behavior is covered by the [posting](../../packages/postgres-adapter/test/integration/transaction-posting.integration.test.ts), [reversal](../../packages/postgres-adapter/test/integration/transaction-reversal.integration.test.ts), and [correction](../../packages/postgres-adapter/test/integration/transaction-correction.integration.test.ts) integration suites.
 
+## Operational adjustments
+
+Operational credit and debit adjustments are balanced postings with an explicit target account and offset account. Every command requires a tenant-wide reference, positive int64 minor-unit amount, description, host-defined reason code, and opaque actor ID, and may include opaque attributes. The reason catalog and authorization policy remain host responsibilities.
+
+Each accepted adjustment is an immutable, auditable ledger event created atomically with its posting. An exact retry returns the original transaction without posting again, while reusing the reference for a different command conflicts. Account `overdraft_policy` remains the negative-capacity authority, so a rejected adjustment leaves ledger state unchanged.
+
+A debit adjustment against a grant-enabled target account consumes existing eligible grant capacity. Crediting a grant-enabled account through an adjustment is rejected; hosts that need new spendable grant capacity must issue a grant instead.
+
 ## Authentication contract
 
 The reference HTTP composition exchanges an API key for an access token with an exact default TTL of 900 seconds. Revoking the backing API key invalidates its access tokens on the next authenticated request. Hosts remain responsible for key storage, TLS, secret rotation, and perimeter controls.

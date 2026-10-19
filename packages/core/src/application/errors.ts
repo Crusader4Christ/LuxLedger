@@ -27,6 +27,12 @@ export class CreditGrantConflictError extends DomainError {
   }
 }
 
+export class AdjustmentConflictError extends DomainError {
+  public constructor(message = 'Adjustment reference payload mismatch') {
+    super(message, 'ADJUSTMENT_CONFLICT', 409);
+  }
+}
+
 export class AccountNotFoundError extends DomainError {
   public readonly accountId: string;
 

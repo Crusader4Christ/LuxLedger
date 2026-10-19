@@ -1,5 +1,6 @@
 import {
   AccountService,
+  AdjustmentService,
   ApiKeyService,
   type ApplicationServices,
   AssetService,
@@ -12,6 +13,7 @@ import {
 } from '@luxledger/core/application';
 import type { DbClient } from './client';
 import { DrizzleAccountRepository } from './repositories/account-repository';
+import { DrizzleAdjustmentRepository } from './repositories/adjustment-repository';
 import { DrizzleApiKeyRepository } from './repositories/api-key-repository';
 import { DrizzleAssetRepository } from './repositories/asset-repository';
 import { DrizzleBalanceRepository } from './repositories/balance-repository';
@@ -23,6 +25,9 @@ import { DrizzleTransactionRepository } from './repositories/transaction-reposit
 
 export const createAccountService = (client: DbClient): AccountService =>
   new AccountService(new DrizzleAccountRepository(client));
+
+export const createAdjustmentService = (client: DbClient): AdjustmentService =>
+  new AdjustmentService(new DrizzleAdjustmentRepository(client));
 
 export const createAssetService = (client: DbClient): AssetService =>
   new AssetService(new DrizzleAssetRepository(client));
@@ -50,6 +55,7 @@ export const createTransactionService = (client: DbClient): TransactionService =
 
 export const createApplicationServices = (client: DbClient): ApplicationServices => ({
   accounts: createAccountService(client),
+  adjustments: createAdjustmentService(client),
   assets: createAssetService(client),
   apiKeys: createApiKeyService(client),
   balances: createBalanceService(client),

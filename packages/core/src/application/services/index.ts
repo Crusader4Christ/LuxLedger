@@ -1,4 +1,5 @@
 export * from './account-service';
+export * from './adjustment-service';
 export * from './api-key-service';
 export * from './application-services.interface';
 export * from './asset-service';
