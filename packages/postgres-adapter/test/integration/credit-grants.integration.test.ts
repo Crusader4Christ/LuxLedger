@@ -84,6 +84,30 @@ const getActiveGrantReservations = async (
   return new Map(rows.map((row) => [row.grantId, BigInt(row.reserved)]));
 };
 
+const withDatabaseClock = (
+  baseClient: DbClient,
+  operation: string,
+  databaseNow: () => Date,
+): DbClient => ({
+  ...baseClient,
+  runTenantTx: async <T>(
+    tenantId: string,
+    currentOperation: string,
+    action: (tx: DrizzleDatabase) => Promise<T>,
+  ): Promise<T> =>
+    baseClient.runTenantTx(tenantId, currentOperation, async (tx) => {
+      if (currentOperation !== operation) return action(tx);
+      const clockedTx = new Proxy(tx, {
+        get(target, property) {
+          if (property === 'execute') return async () => [{ databaseNow: databaseNow() }];
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }) as DrizzleDatabase;
+      return action(clockedTx);
+    }),
+});
+
 const setup = async (tenantId: string) => {
   const ledgerId = await createLedger(db, tenantId, 'Credits');
   const asset = (await services.assets.list(tenantId)).find((item) => item.code === 'USD');
@@ -1998,28 +2022,9 @@ describe('credit grants', () => {
       expiresAt,
     });
     let databaseNow = new Date(expiresAt.getTime() - 1_000);
-    const clockedClient: DbClient = {
-      ...client,
-      runTenantTx: async <T>(
-        scopedTenantId: string,
-        operation: string,
-        action: (tx: DrizzleDatabase) => Promise<T>,
-      ): Promise<T> =>
-        client.runTenantTx(scopedTenantId, operation, async (tx) => {
-          if (operation !== 'refund credit grant') return action(tx);
-          const clockedTx = new Proxy(tx, {
-            get(target, property) {
-              if (property === 'execute') {
-                return async () => [{ databaseNow }];
-              }
-              const value = Reflect.get(target, property, target);
-              return typeof value === 'function' ? value.bind(target) : value;
-            },
-          }) as DrizzleDatabase;
-          return action(clockedTx);
-        }),
-    };
-    const clockedServices = createApplicationServices(clockedClient);
+    const clockedServices = createApplicationServices(
+      withDatabaseClock(client, 'refund credit grant', () => databaseNow),
+    );
     const beforeExpiration = await clockedServices.creditGrants.refund({
       tenantId,
       grantId: expiring.grant.id,
