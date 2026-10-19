@@ -142,7 +142,7 @@ export interface CreateAdjustmentInput {
   description: string;
   reasonCode: string;
   actorId: string;
-  metadata?: JsonObject;
+  attributes?: JsonObject;
 }
 
 export interface AdjustmentResult {

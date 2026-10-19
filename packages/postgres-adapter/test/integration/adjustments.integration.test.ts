@@ -70,7 +70,7 @@ describe('operational adjustments', () => {
       description,
       reasonCode: 'SUPPORT_COMPENSATION',
       actorId: 'operator-42',
-      metadata: { ticket_id: 'SUP-42' },
+      attributes: { ticket_id: 'SUP-42' },
     });
 
     expect(result.created).toBeTrue();
@@ -85,7 +85,7 @@ describe('operational adjustments', () => {
         direction,
         actor_id: 'operator-42',
         reason_code: 'SUPPORT_COMPENSATION',
-        metadata: { ticket_id: 'SUP-42' },
+        attributes: { ticket_id: 'SUP-42' },
       },
     });
     const posted = await db
@@ -111,7 +111,7 @@ describe('operational adjustments', () => {
       description: 'Original description',
       reasonCode: 'ORIGINAL_REASON',
       actorId: 'original-actor',
-      metadata: { ticket: 'SUP-1' },
+      attributes: { ticket: 'SUP-1' },
     };
     const first = await repository.create('CREDIT', input);
     const retry = await repository.create('CREDIT', input);
@@ -123,7 +123,7 @@ describe('operational adjustments', () => {
       ['description', 'CREDIT', { ...input, description: 'Changed' }] as const,
       ['reason', 'CREDIT', { ...input, reasonCode: 'CHANGED_REASON' }] as const,
       ['actor', 'CREDIT', { ...input, actorId: 'changed-actor' }] as const,
-      ['metadata', 'CREDIT', { ...input, metadata: { ticket: 'SUP-2' } }] as const,
+      ['attributes', 'CREDIT', { ...input, attributes: { ticket: 'SUP-2' } }] as const,
     ];
     for (const [, direction, changed] of changedInputs) {
       await expect(repository.create(direction, changed)).rejects.toBeInstanceOf(

@@ -29,7 +29,7 @@ The behavior is covered by the [posting](../../packages/postgres-adapter/test/in
 
 ## Operational adjustments
 
-Operational credit and debit adjustments are balanced postings with an explicit target account and offset account. Every command requires a tenant-wide reference, positive int64 minor-unit amount, description, host-defined reason code, and opaque actor ID. The reason catalog and authorization policy remain host responsibilities.
+Operational credit and debit adjustments are balanced postings with an explicit target account and offset account. Every command requires a tenant-wide reference, positive int64 minor-unit amount, description, host-defined reason code, and opaque actor ID, and may include opaque attributes. The reason catalog and authorization policy remain host responsibilities.
 
 Each accepted adjustment is an immutable, auditable ledger event created atomically with its posting. An exact retry returns the original transaction without posting again, while reusing the reference for a different command conflicts. Account `overdraft_policy` remains the negative-capacity authority, so a rejected adjustment leaves ledger state unchanged.
 

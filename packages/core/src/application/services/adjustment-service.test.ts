@@ -12,7 +12,7 @@ const input: CreateAdjustmentInput = {
   description: 'Support compensation',
   reasonCode: 'SUPPORT_COMPENSATION',
   actorId: 'operator-42',
-  metadata: { ticket: 'SUP-42' },
+  attributes: { ticket: 'SUP-42' },
 };
 
 describe('AdjustmentService', () => {
