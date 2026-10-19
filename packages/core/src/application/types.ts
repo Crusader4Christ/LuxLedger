@@ -340,6 +340,77 @@ export interface BalanceHistoryQuery {
   cursor?: string;
 }
 
+export interface StatementBalance {
+  postedMinor: bigint;
+  reservedDeltaMinor: bigint;
+  availableMinor: bigint;
+}
+
+export interface AccountStatementQuery extends PaginationQuery {
+  accountId: string;
+  from: Date;
+  asOf: Date;
+}
+
+export interface StatementMovement {
+  id: string;
+  eventType: BalanceSnapshotEvent['eventType'];
+  sourceId: string;
+  postedDeltaMinor: bigint;
+  reservedDeltaMinor: bigint;
+  availableDeltaMinor: bigint;
+  effectiveAt: Date;
+  createdAt: Date;
+}
+
+export interface AccountStatement {
+  accountId: string;
+  assetId: string;
+  from: Date;
+  asOf: Date;
+  opening: StatementBalance;
+  closing: StatementBalance;
+  data: StatementMovement[];
+  nextCursor: string | null;
+}
+
+export type CreditLotMovementKind =
+  | CreditGrantLineageKind
+  | 'ISSUANCE'
+  | 'REVERSAL'
+  | 'HOLD_RESERVED'
+  | 'HOLD_RELEASED';
+
+export interface CreditLotStatementQuery extends AccountStatementQuery {
+  grantId?: string;
+}
+
+export interface CreditLotMovement {
+  id: string;
+  grantId: string;
+  kind: CreditLotMovementKind;
+  sourceTransactionId: string | null;
+  sourceHoldId: string | null;
+  availableDeltaMinor: bigint;
+  remainingMinor: bigint;
+  reservedMinor: bigint;
+  availableMinor: bigint;
+  effectiveAt: Date;
+  createdAt: Date;
+}
+
+export interface CreditLotStatement {
+  accountId: string;
+  assetId: string;
+  grantId: string | null;
+  from: Date;
+  asOf: Date;
+  openingAvailableMinor: bigint;
+  closingAvailableMinor: bigint;
+  data: CreditLotMovement[];
+  nextCursor: string | null;
+}
+
 export type ReconRecordInput = {
   externalId: string;
   amountMinor: bigint;

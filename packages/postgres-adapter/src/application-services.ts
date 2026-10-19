@@ -9,6 +9,7 @@ import {
   HoldService,
   LedgerService,
   ReconciliationService,
+  StatementService,
   TransactionService,
 } from '@luxledger/core/application';
 import type { DbClient } from './client';
@@ -21,6 +22,7 @@ import { DrizzleCreditGrantRepository } from './repositories/credit-grant-reposi
 import { DrizzleHoldRepository } from './repositories/hold-repository';
 import { DrizzleLedgerRepository } from './repositories/ledger-repository';
 import { DrizzleReconciliationRepository } from './repositories/reconciliation-repository';
+import { DrizzleStatementRepository } from './repositories/statement-repository';
 import { DrizzleTransactionRepository } from './repositories/transaction-repository';
 
 export const createAccountService = (client: DbClient): AccountService =>
@@ -50,6 +52,9 @@ export const createLedgerService = (client: DbClient): LedgerService =>
 export const createReconciliationService = (client: DbClient): ReconciliationService =>
   new ReconciliationService(new DrizzleReconciliationRepository(client));
 
+export const createStatementService = (client: DbClient): StatementService =>
+  new StatementService(new DrizzleStatementRepository(client));
+
 export const createTransactionService = (client: DbClient): TransactionService =>
   new TransactionService(new DrizzleTransactionRepository(client));
 
@@ -63,5 +68,6 @@ export const createApplicationServices = (client: DbClient): ApplicationServices
   holds: createHoldService(client),
   ledgers: createLedgerService(client),
   reconciliation: createReconciliationService(client),
+  statements: createStatementService(client),
   transactions: createTransactionService(client),
 });

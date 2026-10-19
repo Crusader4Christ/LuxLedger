@@ -5,4 +5,5 @@ export * from './entries';
 export * from './ledgers';
 export * from './pagination';
 export * from './reconciliation';
+export * from './statements';
 export * from './transactions';

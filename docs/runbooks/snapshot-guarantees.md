@@ -4,6 +4,7 @@
 - Applies to account historical balance reads:
   - `GET /v1/accounts/:id/balance-as-of`
   - `GET /v1/accounts/:id/balance-history`
+  - `GET /v1/accounts/:id/statement`
 
 ## Guarantees
 - Snapshot writes are part of the same explicit database transaction as the state-changing operation.
@@ -18,6 +19,9 @@
 - Events sharing an `effective_at` are resolved deterministically by snapshot `id`.
 - Cursor pagination uses the same order and stable cursor encoding/decoding.
 - Invalid cursors fail fast with deterministic `Invalid cursor` validation errors.
+- `statement` binds every cursor to the account and exact `from`/`as_of` range. Its opening includes
+  the `from` boundary and its movements begin strictly after it, preventing overlap while preserving
+  `opening + movements = closing` across all pages.
 
 ## Idempotency and Deduplication
 - Deduplication key prevents duplicate snapshot insertion for the same logical event and account.

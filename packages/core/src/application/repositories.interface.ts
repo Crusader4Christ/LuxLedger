@@ -7,6 +7,8 @@ import type { ReconRule } from '../reconciliation';
 import type { TransactionEntity } from '../transaction/entity';
 import type {
   AccountPaginationQuery,
+  AccountStatement,
+  AccountStatementQuery,
   AdjustmentDirection,
   AdjustmentResult,
   Asset,
@@ -41,6 +43,8 @@ import type {
   CreditGrantResult,
   CreditLineageQuery,
   CreditLotListQuery,
+  CreditLotStatement,
+  CreditLotStatementQuery,
   HistoricalBalance,
   IngestReconRecordsInput,
   LedgerTrialBalanceQuery,
@@ -128,6 +132,11 @@ export interface BalanceApplicationRepository {
   getTrialBalance(query: LedgerTrialBalanceQuery): Promise<TrialBalance>;
   getAt(query: BalanceAtQuery): Promise<HistoricalBalance>;
   listHistory(query: BalanceHistoryQuery): Promise<PaginatedResult<BalanceSnapshotEvent>>;
+}
+
+export interface StatementRepository {
+  getAccountStatement(query: AccountStatementQuery): Promise<AccountStatement>;
+  getCreditLotStatement(query: CreditLotStatementQuery): Promise<CreditLotStatement>;
 }
 
 export interface ReconciliationApplicationRepository {

@@ -472,6 +472,88 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+  /v1/accounts/{id}/statement:
+    get:
+      summary: List reconcilable account statement movements
+      description: Opening balance includes events at from; movements cover the interval after from through as_of. Reuse the same from and as_of values with every cursor page.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: from
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: as_of
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Bounded account statement page with stable as-of boundary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountStatement'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/accounts/{id}/credit-statement:
+    get:
+      summary: List bounded credit grant-lot movements
+      description: Returns a flat movement stream so grant and hold detail never creates an unbounded nested collection. The optional grant_id narrows the statement to one lot.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: from
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: as_of
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: grant_id
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Bounded credit lot statement page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditLotStatement'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   /v1/holds:
     post:
       summary: Create a funds hold
@@ -1579,6 +1661,139 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BalanceSnapshot'
+        next_cursor:
+          type: string
+          nullable: true
+    StatementBalance:
+      type: object
+      additionalProperties: false
+      required: [posted_minor, reserved_delta_minor, available_minor]
+      properties:
+        posted_minor:
+          type: string
+        reserved_delta_minor:
+          type: string
+        available_minor:
+          type: string
+    StatementMovement:
+      type: object
+      additionalProperties: false
+      required: [id, event_type, source_id, posted_delta_minor, reserved_delta_minor, available_delta_minor, effective_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum: [TX_APPLIED, HOLD_CREATED, HOLD_COMMITTED, HOLD_VOIDED, ADJUSTMENT]
+        source_id:
+          type: string
+          format: uuid
+        posted_delta_minor:
+          type: string
+        reserved_delta_minor:
+          type: string
+        available_delta_minor:
+          type: string
+        effective_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    AccountStatement:
+      type: object
+      additionalProperties: false
+      required: [account_id, asset_id, from, as_of, opening, closing, data, next_cursor]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date-time
+        as_of:
+          type: string
+          format: date-time
+        opening:
+          $ref: '#/components/schemas/StatementBalance'
+        closing:
+          $ref: '#/components/schemas/StatementBalance'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementMovement'
+        next_cursor:
+          type: string
+          nullable: true
+    CreditLotMovement:
+      type: object
+      additionalProperties: false
+      required: [id, grant_id, kind, source_transaction_id, source_hold_id, available_delta_minor, remaining_minor, reserved_minor, available_minor, effective_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        grant_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [ISSUANCE, REVERSAL, CONSUMPTION, COMPENSATION, EXPIRATION, REFUND, HOLD_RESERVED, HOLD_RELEASED]
+        source_transaction_id:
+          type: string
+          format: uuid
+          nullable: true
+        source_hold_id:
+          type: string
+          format: uuid
+          nullable: true
+        available_delta_minor:
+          type: string
+        remaining_minor:
+          type: string
+        reserved_minor:
+          type: string
+        available_minor:
+          type: string
+        effective_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    CreditLotStatement:
+      type: object
+      additionalProperties: false
+      required: [account_id, asset_id, grant_id, from, as_of, opening_available_minor, closing_available_minor, data, next_cursor]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        grant_id:
+          type: string
+          format: uuid
+          nullable: true
+        from:
+          type: string
+          format: date-time
+        as_of:
+          type: string
+          format: date-time
+        opening_available_minor:
+          type: string
+        closing_available_minor:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditLotMovement'
         next_cursor:
           type: string
           nullable: true

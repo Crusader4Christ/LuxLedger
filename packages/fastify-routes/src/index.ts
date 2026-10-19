@@ -15,7 +15,7 @@ export const registerLedgerAdapter = (
   services: ApplicationServices,
 ): void => {
   new LedgerRoutes(services.ledgers, services.transactions, services.balances).register(server);
-  new AccountsRoutes(services.accounts, services.balances).register(server);
+  new AccountsRoutes(services.accounts, services.balances, services.statements).register(server);
   new CreditGrantRoutes(services.creditGrants).register(server);
   new TransactionsRoutes(services.transactions).register(server);
   new HoldsRoutes(services.holds).register(server);

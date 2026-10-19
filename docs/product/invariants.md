@@ -38,6 +38,20 @@ Each accepted adjustment is an immutable, auditable ledger event created atomica
 
 A debit adjustment against a grant-enabled target account consumes existing eligible grant capacity. Crediting a grant-enabled account through an adjustment is rejected; hosts that need new spendable grant capacity must issue a grant instead.
 
+## Bounded statements
+
+Account statements use the same historical snapshot boundary as `balance-as-of`. The opening balance
+includes events effective at `from`; statement movements cover `(from, as_of]`, and the closing
+balance includes events effective at `as_of`. For each of posted, reserved, and available minor
+units, opening plus all movement deltas equals closing. Movement pages are ordered by
+`(effective_at, id)` and the opaque cursor is bound to tenant, account, `from`, and `as_of`.
+
+Credit statements expose a flat, bounded stream of immutable grant-capacity versions rather than
+nesting an unbounded lot array. They include issuance, consumption, compensation, reversal, refund,
+expiration, and hold reservation/release provenance. Their opening and closing available totals use
+the same explicit `from` and `as_of` operational boundaries, and the page cursor is additionally
+bound to an optional grant filter. Product labels and redaction policy are host responsibilities.
+
 ## Authentication contract
 
 The reference HTTP composition exchanges an API key for an access token with an exact default TTL of 900 seconds. Revoking the backing API key invalidates its access tokens on the next authenticated request. Hosts remain responsible for key storage, TLS, secret rotation, and perimeter controls.

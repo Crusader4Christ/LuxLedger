@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   accountResponseSchema,
+  accountStatementResponseSchema,
   createAccountBodySchema,
   createApiKeyBodySchema,
   createCreditGrantBodySchema,
@@ -11,6 +12,7 @@ import {
   creditBalanceResponseSchema,
   creditGrantLotResponseSchema,
   creditGrantResponseSchema,
+  creditLotStatementResponseSchema,
   entriesPageResponseSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
@@ -123,6 +125,28 @@ describe('framework-agnostic contract suite', () => {
             expect(creditBalanceResponseSchema.required).toContain('ledger_balance_minor');
           },
         },
+        {
+          name: 'statement responses are bounded and expose reconciling summaries',
+          assert: () => {
+            expect(accountStatementResponseSchema.required).toEqual([
+              'account_id',
+              'asset_id',
+              'from',
+              'as_of',
+              'opening',
+              'closing',
+              'data',
+              'next_cursor',
+            ]);
+            expect(accountStatementResponseSchema.properties.next_cursor).toEqual({
+              type: 'string',
+              nullable: true,
+            });
+            expect(creditLotStatementResponseSchema.required).toContain('opening_available_minor');
+            expect(creditLotStatementResponseSchema.required).toContain('closing_available_minor');
+            expect(creditLotStatementResponseSchema.properties.data.type).toBe('array');
+          },
+        },
       ],
     );
   });
@@ -198,5 +222,9 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');
     expect(openapi).toContain('CreditGrantLineagePage:');
     expect(openapi).toContain('CreateCreditGrantRequest:');
+    expect(openapi).toContain('/v1/accounts/{id}/statement:');
+    expect(openapi).toContain('/v1/accounts/{id}/credit-statement:');
+    expect(openapi).toContain('AccountStatement:');
+    expect(openapi).toContain('CreditLotStatement:');
   });
 });

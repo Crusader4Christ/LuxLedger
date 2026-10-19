@@ -1,10 +1,11 @@
 import type { AccountEntity, AccountSide } from '@luxledger/core';
-import type { AccountService, BalanceService } from '@luxledger/core/application';
+import type { AccountService, BalanceService, StatementService } from '@luxledger/core/application';
 import {
   type AccountByIdParams,
   type AccountResponse,
   accountByIdParamsSchema,
   accountResponseSchema,
+  accountStatementResponseSchema,
   accountsPageResponseSchema,
   type BalanceAsOfQuery,
   type BalanceHistoryQuery,
@@ -13,11 +14,20 @@ import {
   balanceHistoryQuerySchema,
   balanceHistoryResponseSchema,
   type CreateAccountRequest,
+  type CreditLotStatementQuery,
   createAccountBodySchema,
+  creditLotStatementQuerySchema,
+  creditLotStatementResponseSchema,
   type ListAccountsQuery,
   listAccountsQuerySchemaExtra,
+  type StatementQuery,
+  statementQuerySchema,
 } from '@luxledger/http/contracts';
-import { toAccountResponse } from '@luxledger/http/mappers';
+import {
+  toAccountResponse,
+  toAccountStatementResponse,
+  toCreditLotStatementResponse,
+} from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
 import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
 import { BaseEntityRoute } from '../routing/base-route';
@@ -26,6 +36,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
   public constructor(
     private readonly accounts: AccountService,
     private readonly balances: BalanceService,
+    private readonly statements: StatementService,
   ) {
     super();
   }
@@ -40,6 +51,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     this.registerListAccounts(server);
     this.registerGetBalanceAsOf(server);
     this.registerGetBalanceHistory(server);
+    this.registerStatements(server);
   }
 
   private registerCreateAccount(server: FastifyInstance): void {
@@ -188,6 +200,61 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
             next_cursor: page.nextCursor,
           });
         }),
+    );
+  }
+
+  private registerStatements(server: FastifyInstance): void {
+    server.get<{ Params: AccountByIdParams; Querystring: StatementQuery }>(
+      '/v1/accounts/:id/statement',
+      {
+        schema: {
+          params: accountByIdParamsSchema,
+          querystring: statementQuerySchema,
+          response: { 200: accountStatementResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () =>
+          reply.status(200).send(
+            toAccountStatementResponse(
+              await this.statements.getAccountStatement({
+                tenantId: request.tenantId as string,
+                accountId: request.params.id,
+                from: new Date(request.query.from),
+                asOf: new Date(request.query.as_of),
+                limit: resolvePaginationLimit(request.query.limit),
+                cursor: request.query.cursor,
+              }),
+            ),
+          ),
+        ),
+    );
+
+    server.get<{ Params: AccountByIdParams; Querystring: CreditLotStatementQuery }>(
+      '/v1/accounts/:id/credit-statement',
+      {
+        schema: {
+          params: accountByIdParamsSchema,
+          querystring: creditLotStatementQuerySchema,
+          response: { 200: creditLotStatementResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () =>
+          reply.status(200).send(
+            toCreditLotStatementResponse(
+              await this.statements.getCreditLotStatement({
+                tenantId: request.tenantId as string,
+                accountId: request.params.id,
+                grantId: request.query.grant_id,
+                from: new Date(request.query.from),
+                asOf: new Date(request.query.as_of),
+                limit: resolvePaginationLimit(request.query.limit),
+                cursor: request.query.cursor,
+              }),
+            ),
+          ),
+        ),
     );
   }
 }

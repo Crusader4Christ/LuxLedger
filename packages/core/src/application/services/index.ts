@@ -8,4 +8,5 @@ export * from './credit-grant-service';
 export * from './hold-service';
 export * from './ledger-service';
 export * from './reconciliation-service';
+export * from './statement-service';
 export * from './transaction-service';
