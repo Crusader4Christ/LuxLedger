@@ -494,6 +494,7 @@ export const creditGrantEntryKindEnum = pgEnum('credit_grant_entry_kind', [
   'CONSUMPTION',
   'COMPENSATION',
   'EXPIRATION',
+  'REFUND',
 ]);
 
 export const creditGrantEntries = pgTable(
