@@ -33,6 +33,8 @@ type CapacityRow = {
   cursorCreatedAt: string;
 };
 
+const INITIAL_CAPACITY_VERSION = 1n;
+
 const exactTimestamp = (column: AnyColumn) =>
   sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
@@ -244,16 +246,23 @@ export class DrizzleStatementRepository implements StatementRepository {
       );
       const data: CreditLotMovement[] = page.rows.map((row) => {
         const prior = previous.get(`${row.grantId}:${row.version - 1n}`);
+        if (row.version < INITIAL_CAPACITY_VERSION) {
+          throw new RepositoryError('Credit lot movement has an invalid capacity version');
+        }
+        if (row.version > INITIAL_CAPACITY_VERSION && prior === undefined) {
+          throw new RepositoryError('Credit lot movement is missing its previous capacity version');
+        }
         const priorAvailable = prior ? prior.remainingMinor - prior.reservedMinor : 0n;
         const availableMinor = row.remainingMinor - row.reservedMinor;
-        const kind = this.creditLotMovementKind(row);
+        const availableDeltaMinor = availableMinor - priorAvailable;
+        const kind = this.creditLotMovementKind(row, prior, availableDeltaMinor);
         return {
           id: row.id,
           grantId: row.grantId,
           kind,
           sourceTransactionId: row.sourceTransactionId,
           sourceHoldId: row.sourceHoldId ?? row.sourceAllocationHoldId,
-          availableDeltaMinor: availableMinor - priorAvailable,
+          availableDeltaMinor,
           remainingMinor: row.remainingMinor,
           reservedMinor: row.reservedMinor,
           availableMinor,
@@ -386,7 +395,11 @@ export class DrizzleStatementRepository implements StatementRepository {
     return BigInt(summary?.available ?? '0');
   }
 
-  private creditLotMovementKind(row: CapacityRow): CreditLotMovement['kind'] {
+  private creditLotMovementKind(
+    row: CapacityRow,
+    prior: { remainingMinor: bigint; reservedMinor: bigint } | undefined,
+    availableDeltaMinor: bigint,
+  ): CreditLotMovement['kind'] {
     const sourceCount = [row.sourceEntryId, row.sourceAllocationId, row.sourceHoldId].filter(
       (source) => source !== null,
     ).length;
@@ -405,7 +418,16 @@ export class DrizzleStatementRepository implements StatementRepository {
       }
       return 'HOLD_RESERVED';
     }
-    if (row.sourceHoldId !== null) return 'HOLD_RELEASED';
+    if (row.sourceHoldId !== null) {
+      if (
+        prior === undefined ||
+        availableDeltaMinor <= 0n ||
+        row.reservedMinor >= prior.reservedMinor
+      ) {
+        throw new RepositoryError('Credit lot movement has invalid hold release provenance');
+      }
+      return 'HOLD_RELEASED';
+    }
     throw new RepositoryError('Credit lot movement provenance is unsupported');
   }
 
@@ -415,7 +437,7 @@ export class DrizzleStatementRepository implements StatementRepository {
     accountId: string,
     rows: CapacityRow[],
   ) {
-    const keys = rows.filter((row) => row.version > 0n);
+    const keys = rows.filter((row) => row.version > INITIAL_CAPACITY_VERSION);
     if (keys.length === 0)
       return new Map<string, { remainingMinor: bigint; reservedMinor: bigint }>();
     const candidates = await tx.execute<{

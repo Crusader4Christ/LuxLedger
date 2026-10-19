@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { AccountSide } from '@luxledger/core';
 import { AccountNotFoundError, RepositoryError } from '@luxledger/core/application';
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
 import {
   createLedger,
@@ -15,6 +15,47 @@ import {
 const client = createRepositoryTestClient();
 const db = createRepositoryTestDatabase(client);
 const services = createApplicationServices(client);
+const CAPACITY_BASELINE_TRIGGER_NAME = 'credit_grant_capacity_baseline_guard';
+
+const insertCapacityVersionWithoutBaselineGuard = async (statement: SQL) => {
+  await db.transaction(async (tx) => {
+    const [trigger] = await tx.execute<{ exists: boolean }>(sql`
+      select exists (
+        select 1
+        from pg_trigger
+        where tgname = ${CAPACITY_BASELINE_TRIGGER_NAME}
+          and tgrelid = 'credit_grant_capacity_versions'::regclass
+          and not tgisinternal
+      ) as "exists"
+    `);
+    if (!trigger?.exists) {
+      throw new Error(`Required migration trigger ${CAPACITY_BASELINE_TRIGGER_NAME} is missing`);
+    }
+    await tx.execute(sql`
+      alter table credit_grant_capacity_versions
+      disable trigger ${sql.identifier(CAPACITY_BASELINE_TRIGGER_NAME)}
+    `);
+    try {
+      await tx.execute(statement);
+    } finally {
+      await tx.execute(sql`
+        alter table credit_grant_capacity_versions
+        enable trigger ${sql.identifier(CAPACITY_BASELINE_TRIGGER_NAME)}
+      `);
+    }
+  });
+};
+
+const expectRepositoryFailure = async (operation: Promise<unknown>, causeMessage: string) => {
+  let rejection: unknown;
+  try {
+    await operation;
+  } catch (error) {
+    rejection = error;
+  }
+  expect(rejection).toBeInstanceOf(RepositoryError);
+  expect((rejection as RepositoryError).cause).toMatchObject({ message: causeMessage });
+};
 
 const databaseTime = async (): Promise<Date> => {
   const [row] = await db.execute<{ now: Date }>(sql`select clock_timestamp() as now`);
@@ -257,30 +298,22 @@ describe('bounded statements', () => {
       reference: 'statement-invalid-provenance-grant',
       amountMinor: 100n,
     });
-    await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`alter table credit_grant_capacity_versions disable trigger credit_grant_capacity_baseline_guard`,
-      );
-      await tx.execute(sql`
-        insert into credit_grant_capacity_versions (
-          tenant_id, ledger_id, account_id, grant_id, version,
-          granted_minor, reversed_minor, consumed_minor, compensated_minor,
-          expired_minor, remaining_minor, reserved_minor
-        )
-        select tenant_id, ledger_id, account_id, grant_id, version + 1,
-          granted_minor, reversed_minor, consumed_minor, compensated_minor,
-          expired_minor, remaining_minor, reserved_minor
-        from credit_grant_capacity_versions
-        where tenant_id = ${tenantId} and grant_id = ${grant.grant.id}
-        order by version desc
-        limit 1
-      `);
-      await tx.execute(
-        sql`alter table credit_grant_capacity_versions enable trigger credit_grant_capacity_baseline_guard`,
-      );
-    });
+    await insertCapacityVersionWithoutBaselineGuard(sql`
+      insert into credit_grant_capacity_versions (
+        tenant_id, ledger_id, account_id, grant_id, version,
+        granted_minor, reversed_minor, consumed_minor, compensated_minor,
+        expired_minor, remaining_minor, reserved_minor
+      )
+      select tenant_id, ledger_id, account_id, grant_id, version + 1,
+        granted_minor, reversed_minor, consumed_minor, compensated_minor,
+        expired_minor, remaining_minor, reserved_minor
+      from credit_grant_capacity_versions
+      where tenant_id = ${tenantId} and grant_id = ${grant.grant.id}
+      order by version desc
+      limit 1
+    `);
 
-    await expect(
+    await expectRepositoryFailure(
       services.statements.getCreditLotStatement({
         tenantId,
         accountId: accounts.walletId,
@@ -289,7 +322,106 @@ describe('bounded statements', () => {
         asOf: await databaseTime(),
         limit: 20,
       }),
-    ).rejects.toBeInstanceOf(RepositoryError);
+      'Credit lot movement has invalid provenance',
+    );
+  });
+
+  it('fails closed when a hold release does not restore available capacity', async () => {
+    const tenantId = await createTenant(db, 'statement-invalid-hold-release');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      accountId: accounts.walletId,
+      fundingAccountId: accounts.fundingId,
+      reference: 'statement-invalid-release-grant',
+      amountMinor: 100n,
+    });
+    const hold = await services.holds.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'statement-invalid-release-hold',
+      currency: 'USD',
+      entries: [
+        { accountId: accounts.walletId, signedAmountMinor: 40n, currency: 'USD' },
+        { accountId: accounts.fundingId, signedAmountMinor: -40n, currency: 'USD' },
+      ],
+    });
+    await insertCapacityVersionWithoutBaselineGuard(sql`
+      insert into credit_grant_capacity_versions (
+        tenant_id, ledger_id, account_id, grant_id, version,
+        granted_minor, reversed_minor, consumed_minor, compensated_minor,
+        expired_minor, remaining_minor, reserved_minor, source_hold_id
+      )
+      select tenant_id, ledger_id, account_id, grant_id, version + 1,
+        granted_minor, reversed_minor, consumed_minor, compensated_minor,
+        expired_minor, remaining_minor, reserved_minor, ${hold.holdId}
+      from credit_grant_capacity_versions
+      where tenant_id = ${tenantId} and grant_id = ${grant.grant.id}
+      order by version desc
+      limit 1
+    `);
+
+    await expectRepositoryFailure(
+      services.statements.getCreditLotStatement({
+        tenantId,
+        accountId: accounts.walletId,
+        grantId: grant.grant.id,
+        from: new Date('2020-01-01T00:00:00.000Z'),
+        asOf: await databaseTime(),
+        limit: 20,
+      }),
+      'Credit lot movement has invalid hold release provenance',
+    );
+  });
+
+  it('fails closed when a capacity version skips its predecessor', async () => {
+    const tenantId = await createTenant(db, 'statement-missing-previous-capacity');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      accountId: accounts.walletId,
+      fundingAccountId: accounts.fundingId,
+      reference: 'statement-missing-previous-grant',
+      amountMinor: 100n,
+    });
+    const hold = await services.holds.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      reference: 'statement-missing-previous-hold',
+      currency: 'USD',
+      entries: [
+        { accountId: accounts.walletId, signedAmountMinor: 40n, currency: 'USD' },
+        { accountId: accounts.fundingId, signedAmountMinor: -40n, currency: 'USD' },
+      ],
+    });
+    await insertCapacityVersionWithoutBaselineGuard(sql`
+      insert into credit_grant_capacity_versions (
+        tenant_id, ledger_id, account_id, grant_id, version,
+        granted_minor, reversed_minor, consumed_minor, compensated_minor,
+        expired_minor, remaining_minor, reserved_minor, source_hold_id
+      )
+      select tenant_id, ledger_id, account_id, grant_id, version + 2,
+        granted_minor, reversed_minor, consumed_minor, compensated_minor,
+        expired_minor, remaining_minor, reserved_minor, ${hold.holdId}
+      from credit_grant_capacity_versions
+      where tenant_id = ${tenantId} and grant_id = ${grant.grant.id}
+      order by version desc
+      limit 1
+    `);
+
+    await expectRepositoryFailure(
+      services.statements.getCreditLotStatement({
+        tenantId,
+        accountId: accounts.walletId,
+        grantId: grant.grant.id,
+        from: new Date('2020-01-01T00:00:00.000Z'),
+        asOf: await databaseTime(),
+        limit: 20,
+      }),
+      'Credit lot movement is missing its previous capacity version',
+    );
   });
 
   it('keeps an empty range stable, excludes later writes, and isolates tenants', async () => {
