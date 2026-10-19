@@ -41,14 +41,24 @@ export class DrizzleAdjustmentRepository implements AdjustmentRepository {
       const offsetAccount = adjustmentAccounts.find(({ id }) => id === input.offsetAccountId);
       if (!account) throw new AccountNotFoundError(input.accountId);
       if (!offsetAccount) throw new AccountNotFoundError(input.offsetAccountId);
-      const creditedAccount = direction === 'CREDIT' ? account : offsetAccount;
-      if (creditedAccount.grantEnabled) {
-        throw new AdjustmentConflictError(
-          'Adjustments cannot credit a grant-enabled account; issue a credit grant instead',
-        );
+
+      let targetSignedAmountMinor: bigint;
+      if (direction === 'CREDIT') {
+        if (account.grantEnabled) {
+          throw new AdjustmentConflictError(
+            'Adjustments cannot credit a grant-enabled account; issue a credit grant instead',
+          );
+        }
+        targetSignedAmountMinor = -input.amountMinor;
+      } else {
+        if (offsetAccount.grantEnabled) {
+          throw new AdjustmentConflictError(
+            'Adjustments cannot credit a grant-enabled account; issue a credit grant instead',
+          );
+        }
+        targetSignedAmountMinor = input.amountMinor;
       }
 
-      const targetAmount = direction === 'DEBIT' ? input.amountMinor : -input.amountMinor;
       const metadata: TransactionMetadata = {
         adjustment: {
           direction,
@@ -69,12 +79,12 @@ export class DrizzleAdjustmentRepository implements AdjustmentRepository {
         entries: [
           {
             accountId: input.accountId,
-            signedAmountMinor: targetAmount,
+            signedAmountMinor: targetSignedAmountMinor,
             currency: account.currency,
           },
           {
             accountId: input.offsetAccountId,
-            signedAmountMinor: -targetAmount,
+            signedAmountMinor: -targetSignedAmountMinor,
             currency: account.currency,
           },
         ],

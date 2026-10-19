@@ -19,18 +19,15 @@ export class AdjustmentService {
   }
 
   private validate(input: CreateAdjustmentInput): void {
-    for (const [name, value] of Object.entries({
-      tenantId: input.tenantId,
-      ledgerId: input.ledgerId,
-      accountId: input.accountId,
-      offsetAccountId: input.offsetAccountId,
-      reference: input.reference,
-      description: input.description,
-      reasonCode: input.reasonCode,
-      actorId: input.actorId,
-    })) {
-      assertNonEmpty(value, `${name} is required`);
-    }
+    assertNonEmpty(input.tenantId, 'tenantId is required');
+    assertNonEmpty(input.ledgerId, 'ledgerId is required');
+    assertNonEmpty(input.accountId, 'accountId is required');
+    assertNonEmpty(input.offsetAccountId, 'offsetAccountId is required');
+    assertNonEmpty(input.reference, 'reference is required');
+    assertNonEmpty(input.description, 'description is required');
+    assertNonEmpty(input.reasonCode, 'reasonCode is required');
+    assertNonEmpty(input.actorId, 'actorId is required');
+
     if (input.accountId === input.offsetAccountId) {
       throw new InvariantViolationError('Adjustment account and offset account must differ');
     }

@@ -235,6 +235,46 @@ describe('operational adjustments', () => {
     expect(target?.balance).toBe(-75n);
   });
 
+  it('returns a deterministic conflict for concurrent payloads with the same reference', async () => {
+    const fixture = await createFixture();
+    const concurrentClient = createDbClient({ databaseUrl, max: 2 });
+    const concurrentRepository = new DrizzleAdjustmentRepository(concurrentClient);
+    const input = {
+      ...fixture,
+      reference: 'concurrent-conflict',
+      amountMinor: 75n,
+      description: 'Concurrent conflict',
+      reasonCode: 'CONFLICT_TEST',
+    };
+    try {
+      const results = await Promise.allSettled([
+        concurrentRepository.create('CREDIT', { ...input, actorId: 'worker-a' }),
+        concurrentRepository.create('CREDIT', { ...input, actorId: 'worker-b' }),
+      ]);
+      const success = results.find((result) => result.status === 'fulfilled');
+      const conflict = results.find((result) => result.status === 'rejected');
+
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+      expect(success?.status === 'fulfilled' && success.value.created).toBeTrue();
+      expect(conflict?.status === 'rejected' && conflict.reason).toBeInstanceOf(
+        AdjustmentConflictError,
+      );
+      expect(conflict?.status === 'rejected' && conflict.reason).toMatchObject({
+        code: 'ADJUSTMENT_CONFLICT',
+      });
+    } finally {
+      await concurrentClient.sql.end({ timeout: 5 });
+    }
+
+    const [target] = await db
+      .select({ balance: accounts.balanceMinor })
+      .from(accounts)
+      .where(eq(accounts.id, fixture.accountId));
+    expect(target?.balance).toBe(-75n);
+    expect(await db.select().from(transactions)).toHaveLength(1);
+  });
+
   it('uses existing grant allocation rules for a debit adjustment', async () => {
     const tenantId = await createTenant(db, 'Grant tenant');
     const ledgerId = await createLedger(db, tenantId, 'Credit ledger');
