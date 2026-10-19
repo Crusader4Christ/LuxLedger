@@ -375,7 +375,8 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         sql`select transaction_timestamp() as "databaseNow"`,
       );
       if (!clock) throw new CreditGrantConflictError('Unable to read refund clock');
-      if (row.expiresAt && row.expiresAt.getTime() <= new Date(clock.databaseNow).getTime()) {
+      const databaseNow = new Date(clock.databaseNow);
+      if (row.expiresAt && row.expiresAt.getTime() <= databaseNow.getTime()) {
         throw new CreditGrantConflictError('Expired grant capacity cannot be refunded');
       }
 
@@ -403,6 +404,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         ledgerId: row.ledgerId,
         reference,
         currency: account.currency,
+        effectiveAt: databaseNow,
         entries,
       });
       await this.linkWalletEntry(tx, row, posted.transactionId, 'REFUND');

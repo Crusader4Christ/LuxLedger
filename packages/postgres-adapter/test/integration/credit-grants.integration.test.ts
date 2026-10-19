@@ -1868,6 +1868,101 @@ describe('credit grants', () => {
     });
   });
 
+  it('rejects refund lineage with a hold, relation, or mismatched funding account', async () => {
+    const tenantId = await createTenant(db, 'refund-lineage-boundary');
+    const accounts = await setup(tenantId);
+    const grant = await services.creditGrants.create(grantInput(tenantId, accounts, 'grant'));
+    const hold = await reserve(tenantId, accounts, 'refund-lineage-hold', 1n);
+    const alternateFunding = await services.accounts.create({
+      tenantId,
+      ledgerId: accounts.ledgerId,
+      name: 'Alternate funding',
+      side: AccountSide.DEBIT,
+      currency: 'USD',
+      assetId: accounts.assetId,
+    });
+    const cases = [
+      {
+        name: 'hold',
+        transaction: { holdId: hold.holdId },
+        fundingAccountId: accounts.fundingAccountId,
+      },
+      {
+        name: 'relation',
+        transaction: {
+          relationType: 'REVERSAL' as const,
+          relatedTransactionId: grant.grant.transactionId,
+        },
+        fundingAccountId: accounts.fundingAccountId,
+      },
+      {
+        name: 'funding-account',
+        transaction: {},
+        fundingAccountId: alternateFunding.id,
+      },
+    ];
+
+    for (const invalid of cases) {
+      const reference = `direct-refund-${invalid.name}`;
+      await expect(
+        client.runTenantTx(tenantId, `invalid ${invalid.name} refund`, async (tx) => {
+          const [transaction] = await tx
+            .insert(transactions)
+            .values({
+              tenantId,
+              ledgerId: accounts.ledgerId,
+              reference,
+              currency: 'USD',
+              assetId: accounts.assetId,
+              ...invalid.transaction,
+            })
+            .returning({ id: transactions.id });
+          if (!transaction) throw new Error('Missing direct refund transaction');
+          const [walletEntry] = await tx
+            .insert(entries)
+            .values({
+              tenantId,
+              transactionId: transaction.id,
+              accountId: accounts.accountId,
+              signedAmountMinor: 10n,
+              currency: 'USD',
+              assetId: accounts.assetId,
+            })
+            .returning({ id: entries.id });
+          await tx.insert(entries).values({
+            tenantId,
+            transactionId: transaction.id,
+            accountId: invalid.fundingAccountId,
+            signedAmountMinor: -10n,
+            currency: 'USD',
+            assetId: accounts.assetId,
+          });
+          if (!walletEntry) throw new Error('Missing direct refund wallet entry');
+          await tx.insert(creditGrantEntries).values({
+            tenantId,
+            ledgerId: accounts.ledgerId,
+            accountId: accounts.accountId,
+            grantId: grant.grant.id,
+            entryId: walletEntry.id,
+            kind: 'REFUND',
+            amountMinor: 10n,
+          });
+        }),
+      ).rejects.toThrow();
+      expect(
+        await db
+          .select({ id: transactions.id })
+          .from(transactions)
+          .where(eq(transactions.reference, reference)),
+      ).toHaveLength(0);
+    }
+
+    expect((await lotsOf(tenantId, accounts.accountId))[0]).toMatchObject({
+      reversedMinor: 0n,
+      remainingMinor: 100n,
+    });
+  });
+
   it('makes late compensated capacity refundable while expired capacity stays expiration-owned', async () => {
     const tenantId = await createTenant(db, 'refund-late-compensation');
     const accounts = await setup(tenantId);
@@ -1902,6 +1997,7 @@ describe('credit grants', () => {
       ...grantInput(tenantId, accounts, 'expiring'),
       expiresAt,
     });
+    let databaseNow = new Date(expiresAt.getTime() - 1_000);
     const clockedClient: DbClient = {
       ...client,
       runTenantTx: async <T>(
@@ -1914,7 +2010,7 @@ describe('credit grants', () => {
           const clockedTx = new Proxy(tx, {
             get(target, property) {
               if (property === 'execute') {
-                return async () => [{ databaseNow: new Date(expiresAt.getTime() + 1) }];
+                return async () => [{ databaseNow }];
               }
               const value = Reflect.get(target, property, target);
               return typeof value === 'function' ? value.bind(target) : value;
@@ -1924,6 +2020,20 @@ describe('credit grants', () => {
         }),
     };
     const clockedServices = createApplicationServices(clockedClient);
+    const beforeExpiration = await clockedServices.creditGrants.refund({
+      tenantId,
+      grantId: expiring.grant.id,
+      reference: 'before-expiration',
+      amountMinor: 1n,
+    });
+    const [storedRefund] = await db
+      .select({ effectiveAt: transactions.effectiveAt })
+      .from(transactions)
+      .where(eq(transactions.id, beforeExpiration.transactionId))
+      .limit(1);
+    expect(storedRefund?.effectiveAt).toEqual(databaseNow);
+
+    databaseNow = new Date(expiresAt.getTime() + 1);
     await expect(
       clockedServices.creditGrants.refund({
         tenantId,
