@@ -9,7 +9,7 @@ import {
   type StatementBalance,
   type StatementRepository,
 } from '@luxledger/core/application';
-import { type AnyColumn, and, desc, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
+import { type AnyColumn, and, desc, eq, gt, lt, lte, or, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
@@ -233,7 +233,7 @@ export class DrizzleStatementRepository implements StatementRepository {
         }),
       ]);
 
-      const previous = await this.previousCapacities(tx, page.rows);
+      const previous = await this.previousCapacities(tx, query.tenantId, page.rows);
       const data: CreditLotMovement[] = page.rows.map((row) => {
         const prior = previous.get(`${row.grantId}:${row.version - 1n}`);
         const priorAvailable = prior ? prior.remainingMinor - prior.reservedMinor : 0n;
@@ -382,30 +382,41 @@ export class DrizzleStatementRepository implements StatementRepository {
     return BigInt(summary?.available ?? '0');
   }
 
-  private async previousCapacities(tx: Tx, rows: CapacityRow[]) {
+  private async previousCapacities(tx: Tx, tenantId: string, rows: CapacityRow[]) {
     const keys = rows.filter((row) => row.version > 0n);
     if (keys.length === 0)
       return new Map<string, { remainingMinor: bigint; reservedMinor: bigint }>();
-    const grantIds = [...new Set(keys.map((row) => row.grantId))];
-    const versions = [...new Set(keys.map((row) => row.version - 1n))];
-    const candidates = await tx
-      .select({
-        grantId: schema.creditGrantCapacityVersions.grantId,
-        version: schema.creditGrantCapacityVersions.version,
-        remainingMinor: schema.creditGrantCapacityVersions.remainingMinor,
-        reservedMinor: schema.creditGrantCapacityVersions.reservedMinor,
-      })
-      .from(schema.creditGrantCapacityVersions)
-      .where(
-        and(
-          inArray(schema.creditGrantCapacityVersions.grantId, grantIds),
-          inArray(schema.creditGrantCapacityVersions.version, versions),
-        ),
-      );
+    const candidates = await tx.execute<{
+      grantId: string;
+      version: string;
+      remainingMinor: string;
+      reservedMinor: string;
+    }>(sql`
+      select capacity.grant_id as "grantId", capacity.version::text as "version",
+        capacity.remaining_minor::text as "remainingMinor",
+        capacity.reserved_minor::text as "reservedMinor"
+      from unnest(
+        array[${sql.join(
+          keys.map((row) => sql`${row.grantId}::uuid`),
+          sql`, `,
+        )}]::uuid[],
+        array[${sql.join(
+          keys.map((row) => sql`${row.version - 1n}::bigint`),
+          sql`, `,
+        )}]::bigint[]
+      ) requested(grant_id, version)
+      join credit_grant_capacity_versions capacity
+        on capacity.tenant_id = ${tenantId}::uuid
+        and capacity.grant_id = requested.grant_id
+        and capacity.version = requested.version
+    `);
     return new Map(
       candidates.map((row) => [
         `${row.grantId}:${row.version}`,
-        { remainingMinor: row.remainingMinor, reservedMinor: row.reservedMinor },
+        {
+          remainingMinor: BigInt(row.remainingMinor),
+          reservedMinor: BigInt(row.reservedMinor),
+        },
       ]),
     );
   }
