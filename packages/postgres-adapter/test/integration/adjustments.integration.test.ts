@@ -60,12 +60,14 @@ describe('operational adjustments', () => {
     ['DEBIT', 125n, -125n],
   ] as const)('posts a balanced %s with immutable audit metadata', async (direction, target, offset) => {
     const fixture = await createFixture();
+    const reference = `adjustment-${direction.toLowerCase()}`;
+    const description = 'Manual support adjustment';
 
     const result = await repository.create(direction, {
       ...fixture,
-      reference: `adjustment-${direction.toLowerCase()}`,
+      reference,
       amountMinor: 125n,
-      description: 'Manual support adjustment',
+      description,
       reasonCode: 'SUPPORT_COMPENSATION',
       actorId: 'operator-42',
       metadata: { ticket_id: 'SUP-42' },
@@ -76,14 +78,15 @@ describe('operational adjustments', () => {
       .select()
       .from(transactions)
       .where(eq(transactions.id, result.transactionId));
-    expect(row?.description).toBe('Manual support adjustment');
+    expect(row?.reference).toBe(reference);
+    expect(row?.description).toBe(description);
     expect(row?.metadata).toEqual({
       adjustment: {
         direction,
         actor_id: 'operator-42',
         reason_code: 'SUPPORT_COMPENSATION',
-        description: 'Manual support adjustment',
-        reference: `adjustment-${direction.toLowerCase()}`,
+        description: row?.description,
+        reference: row?.reference,
         metadata: { ticket_id: 'SUP-42' },
       },
     });
@@ -334,6 +337,11 @@ describe('operational adjustments', () => {
     expect(balance.remainingMinor).toBe(60n);
     expect(balance.ledgerBalanceMinor).toBe(60n);
 
+    const grantCreditConflict = {
+      code: 'ADJUSTMENT_CONFLICT',
+      message:
+        'Adjustment credit leg cannot target a grant-enabled account; issue a credit grant instead',
+    };
     await expect(
       repository.create('CREDIT', {
         tenantId,
@@ -346,7 +354,7 @@ describe('operational adjustments', () => {
         reasonCode: 'MANUAL_CREDIT',
         actorId: 'operator',
       }),
-    ).rejects.toBeInstanceOf(AdjustmentConflictError);
+    ).rejects.toMatchObject(grantCreditConflict);
 
     await expect(
       repository.create('DEBIT', {
@@ -360,7 +368,7 @@ describe('operational adjustments', () => {
         reasonCode: 'MANUAL_DEBIT',
         actorId: 'operator',
       }),
-    ).rejects.toBeInstanceOf(AdjustmentConflictError);
+    ).rejects.toMatchObject(grantCreditConflict);
     expect(await db.select().from(transactions)).toHaveLength(2);
   });
 });

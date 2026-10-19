@@ -42,22 +42,14 @@ export class DrizzleAdjustmentRepository implements AdjustmentRepository {
       if (!account) throw new AccountNotFoundError(input.accountId);
       if (!offsetAccount) throw new AccountNotFoundError(input.offsetAccountId);
 
-      let targetSignedAmountMinor: bigint;
-      if (direction === 'CREDIT') {
-        if (account.grantEnabled) {
-          throw new AdjustmentConflictError(
-            'Adjustments cannot credit a grant-enabled account; issue a credit grant instead',
-          );
-        }
-        targetSignedAmountMinor = -input.amountMinor;
-      } else {
-        if (offsetAccount.grantEnabled) {
-          throw new AdjustmentConflictError(
-            'Adjustments cannot credit a grant-enabled account; issue a credit grant instead',
-          );
-        }
-        targetSignedAmountMinor = input.amountMinor;
+      const creditLegAccount = direction === 'CREDIT' ? account : offsetAccount;
+      if (creditLegAccount.grantEnabled) {
+        throw new AdjustmentConflictError(
+          'Adjustment credit leg cannot target a grant-enabled account; issue a credit grant instead',
+        );
       }
+      const targetSignedAmountMinor =
+        direction === 'CREDIT' ? -input.amountMinor : input.amountMinor;
 
       const metadata: TransactionMetadata = {
         adjustment: {
