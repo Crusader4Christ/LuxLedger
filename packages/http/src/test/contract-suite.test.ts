@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { CREDIT_LOT_MOVEMENT_KINDS } from '@luxledger/core/application';
 import {
   accountResponseSchema,
+  accountStatementResponseSchema,
   createAccountBodySchema,
   createApiKeyBodySchema,
   createCreditGrantBodySchema,
@@ -11,6 +13,7 @@ import {
   creditBalanceResponseSchema,
   creditGrantLotResponseSchema,
   creditGrantResponseSchema,
+  creditLotStatementResponseSchema,
   entriesPageResponseSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
@@ -123,6 +126,41 @@ describe('framework-agnostic contract suite', () => {
             expect(creditBalanceResponseSchema.required).toContain('ledger_balance_minor');
           },
         },
+        {
+          name: 'statement responses are bounded and expose reconciling summaries',
+          assert: () => {
+            expect(accountStatementResponseSchema.required).toEqual([
+              'account_id',
+              'asset_id',
+              'from',
+              'as_of',
+              'opening',
+              'closing',
+              'data',
+              'next_cursor',
+            ]);
+            expect(accountStatementResponseSchema.description).toContain('Across all cursor pages');
+            expect(accountStatementResponseSchema.properties.data.description).toContain(
+              '(effective_at, id)',
+            );
+            expect(accountStatementResponseSchema.properties.next_cursor.description).toContain(
+              'tenant, account, from, and as_of',
+            );
+            expect(creditLotStatementResponseSchema.required).toContain('opening_available_minor');
+            expect(creditLotStatementResponseSchema.required).toContain('closing_available_minor');
+            expect(creditLotStatementResponseSchema.properties.data.type).toBe('array');
+            expect(creditLotStatementResponseSchema.properties.data.description).toContain(
+              '(created_at, id)',
+            );
+            expect(
+              creditLotStatementResponseSchema.properties.data.items.properties.kind.enum,
+            ).toEqual(CREDIT_LOT_MOVEMENT_KINDS);
+            expect(
+              creditLotStatementResponseSchema.properties.data.items.properties.effective_at
+                .description,
+            ).toContain('creation time');
+          },
+        },
       ],
     );
   });
@@ -198,5 +236,10 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');
     expect(openapi).toContain('CreditGrantLineagePage:');
     expect(openapi).toContain('CreateCreditGrantRequest:');
+    expect(openapi).toContain('/v1/accounts/{id}/statement:');
+    expect(openapi).toContain('/v1/accounts/{id}/credit-statement:');
+    expect(openapi).toContain('AccountStatement:');
+    expect(openapi).toContain('CreditLotStatement:');
+    expect(openapi).toContain(`enum: [${CREDIT_LOT_MOVEMENT_KINDS.join(', ')}]`);
   });
 });

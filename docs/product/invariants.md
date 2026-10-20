@@ -38,6 +38,31 @@ Each accepted adjustment is an immutable, auditable ledger event created atomica
 
 A debit adjustment against a grant-enabled target account consumes existing eligible grant capacity. Crediting a grant-enabled account through an adjustment is rejected; hosts that need new spendable grant capacity must issue a grant instead.
 
+## Bounded statements
+
+Account statements use the same historical snapshot boundary as `balance-as-of`. The opening balance
+includes events effective at `from`; statement movements cover `(from, as_of]`, and the closing
+balance includes events effective at `as_of`. For each of posted, reserved, and available minor
+units, opening plus all movement deltas equals closing. Movement pages are ordered by
+`(effective_at, id)` ascending and the opaque cursor encodes that complete tie-break tuple. It is
+bound to tenant, account, `from`, and `as_of`. Reconciliation applies after aggregating movement
+deltas from every page; each page repeats the same range-level opening and closing values.
+
+Credit statements expose a flat, bounded stream of immutable grant-capacity versions rather than
+nesting an unbounded lot array. They include issuance, consumption, compensation, reversal, refund,
+expiration, and hold reservation/release provenance. Their opening and closing available totals use
+the same explicit `from` and `as_of` operational boundaries. Unlike account statements, their time
+basis is capacity-version `created_at`: credit capacity has operational provenance but no independent
+accounting-effective clock. Credit movements therefore expose equal `effective_at` and `created_at`
+values, are ordered by `(created_at, id)` ascending, and use a cursor additionally bound to an
+optional grant filter. Product labels and redaction policy are host responsibilities.
+
+The fixed `as_of` boundary excludes events written later with a later statement time. It is not a
+database transaction snapshot shared across HTTP requests: if a posting is inserted later with an
+`effective_at` inside an account statement's existing range, clients that require a frozen export
+must restart pagination. This distinction matters because account snapshots deliberately propagate
+backdated postings through later materialized balances.
+
 ## Authentication contract
 
 The reference HTTP composition exchanges an API key for an access token with an exact default TTL of 900 seconds. Revoking the backing API key invalidates its access tokens on the next authenticated request. Hosts remain responsible for key storage, TLS, secret rotation, and perimeter controls.

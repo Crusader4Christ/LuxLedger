@@ -7,6 +7,7 @@ import type { CreditGrantService } from './credit-grant-service';
 import type { HoldService } from './hold-service';
 import type { LedgerService } from './ledger-service';
 import type { ReconciliationService } from './reconciliation-service';
+import type { StatementService } from './statement-service';
 import type { TransactionService } from './transaction-service';
 
 export interface ApplicationServices {
@@ -19,5 +20,6 @@ export interface ApplicationServices {
   holds: HoldService;
   ledgers: LedgerService;
   reconciliation: ReconciliationService;
+  statements: StatementService;
   transactions: TransactionService;
 }

@@ -7,5 +7,6 @@ export * from './credit-grant-repository';
 export * from './hold-repository';
 export * from './ledger-repository';
 export * from './reconciliation-repository';
+export * from './statement-repository';
 export * from './tenant-repository';
 export * from './transaction-repository';

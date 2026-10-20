@@ -49,7 +49,7 @@ Core contains executable transaction/account invariants and application services
 - `TransactionEntity`
 - `CreateTransactionUseCase`
 - ledger and account validation
-- transaction, balance, hold, API-key, and reconciliation services
+- transaction, balance, bounded statement, hold, API-key, and reconciliation services
 - deterministic reconciliation matching
 - credit grant amount, consumption/compensation consistency, and nonnegative capacity validation
 

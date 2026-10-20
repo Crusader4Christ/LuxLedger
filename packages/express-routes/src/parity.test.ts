@@ -4,6 +4,7 @@ import {
   type ApiKeyService,
   type ApplicationServices,
   type CreditGrant,
+  InvariantViolationError,
 } from '@luxledger/core/application';
 import type { UnknownRecord } from '@luxledger/core/base';
 import type { TransactionMetadata } from '@luxledger/core/transaction';
@@ -270,6 +271,44 @@ describe('express adapter parity with fastify adapter', () => {
         list: (currentTenantId: string) => fakeLedgerService.listLedgers(currentTenantId),
       },
       reconciliation: fakeLedgerService,
+      statements: {
+        getAccountStatement: async (input: {
+          accountId: string;
+          from: Date;
+          asOf: Date;
+          cursor?: string;
+        }) => {
+          if (input.cursor === 'invalid-cursor') {
+            throw new InvariantViolationError('Invalid cursor');
+          }
+          return {
+            accountId: input.accountId,
+            assetId: '00000000-0000-4000-8000-000000000903',
+            from: input.from,
+            asOf: input.asOf,
+            opening: { postedMinor: 0n, reservedDeltaMinor: 0n, availableMinor: 0n },
+            closing: { postedMinor: -100n, reservedDeltaMinor: 0n, availableMinor: 100n },
+            data: [],
+            nextCursor: null,
+          };
+        },
+        getCreditLotStatement: async (input: {
+          accountId: string;
+          grantId?: string;
+          from: Date;
+          asOf: Date;
+        }) => ({
+          accountId: input.accountId,
+          assetId: '00000000-0000-4000-8000-000000000903',
+          grantId: input.grantId ?? null,
+          from: input.from,
+          asOf: input.asOf,
+          openingAvailableMinor: 0n,
+          closingAvailableMinor: 100n,
+          data: [],
+          nextCursor: null,
+        }),
+      },
       transactions: {
         create: (input: Parameters<FakeLedgerService['createTransaction']>[0]) =>
           fakeLedgerService.createTransaction(input),
@@ -829,6 +868,14 @@ describe('express adapter parity with fastify adapter', () => {
               method: 'GET' as const,
               url: '/v1/accounts/00000000-0000-4000-8000-000000000101/balance-history?from=invalid&to=invalid&limit=201',
             },
+            {
+              method: 'GET' as const,
+              url: '/v1/accounts/00000000-0000-4000-8000-000000000101/statement?from=invalid&as_of=invalid',
+            },
+            {
+              method: 'GET' as const,
+              url: '/v1/accounts/00000000-0000-4000-8000-000000000101/credit-statement?from=2026-01-01T00%3A00%3A00.000Z&as_of=2026-01-02T00%3A00%3A00.000Z&grant_id=invalid',
+            },
             { method: 'POST' as const, url: '/v1/holds', payload: {} },
             {
               method: 'POST' as const,
@@ -871,6 +918,18 @@ describe('express adapter parity with fastify adapter', () => {
               expect.objectContaining({ error: 'INVALID_INPUT' }),
             );
           }
+
+          const invalidCursorUrl =
+            '/v1/accounts/00000000-0000-4000-8000-000000000101/statement?from=2026-01-01T00%3A00%3A00.000Z&as_of=2026-01-02T00%3A00%3A00.000Z&cursor=invalid-cursor';
+          const [fastifyCursor, expressCursor] = await Promise.all([
+            requestFastify('GET', invalidCursorUrl),
+            requestExpress('GET', invalidCursorUrl),
+          ]);
+          expect(fastifyCursor).toEqual({
+            status: 400,
+            json: { error: 'INVARIANT_VIOLATION', message: 'Invalid cursor' },
+          });
+          expect(expressCursor).toEqual(fastifyCursor);
         },
       },
     ];
@@ -925,6 +984,8 @@ describe('express adapter parity with fastify adapter', () => {
       `/v1/credit-grants?account_id=${payload.account_id}&reference=parity-grant&limit=10`,
       `/v1/accounts/${payload.account_id}/credit-lots?limit=10&cursor=abc`,
       `/v1/transactions/${payload.account_id}/credit-allocations?limit=10`,
+      `/v1/accounts/${payload.account_id}/statement?from=2026-01-01T00%3A00%3A00.000Z&as_of=2026-01-02T00%3A00%3A00.000Z&limit=10`,
+      `/v1/accounts/${payload.account_id}/credit-statement?from=2026-01-01T00%3A00%3A00.000Z&as_of=2026-01-02T00%3A00%3A00.000Z&grant_id=00000000-0000-4000-8000-000000000901&limit=10`,
     ]) {
       const [fastifyPage, expressPage] = await Promise.all([
         requestFastify('GET', boundedPath),
