@@ -15,7 +15,10 @@ import {
   type PaginationQuery,
   type ProcessCreditGrantExpirationsRequest,
   processCreditGrantExpirationsBodySchema,
+  type RefundCreditGrantRequest,
   type ReverseCreditGrantRequest,
+  refundCreditGrantBodySchema,
+  refundCreditGrantResponseSchema,
   reverseCreditGrantBodySchema,
 } from '@luxledger/http/contracts';
 import {
@@ -25,6 +28,7 @@ import {
   toCreditGrantLotResponse,
   toCreditGrantResponse,
   toPaginatedResponse,
+  toRefundCreditGrantResponse,
 } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
 import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
@@ -144,6 +148,27 @@ export class CreditGrantRoutes extends BaseRoute {
             reference: request.body.reference,
           });
           return reply.status(result.created ? 201 : 200).send(toCreditGrantResponse(result.grant));
+        }),
+    );
+
+    server.post<{ Params: CreditGrantIdParams; Body: RefundCreditGrantRequest }>(
+      '/v1/credit-grants/:id/refund',
+      {
+        schema: {
+          params: creditGrantIdParamsSchema,
+          body: refundCreditGrantBodySchema,
+          response: { 200: refundCreditGrantResponseSchema, 201: refundCreditGrantResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.grants.refund({
+            tenantId: request.tenantId as string,
+            grantId: request.params.id,
+            reference: request.body.reference,
+            amountMinor: BigInt(request.body.amount_minor),
+          });
+          return reply.status(result.created ? 201 : 200).send(toRefundCreditGrantResponse(result));
         }),
     );
 

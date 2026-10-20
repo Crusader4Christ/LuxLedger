@@ -1000,6 +1000,104 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+  /v1/credit-grants/{id}/refund:
+    post:
+      summary: Compensate part of the unspent capacity of a grant
+      description: Idempotent by tenant reference. A changed amount for the same reference conflicts. Capacity that is consumed, expired, or reserved by an active hold cannot be refunded, and a partially refunded grant can no longer be fully reversed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundCreditGrantRequest'
+      responses:
+        '201':
+          description: Refund posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantRefund'
+        '200':
+          description: Identical retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantRefund'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/adjustments/credit:
+    post:
+      summary: Post a credit adjustment to an account
+      description: Posts a balanced adjustment with immutable actor and reason audit data. Idempotent by tenant reference; a changed payload conflicts. The credit leg cannot target a grant-enabled account; issue a credit grant instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAdjustmentRequest'
+      responses:
+        '201':
+          description: Adjustment posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Adjustment'
+        '200':
+          description: Identical retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Adjustment'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /v1/adjustments/debit:
+    post:
+      summary: Post a debit adjustment to an account
+      description: Posts a balanced adjustment with immutable actor and reason audit data. Idempotent by tenant reference; a changed payload conflicts. The credit leg cannot target a grant-enabled account; issue a credit grant instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAdjustmentRequest'
+      responses:
+        '201':
+          description: Adjustment posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Adjustment'
+        '200':
+          description: Identical retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Adjustment'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   /v1/credit-grants/{id}/allocations:
     get:
       summary: Traverse consumption and compensation lineage for a grant
@@ -1185,6 +1283,46 @@ components:
       required: [reference]
       properties:
         reference: { type: string, minLength: 1 }
+    RefundCreditGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [reference, amount_minor]
+      properties:
+        reference: { type: string, pattern: '^(?=.*\S).+$' }
+        amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+    CreditGrantRefund:
+      type: object
+      additionalProperties: false
+      required: [grant_id, transaction_id, amount_minor, created]
+      properties:
+        grant_id: { type: string, format: uuid }
+        transaction_id: { type: string, format: uuid }
+        amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+        created: { type: boolean }
+    CreateAdjustmentRequest:
+      type: object
+      additionalProperties: false
+      required: [ledger_id, account_id, offset_account_id, reference, amount_minor, description, reason_code, actor_id]
+      properties:
+        ledger_id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        offset_account_id: { type: string, format: uuid }
+        reference: { type: string, pattern: '^(?=.*\S).+$' }
+        amount_minor: { type: string, pattern: '^[1-9][0-9]*$' }
+        description: { type: string, pattern: '^(?=.*\S).+$' }
+        reason_code: { type: string, pattern: '^(?=.*\S).+$' }
+        actor_id: { type: string, pattern: '^(?=.*\S).+$' }
+        attributes:
+          type: object
+          additionalProperties: true
+          description: Optional caller-defined JSON object stored with the adjustment audit record.
+    Adjustment:
+      type: object
+      additionalProperties: false
+      required: [transaction_id, created]
+      properties:
+        transaction_id: { type: string, format: uuid }
+        created: { type: boolean }
     CreditGrant:
       type: object
       additionalProperties: false

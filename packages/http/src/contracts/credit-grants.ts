@@ -70,6 +70,25 @@ export const reverseCreditGrantBodySchema = {
   properties: { reference: NonEmptyTrimmedStringSchema },
 } as const;
 
+export const refundCreditGrantBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reference', 'amount_minor'],
+  properties: { reference: NonEmptyTrimmedStringSchema, amount_minor: minor },
+} as const;
+
+export const refundCreditGrantResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['grant_id', 'transaction_id', 'amount_minor', 'created'],
+  properties: {
+    grant_id: uuid,
+    transaction_id: uuid,
+    amount_minor: minor,
+    created: { type: 'boolean' },
+  },
+} as const;
+
 export const creditGrantLotResponseSchema = {
   type: 'object',
   additionalProperties: false,
@@ -193,6 +212,8 @@ export const creditGrantExpirationResponseSchema = {
 
 export type CreateCreditGrantRequest = InferSchema<typeof createCreditGrantBodySchema>;
 export type ReverseCreditGrantRequest = InferSchema<typeof reverseCreditGrantBodySchema>;
+export type RefundCreditGrantRequest = InferSchema<typeof refundCreditGrantBodySchema>;
+export type RefundCreditGrantResponse = InferSchema<typeof refundCreditGrantResponseSchema>;
 export type CreditGrantResponse = InferSchema<typeof creditGrantResponseSchema>;
 export type CreditBalanceResponse = InferSchema<typeof creditBalanceResponseSchema>;
 export type CreditGrantIdParams = InferSchema<typeof creditGrantIdParamsSchema>;

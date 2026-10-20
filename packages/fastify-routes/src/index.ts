@@ -2,6 +2,7 @@ import './fastify-extensions';
 import type { ApplicationServices } from '@luxledger/core/application';
 import type { FastifyInstance } from 'fastify';
 import { AccountsRoutes } from './routes/accounts';
+import { AdjustmentRoutes } from './routes/adjustments';
 import { AdminApiKeyRoutes } from './routes/admin-api-keys';
 import { CreditGrantRoutes } from './routes/credit-grants';
 import { EntriesListRoute } from './routes/entries';
@@ -17,6 +18,7 @@ export const registerLedgerAdapter = (
   new LedgerRoutes(services.ledgers, services.transactions, services.balances).register(server);
   new AccountsRoutes(services.accounts, services.balances, services.statements).register(server);
   new CreditGrantRoutes(services.creditGrants).register(server);
+  new AdjustmentRoutes(services.adjustments).register(server);
   new TransactionsRoutes(services.transactions).register(server);
   new HoldsRoutes(services.holds).register(server);
   new EntriesListRoute(services.transactions).register(server);

@@ -22,6 +22,18 @@ type RequestResult = {
 
 const tenantId = '11111111-1111-4111-8111-111111111111';
 
+const adjustmentPayload = {
+  ledger_id: '00000000-0000-4000-8000-000000000001',
+  account_id: '00000000-0000-4000-8000-000000000101',
+  offset_account_id: '00000000-0000-4000-8000-000000000102',
+  reference: 'adjustment-1',
+  amount_minor: '25',
+  description: 'Support correction',
+  reason_code: 'SUPPORT',
+  actor_id: 'operator-1',
+  attributes: { ticket: 'T-1' },
+};
+
 type FakeAccount = {
   id: string;
   tenantId: string;
@@ -296,10 +308,39 @@ describe('express adapter parity with fastify adapter', () => {
           ],
           nextCursor: null,
         }),
+        refund: async (input: { grantId: string; amountMinor: bigint; reference: string }) => {
+          if (input.reference.startsWith('conflict-')) {
+            throw Object.assign(new Error('Refund exceeds unspent grant capacity'), {
+              code: 'CREDIT_GRANT_CONFLICT',
+              httpStatus: 409,
+            });
+          }
+          return {
+            grantId: input.grantId,
+            transactionId: '00000000-0000-4000-8000-000000000905',
+            amountMinor: input.amountMinor,
+            created: !input.reference.startsWith('retry-'),
+          };
+        },
         listLineageByGrant: async () => ({ data: [], nextCursor: null }),
         listLineageByTransaction: async () => ({ data: [], nextCursor: null }),
         previewExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
         runExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
+      },
+      adjustments: {
+        credit: async (input: { reference: string }) => ({
+          transactionId: '00000000-0000-4000-8000-000000000906',
+          created: !input.reference.startsWith('retry-'),
+        }),
+        debit: async (input: { reference: string }) => {
+          if (input.reference.startsWith('conflict-')) {
+            throw Object.assign(new Error('Adjustment reference payload mismatch'), {
+              code: 'ADJUSTMENT_CONFLICT',
+              httpStatus: 409,
+            });
+          }
+          return { transactionId: '00000000-0000-4000-8000-000000000907', created: true };
+        },
       },
       apiKeys: apiKeyService,
       balances: fakeLedgerService,
@@ -1002,6 +1043,32 @@ describe('express adapter parity with fastify adapter', () => {
             { method: 'POST' as const, url: '/v1/credit-grants', payload: {} },
             {
               method: 'POST' as const,
+              url: '/v1/credit-grants/00000000-0000-4000-8000-000000000901/refund',
+              payload: { reference: 'refund', amount_minor: '0' },
+            },
+            {
+              method: 'POST' as const,
+              url: '/v1/credit-grants/not-a-uuid/refund',
+              payload: { reference: 'refund', amount_minor: '1' },
+            },
+            { method: 'POST' as const, url: '/v1/adjustments/credit', payload: {} },
+            {
+              method: 'POST' as const,
+              url: '/v1/adjustments/debit',
+              payload: { ...adjustmentPayload, actor_id: ' ', unexpected: true },
+            },
+            {
+              method: 'POST' as const,
+              url: '/v1/adjustments/debit',
+              payload: { ...adjustmentPayload, amount_minor: '-1' },
+            },
+            {
+              method: 'POST' as const,
+              url: '/v1/adjustments/credit',
+              payload: { ...adjustmentPayload, attributes: ['not-an-object'] },
+            },
+            {
+              method: 'POST' as const,
               url: '/v1/credit-grants/00000000-0000-4000-8000-000000000901/reversal',
               payload: {},
             },
@@ -1154,6 +1221,40 @@ describe('express adapter parity with fastify adapter', () => {
       ]);
       expect(fastifyExpiration.status).toBe(200);
       expect(expressExpiration).toEqual(fastifyExpiration);
+    }
+  });
+
+  it('keeps credit grant refunds identical across adapters', async () => {
+    const path = '/v1/credit-grants/00000000-0000-4000-8000-000000000901/refund';
+    for (const [reference, status] of [
+      ['refund-1', 201],
+      ['retry-refund-1', 200],
+      ['conflict-refund-1', 409],
+    ] as const) {
+      const payload = { reference, amount_minor: '40' };
+      const [fastifyRefund, expressRefund] = await Promise.all([
+        requestFastify('POST', path, payload),
+        requestExpress('POST', path, payload),
+      ]);
+      expect(fastifyRefund.status).toBe(status);
+      expect(expressRefund).toEqual(fastifyRefund);
+    }
+  });
+
+  it('keeps credit and debit adjustments identical across adapters', async () => {
+    for (const [path, reference, status] of [
+      ['/v1/adjustments/credit', 'adjustment-1', 201],
+      ['/v1/adjustments/credit', 'retry-adjustment-1', 200],
+      ['/v1/adjustments/debit', 'adjustment-2', 201],
+      ['/v1/adjustments/debit', 'conflict-adjustment-2', 409],
+    ] as const) {
+      const payload = { ...adjustmentPayload, reference };
+      const [fastifyAdjustment, expressAdjustment] = await Promise.all([
+        requestFastify('POST', path, payload),
+        requestExpress('POST', path, payload),
+      ]);
+      expect(fastifyAdjustment.status).toBe(status);
+      expect(expressAdjustment).toEqual(fastifyAdjustment);
     }
   });
 });

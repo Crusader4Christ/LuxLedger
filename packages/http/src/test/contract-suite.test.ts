@@ -6,6 +6,7 @@ import {
   accountResponseSchema,
   accountStatementResponseSchema,
   createAccountBodySchema,
+  createAdjustmentBodySchema,
   createApiKeyBodySchema,
   createCreditGrantBodySchema,
   createLedgerBodySchema,
@@ -15,6 +16,7 @@ import {
   creditGrantResponseSchema,
   creditLotStatementResponseSchema,
   entriesPageResponseSchema,
+  refundCreditGrantBodySchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
 } from '../index';
@@ -222,6 +224,34 @@ describe('framework-agnostic contract suite', () => {
         },
       },
       {
+        name: 'refund requires a reference and a positive integer amount',
+        assert: () => {
+          expect(refundCreditGrantBodySchema.required).toEqual(['reference', 'amount_minor']);
+          expect(refundCreditGrantBodySchema.properties.amount_minor).toEqual({
+            type: 'string',
+            pattern: '^[1-9][0-9]*$',
+          });
+          expect(refundCreditGrantBodySchema.additionalProperties).toBeFalse();
+        },
+      },
+      {
+        name: 'adjustment requires audit fields and keeps attributes optional',
+        assert: () => {
+          expect(createAdjustmentBodySchema.required).toEqual([
+            'ledger_id',
+            'account_id',
+            'offset_account_id',
+            'reference',
+            'amount_minor',
+            'description',
+            'reason_code',
+            'actor_id',
+          ]);
+          expect(createAdjustmentBodySchema.required).not.toContain('attributes');
+          expect(createAdjustmentBodySchema.additionalProperties).toBeFalse();
+        },
+      },
+      {
         name: 'api key payload forbids additional properties',
         assert: () => expect(createApiKeyBodySchema.additionalProperties).toBeFalse(),
       },
@@ -272,6 +302,11 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');
     expect(openapi).toContain('CreditGrantLineagePage:');
     expect(openapi).toContain('CreateCreditGrantRequest:');
+    expect(openapi).toContain('/v1/credit-grants/{id}/refund:');
+    expect(openapi).toContain('/v1/adjustments/credit:');
+    expect(openapi).toContain('/v1/adjustments/debit:');
+    expect(openapi).toContain('RefundCreditGrantRequest:');
+    expect(openapi).toContain('CreateAdjustmentRequest:');
     expect(openapi).toContain('/v1/accounts/{id}/statement:');
     expect(openapi).toContain('/v1/accounts/{id}/credit-statement:');
     expect(openapi).toContain('AccountStatement:');
