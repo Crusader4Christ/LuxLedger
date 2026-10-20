@@ -254,7 +254,6 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain(
       'description: Optional JSON object with caller-defined transaction metadata. Null, arrays, and primitives are rejected.',
     );
-    expect(openapi).toContain('CreateAccountRequest:');
     const openapiCreateAccount = openapiDocument.components?.schemas?.CreateAccountRequest;
     const openapiAccount = openapiDocument.components?.schemas?.Account;
     expect(openapiCreateAccount?.additionalProperties).toBe(

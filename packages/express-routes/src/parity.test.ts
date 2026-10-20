@@ -596,11 +596,16 @@ describe('express adapter parity with fastify adapter', () => {
             grant_enabled: true,
             currency: 'USD',
           };
-          const [fastifyResponse, expressResponse] = await Promise.all([
-            requestFastify('POST', '/v1/accounts', payload),
-            requestExpress('POST', '/v1/accounts', payload),
-          ]);
-          fakeLedgerService.setAccountCreateError(null);
+          const [fastifyResponse, expressResponse] = await (async () => {
+            try {
+              return await Promise.all([
+                requestFastify('POST', '/v1/accounts', payload),
+                requestExpress('POST', '/v1/accounts', payload),
+              ]);
+            } finally {
+              fakeLedgerService.setAccountCreateError(null);
+            }
+          })();
 
           expect(fastifyResponse).toEqual({
             status: 400,
