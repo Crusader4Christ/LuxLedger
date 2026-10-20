@@ -98,6 +98,18 @@ describe('framework-agnostic contract suite', () => {
           assert: () => expect(createAccountBodySchema.additionalProperties).toBeFalse(),
         },
         {
+          name: 'account grant capability is optional on creation and required on reads',
+          assert: () => {
+            expect(createAccountBodySchema.required).not.toContain('grant_enabled');
+            expect(createAccountBodySchema.properties.grant_enabled).toEqual({
+              type: 'boolean',
+              default: false,
+            });
+            expect(accountResponseSchema.required).toContain('grant_enabled');
+            expect(accountResponseSchema.properties.grant_enabled).toEqual({ type: 'boolean' });
+          },
+        },
+        {
           name: 'grant derives its asset from the account and uses integer minor units',
           assert: () => {
             expect(createCreditGrantBodySchema.required).not.toContain('asset_id');
@@ -218,6 +230,18 @@ describe('framework-agnostic contract suite', () => {
 
   it('stays aligned with openapi source for migrated endpoints', () => {
     const openapi = readFileSync(openapiPath, 'utf8');
+    const openapiDocument = Bun.YAML.parse(openapi) as {
+      components?: {
+        schemas?: Record<
+          string,
+          {
+            additionalProperties?: boolean;
+            required?: string[];
+            properties?: Record<string, Record<string, unknown>>;
+          }
+        >;
+      };
+    };
     expect(openapi).toContain('/v1/transactions:');
     expect(openapi).toContain('/v1/accounts:');
     expect(openapi).toContain('/v1/admin/api-keys:');
@@ -230,7 +254,19 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain(
       'description: Optional JSON object with caller-defined transaction metadata. Null, arrays, and primitives are rejected.',
     );
-    expect(openapi).toContain('CreateAccountRequest:');
+    const openapiCreateAccount = openapiDocument.components?.schemas?.CreateAccountRequest;
+    const openapiAccount = openapiDocument.components?.schemas?.Account;
+    expect(openapiCreateAccount?.additionalProperties).toBe(
+      createAccountBodySchema.additionalProperties,
+    );
+    expect(openapiCreateAccount?.required).toEqual([...createAccountBodySchema.required]);
+    expect(openapiCreateAccount?.properties?.grant_enabled).toMatchObject(
+      createAccountBodySchema.properties.grant_enabled,
+    );
+    expect(openapiAccount?.required).toEqual([...accountResponseSchema.required]);
+    expect(openapiAccount?.properties?.grant_enabled).toMatchObject(
+      accountResponseSchema.properties.grant_enabled,
+    );
     expect(openapi).toContain('CreateApiKeyRequest:');
     expect(openapi).toContain('/v1/credit-grants:');
     expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');

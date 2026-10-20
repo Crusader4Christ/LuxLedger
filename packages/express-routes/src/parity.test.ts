@@ -22,9 +22,29 @@ type RequestResult = {
 
 const tenantId = '11111111-1111-4111-8111-111111111111';
 
+type FakeAccount = {
+  id: string;
+  tenantId: string;
+  ledgerId: string;
+  code: string | null;
+  name: string;
+  side: 'DEBIT' | 'CREDIT';
+  overdraftPolicy: 'ALLOW' | 'DISALLOW';
+  grantEnabled: boolean;
+  currency: string;
+  balanceMinor: bigint;
+  createdAt: Date;
+};
+
 class FakeLedgerService {
   private txByReference = new Map<string, string>();
   private txMetadataByReference = new Map<string, TransactionMetadata | undefined>();
+  private lastAccount: FakeAccount | null = null;
+  private accountCreateError: Error | null = null;
+
+  public setAccountCreateError(error: Error | null): void {
+    this.accountCreateError = error;
+  }
 
   public metadataFor(reference: string): TransactionMetadata | undefined {
     return this.txMetadataByReference.get(`${tenantId}:${reference}`);
@@ -67,8 +87,9 @@ class FakeLedgerService {
     overdraftPolicy?: 'ALLOW' | 'DISALLOW';
     grantEnabled?: boolean;
     currency: string;
-  }) {
-    return {
+  }): Promise<FakeAccount> {
+    if (this.accountCreateError) throw this.accountCreateError;
+    const account: FakeAccount = {
       id: '00000000-0000-4000-8000-000000000101',
       tenantId: input.tenantId,
       ledgerId: input.ledgerId,
@@ -81,6 +102,17 @@ class FakeLedgerService {
       balanceMinor: 0n,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     };
+    this.lastAccount = account;
+    return account;
+  }
+
+  public async getAccountById(): Promise<FakeAccount> {
+    if (!this.lastAccount) throw new Error('No account created');
+    return this.lastAccount;
+  }
+
+  public async listAccounts(): Promise<{ data: FakeAccount[]; nextCursor: null }> {
+    return { data: this.lastAccount ? [this.lastAccount] : [], nextCursor: null };
   }
 
   public async listLedgers(_tenantId: string): Promise<unknown[]> {
@@ -193,7 +225,12 @@ describe('express adapter parity with fastify adapter', () => {
     const apiKeyService = new FakeApiKeyService() as unknown as ApiKeyService;
     let lastGrant: CreditGrant | null = null;
     const services = {
-      accounts: fakeLedgerService,
+      accounts: {
+        create: (input: Parameters<FakeLedgerService['create']>[0]) =>
+          fakeLedgerService.create(input),
+        getById: () => fakeLedgerService.getAccountById(),
+        list: () => fakeLedgerService.listAccounts(),
+      },
       creditGrants: {
         create: async (input: {
           tenantId: string;
@@ -495,9 +532,89 @@ describe('express adapter parity with fastify adapter', () => {
           expect(fastifyResponse.status).toBe(201);
           expect(expressResponse.status).toBe(201);
           expect(fastifyResponse.json).toEqual(
-            expect.objectContaining({ code: null, overdraft_policy: 'DISALLOW' }),
+            expect.objectContaining({
+              code: null,
+              overdraft_policy: 'DISALLOW',
+              grant_enabled: false,
+            }),
           );
           expect(expressResponse.json).toEqual(fastifyResponse.json);
+        },
+      },
+      {
+        name: 'POST and GET /v1/accounts expose grant capability parity',
+        run: async () => {
+          const payload = {
+            ledger_id: '00000000-0000-4000-8000-000000000001',
+            name: 'Promotional balance',
+            side: 'CREDIT',
+            overdraft_policy: 'DISALLOW',
+            grant_enabled: true,
+            currency: 'USD',
+          };
+          const [fastifyCreated, expressCreated] = await Promise.all([
+            requestFastify('POST', '/v1/accounts', payload),
+            requestExpress('POST', '/v1/accounts', payload),
+          ]);
+
+          expect(fastifyCreated.status).toBe(201);
+          expect(expressCreated).toEqual(fastifyCreated);
+          expect(fastifyCreated.json).toEqual(expect.objectContaining({ grant_enabled: true }));
+
+          const accountPath = '/v1/accounts/00000000-0000-4000-8000-000000000101';
+          const [fastifyRead, expressRead, fastifyList, expressList] = await Promise.all([
+            requestFastify('GET', accountPath),
+            requestExpress('GET', accountPath),
+            requestFastify('GET', '/v1/accounts'),
+            requestExpress('GET', '/v1/accounts'),
+          ]);
+          expect(fastifyRead.status).toBe(200);
+          expect(expressRead).toEqual(fastifyRead);
+          expect(fastifyRead.json).toEqual(expect.objectContaining({ grant_enabled: true }));
+          expect(fastifyList.status).toBe(200);
+          expect(expressList).toEqual(fastifyList);
+          expect(fastifyList.json).toEqual(
+            expect.objectContaining({
+              data: [expect.objectContaining({ grant_enabled: true })],
+            }),
+          );
+        },
+      },
+      {
+        name: 'POST /v1/accounts maps account invariant errors identically',
+        run: async () => {
+          fakeLedgerService.setAccountCreateError(
+            new InvariantViolationError(
+              'grant-enabled account must use CREDIT side and DISALLOW overdraft',
+            ),
+          );
+          const payload = {
+            ledger_id: '00000000-0000-4000-8000-000000000001',
+            name: 'Promotional balance',
+            side: 'CREDIT',
+            overdraft_policy: 'DISALLOW',
+            grant_enabled: true,
+            currency: 'USD',
+          };
+          const [fastifyResponse, expressResponse] = await (async () => {
+            try {
+              return await Promise.all([
+                requestFastify('POST', '/v1/accounts', payload),
+                requestExpress('POST', '/v1/accounts', payload),
+              ]);
+            } finally {
+              fakeLedgerService.setAccountCreateError(null);
+            }
+          })();
+
+          expect(fastifyResponse).toEqual({
+            status: 400,
+            json: {
+              error: 'INVARIANT_VIOLATION',
+              message: 'grant-enabled account must use CREDIT side and DISALLOW overdraft',
+            },
+          });
+          expect(expressResponse).toEqual(fastifyResponse);
         },
       },
       {
