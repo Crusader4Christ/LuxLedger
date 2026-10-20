@@ -230,6 +230,18 @@ describe('framework-agnostic contract suite', () => {
 
   it('stays aligned with openapi source for migrated endpoints', () => {
     const openapi = readFileSync(openapiPath, 'utf8');
+    const openapiDocument = Bun.YAML.parse(openapi) as {
+      components?: {
+        schemas?: Record<
+          string,
+          {
+            additionalProperties?: boolean;
+            required?: string[];
+            properties?: Record<string, Record<string, unknown>>;
+          }
+        >;
+      };
+    };
     expect(openapi).toContain('/v1/transactions:');
     expect(openapi).toContain('/v1/accounts:');
     expect(openapi).toContain('/v1/admin/api-keys:');
@@ -243,8 +255,18 @@ describe('framework-agnostic contract suite', () => {
       'description: Optional JSON object with caller-defined transaction metadata. Null, arrays, and primitives are rejected.',
     );
     expect(openapi).toContain('CreateAccountRequest:');
-    expect(openapi).toContain(
-      'description: Immutable capability selected at account creation. False identifies an ordinary cash account; true identifies a promotional account and requires CREDIT side with DISALLOW overdraft.',
+    const openapiCreateAccount = openapiDocument.components?.schemas?.CreateAccountRequest;
+    const openapiAccount = openapiDocument.components?.schemas?.Account;
+    expect(openapiCreateAccount?.additionalProperties).toBe(
+      createAccountBodySchema.additionalProperties,
+    );
+    expect(openapiCreateAccount?.required).toEqual([...createAccountBodySchema.required]);
+    expect(openapiCreateAccount?.properties?.grant_enabled).toMatchObject(
+      createAccountBodySchema.properties.grant_enabled,
+    );
+    expect(openapiAccount?.required).toEqual([...accountResponseSchema.required]);
+    expect(openapiAccount?.properties?.grant_enabled).toMatchObject(
+      accountResponseSchema.properties.grant_enabled,
     );
     expect(openapi).toContain('CreateApiKeyRequest:');
     expect(openapi).toContain('/v1/credit-grants:');

@@ -40,6 +40,11 @@ class FakeLedgerService {
   private txByReference = new Map<string, string>();
   private txMetadataByReference = new Map<string, TransactionMetadata | undefined>();
   private lastAccount: FakeAccount | null = null;
+  private accountCreateError: Error | null = null;
+
+  public setAccountCreateError(error: Error | null): void {
+    this.accountCreateError = error;
+  }
 
   public metadataFor(reference: string): TransactionMetadata | undefined {
     return this.txMetadataByReference.get(`${tenantId}:${reference}`);
@@ -83,14 +88,7 @@ class FakeLedgerService {
     grantEnabled?: boolean;
     currency: string;
   }): Promise<FakeAccount> {
-    if (
-      input.grantEnabled === true &&
-      (input.side !== 'CREDIT' || input.overdraftPolicy !== 'DISALLOW')
-    ) {
-      throw new InvariantViolationError(
-        'grant-enabled account must use CREDIT side and DISALLOW overdraft',
-      );
-    }
+    if (this.accountCreateError) throw this.accountCreateError;
     const account: FakeAccount = {
       id: '00000000-0000-4000-8000-000000000101',
       tenantId: input.tenantId,
@@ -583,12 +581,17 @@ describe('express adapter parity with fastify adapter', () => {
         },
       },
       {
-        name: 'POST /v1/accounts rejects invalid grant capability shape identically',
+        name: 'POST /v1/accounts maps account invariant errors identically',
         run: async () => {
+          fakeLedgerService.setAccountCreateError(
+            new InvariantViolationError(
+              'grant-enabled account must use CREDIT side and DISALLOW overdraft',
+            ),
+          );
           const payload = {
             ledger_id: '00000000-0000-4000-8000-000000000001',
-            name: 'Invalid promotional balance',
-            side: 'DEBIT',
+            name: 'Promotional balance',
+            side: 'CREDIT',
             overdraft_policy: 'DISALLOW',
             grant_enabled: true,
             currency: 'USD',
@@ -597,6 +600,7 @@ describe('express adapter parity with fastify adapter', () => {
             requestFastify('POST', '/v1/accounts', payload),
             requestExpress('POST', '/v1/accounts', payload),
           ]);
+          fakeLedgerService.setAccountCreateError(null);
 
           expect(fastifyResponse).toEqual({
             status: 400,

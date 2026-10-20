@@ -1631,7 +1631,9 @@ describe('credit grants', () => {
           .set({ grantEnabled: true })
           .where(eq(accountRows.id, ordinaryAccount.id));
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: 'account grant capability is immutable' }),
+    });
     await expect(
       db.transaction(async (tx) => {
         await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`);
@@ -1640,7 +1642,9 @@ describe('credit grants', () => {
           .set({ grantEnabled: false })
           .where(eq(accountRows.id, grantAccounts.accountId));
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: 'account grant capability is immutable' }),
+    });
   });
 
   it('rejects an untracked ledger posting and preserves the reconciled balance', async () => {
