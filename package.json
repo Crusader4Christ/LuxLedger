@@ -26,7 +26,7 @@
     "db:check:test": "DATABASE_URL=${DATABASE_URL_TEST:-postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test} bun run ./scripts/check-postgres.ts",
     "db:reset:test": "DATABASE_URL=${DATABASE_URL_TEST:-postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test} bun run ./scripts/reset-test-database.ts",
     "db:migrate:test": "DATABASE_URL=${DATABASE_URL_TEST:-postgresql://luxledger:luxledger@127.0.0.1:5433/luxledger_test} bunx drizzle-kit migrate",
-    "contract:verify": "bun test packages/http/src/test/contract-suite.test.ts",
+    "contract:verify": "bun test packages/http/src/test/contract-suite.test.ts packages/express-routes/src/openapi-drift.test.ts",
     "release:verify": "bun run ./scripts/release-readiness.ts",
     "migration:verify": "bash ./scripts/verify-migration-restore.sh",
     "pack:dry-run": "export npm_config_cache=.tmp/npm-cache && npm pack --dry-run --workspace @luxledger/core && npm pack --dry-run --workspace @luxledger/http && npm pack --dry-run --workspace @luxledger/postgres-adapter && npm pack --dry-run --workspace @luxledger/fastify-routes && npm pack --dry-run --workspace @luxledger/express-routes",

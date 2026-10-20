@@ -31,6 +31,7 @@ import {
   toRefundCreditGrantResponse,
 } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
 import { BaseRoute } from '../routing/base-route';
 
@@ -154,6 +155,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.post<{ Params: CreditGrantIdParams; Body: RefundCreditGrantRequest }>(
       '/v1/credit-grants/:id/refund',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
           body: refundCreditGrantBodySchema,

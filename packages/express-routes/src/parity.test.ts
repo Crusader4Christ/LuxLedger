@@ -1257,4 +1257,40 @@ describe('express adapter parity with fastify adapter', () => {
       expect(expressAdjustment).toEqual(fastifyAdjustment);
     }
   });
+
+  it('maps new Fastify route validation without host error-handler setup', async () => {
+    const server = Fastify({
+      ajv: {
+        customOptions: {
+          removeAdditional: false,
+        },
+      },
+    });
+    server.decorateRequest('tenantId');
+    server.decorateRequest('apiKeyId');
+    server.decorateRequest('apiKeyRole');
+    registerFastifyLedgerAdapter(server, {} as ApplicationServices);
+
+    try {
+      for (const [url, payload, message] of [
+        ['/v1/adjustments/credit', {}, 'Invalid request body'],
+        [
+          '/v1/credit-grants/00000000-0000-4000-8000-000000000901/refund',
+          { reference: 'refund', amount_minor: '0' },
+          'Invalid request body',
+        ],
+        [
+          '/v1/credit-grants/not-a-uuid/refund',
+          { reference: 'refund', amount_minor: '1' },
+          'Invalid path parameter',
+        ],
+      ] as const) {
+        const response = await server.inject({ method: 'POST', url, payload });
+        expect(response.statusCode).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({ error: 'INVALID_INPUT', message });
+      }
+    } finally {
+      await server.close();
+    }
+  });
 });

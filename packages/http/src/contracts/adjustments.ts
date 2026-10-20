@@ -25,7 +25,11 @@ export const createAdjustmentBodySchema = {
     description: NonEmptyTrimmedStringSchema,
     reason_code: NonEmptyTrimmedStringSchema,
     actor_id: NonEmptyTrimmedStringSchema,
-    attributes: { type: 'object', additionalProperties: true },
+    attributes: {
+      type: 'object',
+      additionalProperties: true,
+      description: 'Optional caller-defined JSON object stored with the adjustment audit record.',
+    },
   },
 } as const;
 

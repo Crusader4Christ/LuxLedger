@@ -6,6 +6,7 @@ import {
 } from '@luxledger/http/contracts';
 import { toAdjustmentResponse } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { BaseRoute } from '../routing/base-route';
 
 export class AdjustmentRoutes extends BaseRoute {
@@ -21,6 +22,7 @@ export class AdjustmentRoutes extends BaseRoute {
       server.post<{ Body: CreateAdjustmentRequest }>(
         path,
         {
+          errorHandler: handleValidationError,
           schema: {
             body: createAdjustmentBodySchema,
             response: { 200: adjustmentResponseSchema, 201: adjustmentResponseSchema },
