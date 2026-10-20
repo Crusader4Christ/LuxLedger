@@ -475,7 +475,7 @@ paths:
   /v1/accounts/{id}/statement:
     get:
       summary: List reconcilable account statement movements
-      description: Opening balance includes events at from; movements cover the interval after from through as_of. Reuse the same from and as_of values with every cursor page.
+      description: Account time is based on effective_at. Opening includes events effective at from, movements cover (from, as_of], and closing includes events effective at as_of. Pages are ordered by (effective_at, id) ascending. Across all pages, opening plus movement deltas equals closing for posted, reserved, and available values. Reuse the same from and as_of values with every cursor page.
       parameters:
         - in: path
           name: id
@@ -486,12 +486,14 @@ paths:
         - in: query
           name: from
           required: true
+          description: Inclusive opening boundary; movements begin strictly after it.
           schema:
             type: string
             format: date-time
         - in: query
           name: as_of
           required: true
+          description: Inclusive closing boundary; must be greater than or equal to from.
           schema:
             type: string
             format: date-time
@@ -513,7 +515,7 @@ paths:
   /v1/accounts/{id}/credit-statement:
     get:
       summary: List bounded credit grant-lot movements
-      description: Returns a flat movement stream so grant and hold detail never creates an unbounded nested collection. The optional grant_id narrows the statement to one lot.
+      description: Returns a flat movement stream so grant and hold detail never creates an unbounded nested collection. Credit time is based on immutable capacity-version created_at, not ledger effective_at; each credit movement therefore exposes equal effective_at and created_at values. Movements cover (from, as_of] and are ordered by (created_at, id) ascending. Across all pages, opening_available_minor plus available_delta_minor values equals closing_available_minor. The optional grant_id narrows the statement to one lot.
       parameters:
         - in: path
           name: id
@@ -524,18 +526,21 @@ paths:
         - in: query
           name: from
           required: true
+          description: Inclusive opening boundary; capacity movements begin strictly after it.
           schema:
             type: string
             format: date-time
         - in: query
           name: as_of
           required: true
+          description: Inclusive closing boundary; must be greater than or equal to from.
           schema:
             type: string
             format: date-time
         - in: query
           name: grant_id
           required: false
+          description: Optional exact lot filter. A valid UUID with no matching lot returns an empty zero-bounded statement.
           schema:
             type: string
             format: uuid
@@ -1703,6 +1708,7 @@ components:
           format: date-time
     AccountStatement:
       type: object
+      description: A bounded account statement whose reconciliation invariant applies across all cursor pages, not to each page independently.
       additionalProperties: false
       required: [account_id, asset_id, from, as_of, opening, closing, data, next_cursor]
       properties:
@@ -1719,16 +1725,20 @@ components:
           type: string
           format: date-time
         opening:
+          description: Account state including events effective at from.
           $ref: '#/components/schemas/StatementBalance'
         closing:
+          description: Account state including events effective at as_of.
           $ref: '#/components/schemas/StatementBalance'
         data:
           type: array
+          description: Page-local movements in ascending (effective_at, id) order for (from, as_of].
           items:
             $ref: '#/components/schemas/StatementMovement'
         next_cursor:
           type: string
           nullable: true
+          description: Opaque continuation bound to tenant, account, from, and as_of.
     CreditLotMovement:
       type: object
       additionalProperties: false
@@ -1762,11 +1772,14 @@ components:
         effective_at:
           type: string
           format: date-time
+          description: Capacity-version creation time used as the credit statement boundary and ordering clock.
         created_at:
           type: string
           format: date-time
+          description: Capacity-version creation time; equal to effective_at for credit movements.
     CreditLotStatement:
       type: object
+      description: A bounded credit-capacity statement whose reconciliation invariant applies across all cursor pages, not to each page independently.
       additionalProperties: false
       required: [account_id, asset_id, grant_id, from, as_of, opening_available_minor, closing_available_minor, data, next_cursor]
       properties:
@@ -1792,11 +1805,13 @@ components:
           type: string
         data:
           type: array
+          description: Page-local capacity movements in ascending (created_at, id) order for (from, as_of].
           items:
             $ref: '#/components/schemas/CreditLotMovement'
         next_cursor:
           type: string
           nullable: true
+          description: Opaque continuation bound to tenant, account, optional grant_id, from, and as_of.
     TransactionsPage:
       type: object
       additionalProperties: false

@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { AccountSide } from '@luxledger/core';
-import { AccountNotFoundError, RepositoryError } from '@luxledger/core/application';
+import {
+  AccountNotFoundError,
+  InvariantViolationError,
+  RepositoryError,
+} from '@luxledger/core/application';
 import { type SQL, sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
 import {
@@ -227,6 +231,70 @@ describe('bounded statements', () => {
     );
   });
 
+  it('uses snapshot id as the stable pagination tie-breaker for equal effective times', async () => {
+    const tenantId = await createTenant(db, 'statement-ties');
+    const ledgerId = await createLedger(db, tenantId, 'Statement ties');
+    const asset = (await services.assets.list(tenantId)).find((item) => item.code === 'USD');
+    if (!asset) throw new Error('Missing USD asset');
+    const cash = await services.accounts.create({
+      tenantId,
+      ledgerId,
+      name: 'Cash',
+      side: AccountSide.DEBIT,
+      overdraftPolicy: 'ALLOW',
+      currency: 'USD',
+      assetId: asset.id,
+    });
+    const revenue = await services.accounts.create({
+      tenantId,
+      ledgerId,
+      name: 'Revenue',
+      side: AccountSide.CREDIT,
+      overdraftPolicy: 'ALLOW',
+      currency: 'USD',
+      assetId: asset.id,
+    });
+    const effectiveAt = new Date('2026-01-01T00:00:00.123Z');
+    for (const [reference, amountMinor] of [
+      ['statement-tie-1', 10n],
+      ['statement-tie-2', 20n],
+    ] as const) {
+      await services.transactions.create({
+        tenantId,
+        ledgerId,
+        reference,
+        currency: 'USD',
+        effectiveAt,
+        entries: [
+          { accountId: cash.id, signedAmountMinor: amountMinor, currency: 'USD' },
+          { accountId: revenue.id, signedAmountMinor: -amountMinor, currency: 'USD' },
+        ],
+      });
+    }
+
+    const movements = [];
+    const asOf = await databaseTime();
+    let cursor: string | undefined;
+    do {
+      const page = await services.statements.getAccountStatement({
+        tenantId,
+        accountId: cash.id,
+        from: new Date('2025-01-01T00:00:00.000Z'),
+        asOf,
+        limit: 1,
+        cursor,
+      });
+      movements.push(...page.data);
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(movements).toHaveLength(2);
+    expect(new Set(movements.map((movement) => movement.id)).size).toBe(2);
+    expect(movements.map((movement) => movement.id)).toEqual(
+      [...movements.map((movement) => movement.id)].sort(),
+    );
+  });
+
   it('classifies hold reservation, partial consumption, and release without overlap', async () => {
     const tenantId = await createTenant(db, 'statement-hold-provenance');
     const accounts = await setup(tenantId);
@@ -428,6 +496,8 @@ describe('bounded statements', () => {
     const tenantId = await createTenant(db, 'statement-boundary');
     const otherTenantId = await createTenant(db, 'statement-other');
     const accounts = await setup(tenantId);
+    const otherAccounts = await setup(otherTenantId);
+    const from = new Date('2020-01-01T00:00:00.000Z');
     for (const reference of ['before-boundary-1', 'before-boundary-2']) {
       await services.creditGrants.create({
         tenantId,
@@ -442,7 +512,7 @@ describe('bounded statements', () => {
     const firstPage = await services.statements.getCreditLotStatement({
       tenantId,
       accountId: accounts.walletId,
-      from: new Date('2020-01-01T00:00:00.000Z'),
+      from,
       asOf: boundary,
       limit: 1,
     });
@@ -479,13 +549,35 @@ describe('bounded statements', () => {
     const rest = await services.statements.getCreditLotStatement({
       tenantId,
       accountId: accounts.walletId,
-      from: new Date('2020-01-01T00:00:00.000Z'),
+      from,
       asOf: boundary,
       limit: 10,
       cursor: firstPage.nextCursor as string,
     });
     expect([...firstPage.data, ...rest.data]).toHaveLength(2);
     expect(rest.nextCursor).toBeNull();
+
+    await expect(
+      services.statements.getCreditLotStatement({
+        tenantId: otherTenantId,
+        accountId: otherAccounts.walletId,
+        from,
+        asOf: boundary,
+        limit: 10,
+        cursor: firstPage.nextCursor as string,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    await expect(
+      services.statements.getCreditLotStatement({
+        tenantId,
+        accountId: accounts.walletId,
+        from,
+        asOf: boundary,
+        limit: 10,
+        cursor: 'not-a-cursor',
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
 
     await expect(
       services.statements.getAccountStatement({

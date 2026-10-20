@@ -22,6 +22,10 @@
 - `statement` binds every cursor to the account and exact `from`/`as_of` range. Its opening includes
   the `from` boundary and its movements begin strictly after it, preventing overlap while preserving
   `opening + movements = closing` across all pages.
+- A fixed `as_of` excludes later writes whose `effective_at` is after that boundary. It does not pin
+  one database transaction snapshot across HTTP requests. A concurrent backdated posting inside the
+  range can change later materialized snapshots, so frozen exports must restart pagination if such
+  writes are permitted during traversal.
 
 ## Idempotency and Deduplication
 - Deduplication key prevents duplicate snapshot insertion for the same logical event and account.

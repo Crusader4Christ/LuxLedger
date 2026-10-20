@@ -4,6 +4,7 @@ import {
   type ApiKeyService,
   type ApplicationServices,
   type CreditGrant,
+  InvariantViolationError,
 } from '@luxledger/core/application';
 import type { UnknownRecord } from '@luxledger/core/base';
 import type { TransactionMetadata } from '@luxledger/core/transaction';
@@ -271,16 +272,26 @@ describe('express adapter parity with fastify adapter', () => {
       },
       reconciliation: fakeLedgerService,
       statements: {
-        getAccountStatement: async (input: { accountId: string; from: Date; asOf: Date }) => ({
-          accountId: input.accountId,
-          assetId: '00000000-0000-4000-8000-000000000903',
-          from: input.from,
-          asOf: input.asOf,
-          opening: { postedMinor: 0n, reservedDeltaMinor: 0n, availableMinor: 0n },
-          closing: { postedMinor: -100n, reservedDeltaMinor: 0n, availableMinor: 100n },
-          data: [],
-          nextCursor: null,
-        }),
+        getAccountStatement: async (input: {
+          accountId: string;
+          from: Date;
+          asOf: Date;
+          cursor?: string;
+        }) => {
+          if (input.cursor === 'invalid-cursor') {
+            throw new InvariantViolationError('Invalid cursor');
+          }
+          return {
+            accountId: input.accountId,
+            assetId: '00000000-0000-4000-8000-000000000903',
+            from: input.from,
+            asOf: input.asOf,
+            opening: { postedMinor: 0n, reservedDeltaMinor: 0n, availableMinor: 0n },
+            closing: { postedMinor: -100n, reservedDeltaMinor: 0n, availableMinor: 100n },
+            data: [],
+            nextCursor: null,
+          };
+        },
         getCreditLotStatement: async (input: {
           accountId: string;
           grantId?: string;
@@ -907,6 +918,18 @@ describe('express adapter parity with fastify adapter', () => {
               expect.objectContaining({ error: 'INVALID_INPUT' }),
             );
           }
+
+          const invalidCursorUrl =
+            '/v1/accounts/00000000-0000-4000-8000-000000000101/statement?from=2026-01-01T00%3A00%3A00.000Z&as_of=2026-01-02T00%3A00%3A00.000Z&cursor=invalid-cursor';
+          const [fastifyCursor, expressCursor] = await Promise.all([
+            requestFastify('GET', invalidCursorUrl),
+            requestExpress('GET', invalidCursorUrl),
+          ]);
+          expect(fastifyCursor).toEqual({
+            status: 400,
+            json: { error: 'INVARIANT_VIOLATION', message: 'Invalid cursor' },
+          });
+          expect(expressCursor).toEqual(fastifyCursor);
         },
       },
     ];

@@ -44,13 +44,24 @@ Account statements use the same historical snapshot boundary as `balance-as-of`.
 includes events effective at `from`; statement movements cover `(from, as_of]`, and the closing
 balance includes events effective at `as_of`. For each of posted, reserved, and available minor
 units, opening plus all movement deltas equals closing. Movement pages are ordered by
-`(effective_at, id)` and the opaque cursor is bound to tenant, account, `from`, and `as_of`.
+`(effective_at, id)` ascending and the opaque cursor encodes that complete tie-break tuple. It is
+bound to tenant, account, `from`, and `as_of`. Reconciliation applies after aggregating movement
+deltas from every page; each page repeats the same range-level opening and closing values.
 
 Credit statements expose a flat, bounded stream of immutable grant-capacity versions rather than
 nesting an unbounded lot array. They include issuance, consumption, compensation, reversal, refund,
 expiration, and hold reservation/release provenance. Their opening and closing available totals use
-the same explicit `from` and `as_of` operational boundaries, and the page cursor is additionally
-bound to an optional grant filter. Product labels and redaction policy are host responsibilities.
+the same explicit `from` and `as_of` operational boundaries. Unlike account statements, their time
+basis is capacity-version `created_at`: credit capacity has operational provenance but no independent
+accounting-effective clock. Credit movements therefore expose equal `effective_at` and `created_at`
+values, are ordered by `(created_at, id)` ascending, and use a cursor additionally bound to an
+optional grant filter. Product labels and redaction policy are host responsibilities.
+
+The fixed `as_of` boundary excludes events written later with a later statement time. It is not a
+database transaction snapshot shared across HTTP requests: if a posting is inserted later with an
+`effective_at` inside an account statement's existing range, clients that require a frozen export
+must restart pagination. This distinction matters because account snapshots deliberately propagate
+backdated postings through later materialized balances.
 
 ## Authentication contract
 

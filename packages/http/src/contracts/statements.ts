@@ -8,8 +8,17 @@ const minor = { type: 'string', pattern: '^-?[0-9]+$' } as const;
 export const statementQuerySchemaExtra = {
   required: ['from', 'as_of'],
   properties: {
-    from: { type: 'string', format: 'date-time' },
-    as_of: { type: 'string', format: 'date-time' },
+    from: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Inclusive opening boundary. Returned movements begin strictly after this instant.',
+    },
+    as_of: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Inclusive closing boundary. Must be greater than or equal to from.',
+    },
   },
 } as const;
 
@@ -19,7 +28,11 @@ export const creditLotStatementQuerySchema = mergePaginationQuerySchema({
   ...statementQuerySchemaExtra,
   properties: {
     ...statementQuerySchemaExtra.properties,
-    grant_id: uuid,
+    grant_id: {
+      ...uuid,
+      description:
+        'Optional exact lot filter. A valid UUID with no matching lot returns an empty zero-bounded statement.',
+    },
   },
 } as const);
 
@@ -64,6 +77,8 @@ const statementMovementSchema = {
 
 export const accountStatementResponseSchema = {
   type: 'object',
+  description:
+    'A bounded account statement ordered by (effective_at, id). Across all cursor pages, opening plus the sum of each movement delta equals closing for posted, reserved, and available minor units.',
   additionalProperties: false,
   required: [
     'account_id',
@@ -80,10 +95,25 @@ export const accountStatementResponseSchema = {
     asset_id: uuid,
     from: { type: 'string', format: 'date-time' },
     as_of: { type: 'string', format: 'date-time' },
-    opening: statementBalanceSchema,
-    closing: statementBalanceSchema,
-    data: { type: 'array', items: statementMovementSchema },
-    next_cursor: { type: 'string', nullable: true },
+    opening: {
+      ...statementBalanceSchema,
+      description: 'Account state including events effective at from.',
+    },
+    closing: {
+      ...statementBalanceSchema,
+      description: 'Account state including events effective at as_of.',
+    },
+    data: {
+      type: 'array',
+      description:
+        'Page-local movements in ascending (effective_at, id) order for the interval (from, as_of]. Reconcile by summing data from every page.',
+      items: statementMovementSchema,
+    },
+    next_cursor: {
+      type: 'string',
+      nullable: true,
+      description: 'Opaque continuation bound to the tenant, account, from, and as_of query scope.',
+    },
   },
 } as const;
 
@@ -116,13 +146,24 @@ const creditLotMovementSchema = {
     remaining_minor: minor,
     reserved_minor: minor,
     available_minor: minor,
-    effective_at: { type: 'string', format: 'date-time' },
-    created_at: { type: 'string', format: 'date-time' },
+    effective_at: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Capacity-version creation time used as the credit statement boundary and ordering clock.',
+    },
+    created_at: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Capacity-version creation time; equal to effective_at for credit movements.',
+    },
   },
 } as const;
 
 export const creditLotStatementResponseSchema = {
   type: 'object',
+  description:
+    'A bounded credit-capacity statement ordered by (created_at, id). Across all cursor pages, opening_available_minor plus the sum of available_delta_minor equals closing_available_minor.',
   additionalProperties: false,
   required: [
     'account_id',
@@ -143,8 +184,18 @@ export const creditLotStatementResponseSchema = {
     as_of: { type: 'string', format: 'date-time' },
     opening_available_minor: minor,
     closing_available_minor: minor,
-    data: { type: 'array', items: creditLotMovementSchema },
-    next_cursor: { type: 'string', nullable: true },
+    data: {
+      type: 'array',
+      description:
+        'Page-local capacity movements in ascending (created_at, id) order for the interval (from, as_of]. Reconcile by summing data from every page.',
+      items: creditLotMovementSchema,
+    },
+    next_cursor: {
+      type: 'string',
+      nullable: true,
+      description:
+        'Opaque continuation bound to the tenant, account, optional grant_id, from, and as_of query scope.',
+    },
   },
 } as const;
 

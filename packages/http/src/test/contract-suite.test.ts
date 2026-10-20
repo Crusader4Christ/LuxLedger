@@ -139,16 +139,26 @@ describe('framework-agnostic contract suite', () => {
               'data',
               'next_cursor',
             ]);
-            expect(accountStatementResponseSchema.properties.next_cursor).toEqual({
-              type: 'string',
-              nullable: true,
-            });
+            expect(accountStatementResponseSchema.description).toContain('Across all cursor pages');
+            expect(accountStatementResponseSchema.properties.data.description).toContain(
+              '(effective_at, id)',
+            );
+            expect(accountStatementResponseSchema.properties.next_cursor.description).toContain(
+              'tenant, account, from, and as_of',
+            );
             expect(creditLotStatementResponseSchema.required).toContain('opening_available_minor');
             expect(creditLotStatementResponseSchema.required).toContain('closing_available_minor');
             expect(creditLotStatementResponseSchema.properties.data.type).toBe('array');
+            expect(creditLotStatementResponseSchema.properties.data.description).toContain(
+              '(created_at, id)',
+            );
             expect(
               creditLotStatementResponseSchema.properties.data.items.properties.kind.enum,
             ).toEqual(CREDIT_LOT_MOVEMENT_KINDS);
+            expect(
+              creditLotStatementResponseSchema.properties.data.items.properties.effective_at
+                .description,
+            ).toContain('creation time');
           },
         },
       ],
