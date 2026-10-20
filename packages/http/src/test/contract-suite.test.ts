@@ -98,6 +98,18 @@ describe('framework-agnostic contract suite', () => {
           assert: () => expect(createAccountBodySchema.additionalProperties).toBeFalse(),
         },
         {
+          name: 'account grant capability is optional on creation and required on reads',
+          assert: () => {
+            expect(createAccountBodySchema.required).not.toContain('grant_enabled');
+            expect(createAccountBodySchema.properties.grant_enabled).toEqual({
+              type: 'boolean',
+              default: false,
+            });
+            expect(accountResponseSchema.required).toContain('grant_enabled');
+            expect(accountResponseSchema.properties.grant_enabled).toEqual({ type: 'boolean' });
+          },
+        },
+        {
           name: 'grant derives its asset from the account and uses integer minor units',
           assert: () => {
             expect(createCreditGrantBodySchema.required).not.toContain('asset_id');
@@ -231,6 +243,9 @@ describe('framework-agnostic contract suite', () => {
       'description: Optional JSON object with caller-defined transaction metadata. Null, arrays, and primitives are rejected.',
     );
     expect(openapi).toContain('CreateAccountRequest:');
+    expect(openapi).toContain(
+      'description: Immutable capability selected at account creation. False identifies an ordinary cash account; true identifies a promotional account and requires CREDIT side with DISALLOW overdraft.',
+    );
     expect(openapi).toContain('CreateApiKeyRequest:');
     expect(openapi).toContain('/v1/credit-grants:');
     expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');

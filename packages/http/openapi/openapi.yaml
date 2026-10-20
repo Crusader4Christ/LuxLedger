@@ -1537,7 +1537,7 @@ components:
         grant_enabled:
           type: boolean
           default: false
-          description: Immutable capability. Grant-enabled accounts must use CREDIT side and DISALLOW overdraft.
+          description: Immutable capability selected at account creation. False identifies an ordinary cash account; true identifies a promotional account and requires CREDIT side with DISALLOW overdraft.
         currency:
           type: string
           pattern: '^(?=.*\S).+$'
@@ -1576,6 +1576,7 @@ components:
           enum: [ALLOW, DISALLOW]
         grant_enabled:
           type: boolean
+          description: Immutable capability returned on every account read.
         currency:
           type: string
         balance_minor:
