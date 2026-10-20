@@ -238,6 +238,11 @@ export class DrizzleStatementRepository implements StatementRepository {
         }),
       ]);
 
+      for (const row of page.rows) {
+        if (row.version < INITIAL_CAPACITY_VERSION) {
+          throw new RepositoryError('Credit lot movement has an invalid capacity version');
+        }
+      }
       const previous = await this.previousCapacities(
         tx,
         query.tenantId,
@@ -246,9 +251,6 @@ export class DrizzleStatementRepository implements StatementRepository {
       );
       const data: CreditLotMovement[] = page.rows.map((row) => {
         const prior = previous.get(`${row.grantId}:${row.version - 1n}`);
-        if (row.version < INITIAL_CAPACITY_VERSION) {
-          throw new RepositoryError('Credit lot movement has an invalid capacity version');
-        }
         if (row.version > INITIAL_CAPACITY_VERSION && prior === undefined) {
           throw new RepositoryError('Credit lot movement is missing its previous capacity version');
         }
