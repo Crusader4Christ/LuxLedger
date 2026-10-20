@@ -4,7 +4,9 @@ import {
   createCreditGrantBodySchema,
   type ProcessCreditGrantExpirationsRequest,
   processCreditGrantExpirationsBodySchema,
+  type RefundCreditGrantRequest,
   type ReverseCreditGrantRequest,
+  refundCreditGrantBodySchema,
   reverseCreditGrantBodySchema,
 } from '@luxledger/http/contracts';
 import {
@@ -14,6 +16,7 @@ import {
   toCreditGrantLotResponse,
   toCreditGrantResponse,
   toPaginatedResponse,
+  toRefundCreditGrantResponse,
 } from '@luxledger/http/mappers';
 import { parseUuidQuery } from '@luxledger/http/query/pagination';
 import { parseUuidParam } from '@luxledger/http/validation-utils';
@@ -136,6 +139,25 @@ export const registerCreditGrantRoutes = (
         reference: body.reference,
       });
       res.status(result.created ? 201 : 200).json(toCreditGrantResponse(result.grant));
+    }),
+  );
+
+  app.post('/v1/credit-grants/:id/refund', async (req: RequestWithContext, res: Response) =>
+    withDomainErrorHandling(res, async () => {
+      const params = parseUuidParam(req.params.id, 'id');
+      const body = validate<RefundCreditGrantRequest>(refundCreditGrantBodySchema, req.body);
+      if (!params || !body) {
+        sendInvalidInput(res, params ? 'Invalid request body' : 'Invalid path parameter');
+        return;
+      }
+      const { tenantId } = requireContext(req);
+      const result = await services.creditGrants.refund({
+        tenantId,
+        grantId: params.id,
+        reference: body.reference,
+        amountMinor: BigInt(body.amount_minor),
+      });
+      res.status(result.created ? 201 : 200).json(toRefundCreditGrantResponse(result));
     }),
   );
 

@@ -12,6 +12,7 @@ import {
 } from '@luxledger/http/contracts';
 import { toApiKeyContract } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { BaseEntityRoute } from '../routing/base-route';
 
 export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContract> {
@@ -33,6 +34,7 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
     server.post<{ Body: CreateApiKeyRequest }>(
       '/v1/admin/api-keys',
       {
+        errorHandler: handleValidationError,
         schema: {
           body: createApiKeyBodySchema,
           response: {
@@ -68,6 +70,7 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
     server.get(
       '/v1/admin/api-keys',
       {
+        errorHandler: handleValidationError,
         schema: {
           response: {
             200: listApiKeysResponseSchema,
@@ -93,6 +96,7 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
     server.post<{ Params: RevokeApiKeyParams }>(
       '/v1/admin/api-keys/:id/revoke',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: revokeApiKeyParamsSchema,
         },

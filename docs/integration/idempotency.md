@@ -26,6 +26,8 @@ ambiguous timeout without first reconciling state through a read API.
 | `POST /v1/credit-grants` | `(tenant_id, reference)` | `200`, original grant, `created: false` | Ledger, accounts, amount, expiry, and external reference must match; differing ownership or payload conflicts. |
 | `POST /v1/credit-grants/expiration/preview` | Read-only preview at `(tenant_id, as_of, limit)` | Recomputes the current bounded preview | Safe to retry, but results may change as grants are consumed or another worker expires them. |
 | `POST /v1/credit-grants/expiration/run` | Derived per-grant transaction reference `(tenant_id, grant_id, cumulative_expired_minor)` | Already claimed/expired work is skipped | Concurrent workers use row locks; each committed expiration slice posts once. Reruns may claim newly due work. |
+| `POST /v1/credit-grants/{id}/refund` | `(tenant_id, reference)` plus grant ID and amount | `200`, original refund transaction, `created: false` | Changing the amount or grant for a reference conflicts with `CREDIT_GRANT_CONFLICT`. Only unspent, unreserved, unexpired capacity can be refunded. |
+| `POST /v1/adjustments/credit`, `POST /v1/adjustments/debit` | `(tenant_id, reference)` plus the full adjustment payload | `200`, original transaction ID, `created: false` | A changed payload conflicts with `ADJUSTMENT_CONFLICT`. The credit leg cannot target a grant-enabled account. |
 | `POST /v1/credit-grants/{id}/reversal` | `(tenant_id, reference)` plus grant ID | `200`, original compensated grant, `created: false` | Reference ownership/payload mismatch or a different prior reversal conflicts. Only an unconsumed remainder can be reversed. |
 
 ## Core-only commands

@@ -15,7 +15,10 @@ import {
   type PaginationQuery,
   type ProcessCreditGrantExpirationsRequest,
   processCreditGrantExpirationsBodySchema,
+  type RefundCreditGrantRequest,
   type ReverseCreditGrantRequest,
+  refundCreditGrantBodySchema,
+  refundCreditGrantResponseSchema,
   reverseCreditGrantBodySchema,
 } from '@luxledger/http/contracts';
 import {
@@ -25,8 +28,10 @@ import {
   toCreditGrantLotResponse,
   toCreditGrantResponse,
   toPaginatedResponse,
+  toRefundCreditGrantResponse,
 } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
 import { BaseRoute } from '../routing/base-route';
 
@@ -39,6 +44,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.post<{ Body: CreateCreditGrantRequest }>(
       '/v1/credit-grants',
       {
+        errorHandler: handleValidationError,
         schema: {
           body: createCreditGrantBodySchema,
           response: { 200: creditGrantResponseSchema, 201: creditGrantResponseSchema },
@@ -68,6 +74,7 @@ export class CreditGrantRoutes extends BaseRoute {
       server.post<{ Body: ProcessCreditGrantExpirationsRequest }>(
         path,
         {
+          errorHandler: handleValidationError,
           schema: {
             body: processCreditGrantExpirationsBodySchema,
             response: { 200: creditGrantExpirationResponseSchema },
@@ -91,6 +98,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.get<{ Querystring: ListCreditGrantsQuery }>(
       '/v1/credit-grants',
       {
+        errorHandler: handleValidationError,
         schema: {
           querystring: listCreditGrantsQuerySchema,
           response: { 200: creditGrantsPageResponseSchema },
@@ -113,6 +121,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.get<{ Params: CreditGrantIdParams }>(
       '/v1/credit-grants/:id',
       {
+        errorHandler: handleValidationError,
         schema: { params: creditGrantIdParamsSchema, response: { 200: creditGrantResponseSchema } },
       },
       async (request, reply) =>
@@ -130,6 +139,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.post<{ Params: CreditGrantIdParams; Body: ReverseCreditGrantRequest }>(
       '/v1/credit-grants/:id/reversal',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
           body: reverseCreditGrantBodySchema,
@@ -147,9 +157,32 @@ export class CreditGrantRoutes extends BaseRoute {
         }),
     );
 
+    server.post<{ Params: CreditGrantIdParams; Body: RefundCreditGrantRequest }>(
+      '/v1/credit-grants/:id/refund',
+      {
+        errorHandler: handleValidationError,
+        schema: {
+          params: creditGrantIdParamsSchema,
+          body: refundCreditGrantBodySchema,
+          response: { 200: refundCreditGrantResponseSchema, 201: refundCreditGrantResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const result = await this.grants.refund({
+            tenantId: request.tenantId as string,
+            grantId: request.params.id,
+            reference: request.body.reference,
+            amountMinor: BigInt(request.body.amount_minor),
+          });
+          return reply.status(result.created ? 201 : 200).send(toRefundCreditGrantResponse(result));
+        }),
+    );
+
     server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
       '/v1/credit-grants/:id/allocations',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
           querystring: createPaginationQuerySchema({}),
@@ -175,6 +208,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
       '/v1/transactions/:id/credit-allocations',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
           querystring: createPaginationQuerySchema({}),
@@ -200,6 +234,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
       '/v1/accounts/:id/credit-lots',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
           querystring: createPaginationQuerySchema({}),
@@ -225,6 +260,7 @@ export class CreditGrantRoutes extends BaseRoute {
     server.get<{ Params: CreditGrantIdParams }>(
       '/v1/accounts/:id/credit-balance',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
           response: { 200: creditBalanceResponseSchema },

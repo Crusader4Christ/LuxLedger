@@ -4,11 +4,13 @@ import type {
   CreditGrantExpirationResult,
   CreditGrantLineage,
   CreditGrantLotBalance,
+  CreditGrantRefundResult,
 } from '@luxledger/core/application';
 import type {
   CreditBalanceResponse,
   CreditGrantExpirationResponse,
   CreditGrantResponse,
+  RefundCreditGrantResponse,
 } from '../contracts/credit-grants';
 
 export const toCreditGrantResponse = (grant: CreditGrant): CreditGrantResponse => ({
@@ -70,4 +72,13 @@ export const toCreditGrantLineageItemResponse = (allocation: CreditGrantLineage)
   kind: allocation.kind,
   amount_minor: allocation.amountMinor.toString(),
   created_at: allocation.createdAt.toISOString(),
+});
+
+export const toRefundCreditGrantResponse = (
+  result: CreditGrantRefundResult,
+): RefundCreditGrantResponse => ({
+  grant_id: result.grantId,
+  transaction_id: result.transactionId,
+  amount_minor: result.amountMinor.toString(),
+  created: result.created,
 });

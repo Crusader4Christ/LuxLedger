@@ -1,4 +1,5 @@
 export * from './accounts';
+export * from './adjustments';
 export * from './auth-admin';
 export * from './common';
 export * from './credit-grants';

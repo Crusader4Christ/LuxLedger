@@ -5,7 +5,9 @@ import { CREDIT_LOT_MOVEMENT_KINDS } from '@luxledger/core/application';
 import {
   accountResponseSchema,
   accountStatementResponseSchema,
+  adjustmentResponseSchema,
   createAccountBodySchema,
+  createAdjustmentBodySchema,
   createApiKeyBodySchema,
   createCreditGrantBodySchema,
   createLedgerBodySchema,
@@ -15,12 +17,35 @@ import {
   creditGrantResponseSchema,
   creditLotStatementResponseSchema,
   entriesPageResponseSchema,
+  refundCreditGrantBodySchema,
+  refundCreditGrantResponseSchema,
   transactionEntryRequestSchema,
   transactionResponseSchema,
 } from '../index';
 import { createContractHarness } from './harness';
 
 const openapiPath = resolve(import.meta.dir, '../../openapi/openapi.yaml');
+
+type OpenApiSchema = {
+  additionalProperties?: boolean;
+  required?: readonly string[];
+  properties?: Record<string, Record<string, unknown>>;
+  [key: string]: unknown;
+};
+
+type OpenApiContent = {
+  content?: { 'application/json'?: { schema?: { $ref?: string } } };
+};
+
+type OpenApiOperation = {
+  requestBody?: OpenApiContent & { required?: boolean };
+  responses?: Record<string, OpenApiContent & { $ref?: string; description?: string }>;
+};
+
+type OpenApiDocument = {
+  components?: { schemas?: Record<string, OpenApiSchema> };
+  paths?: Record<string, { post?: OpenApiOperation }>;
+};
 
 describe('framework-agnostic contract suite', () => {
   it('keeps core request/response schemas deterministic', () => {
@@ -222,6 +247,34 @@ describe('framework-agnostic contract suite', () => {
         },
       },
       {
+        name: 'refund requires a reference and a positive integer amount',
+        assert: () => {
+          expect(refundCreditGrantBodySchema.required).toEqual(['reference', 'amount_minor']);
+          expect(refundCreditGrantBodySchema.properties.amount_minor).toEqual({
+            type: 'string',
+            pattern: '^[1-9][0-9]*$',
+          });
+          expect(refundCreditGrantBodySchema.additionalProperties).toBeFalse();
+        },
+      },
+      {
+        name: 'adjustment requires audit fields and keeps attributes optional',
+        assert: () => {
+          expect(createAdjustmentBodySchema.required).toEqual([
+            'ledger_id',
+            'account_id',
+            'offset_account_id',
+            'reference',
+            'amount_minor',
+            'description',
+            'reason_code',
+            'actor_id',
+          ]);
+          expect(createAdjustmentBodySchema.required).not.toContain('attributes');
+          expect(createAdjustmentBodySchema.additionalProperties).toBeFalse();
+        },
+      },
+      {
         name: 'api key payload forbids additional properties',
         assert: () => expect(createApiKeyBodySchema.additionalProperties).toBeFalse(),
       },
@@ -230,18 +283,7 @@ describe('framework-agnostic contract suite', () => {
 
   it('stays aligned with openapi source for migrated endpoints', () => {
     const openapi = readFileSync(openapiPath, 'utf8');
-    const openapiDocument = Bun.YAML.parse(openapi) as {
-      components?: {
-        schemas?: Record<
-          string,
-          {
-            additionalProperties?: boolean;
-            required?: string[];
-            properties?: Record<string, Record<string, unknown>>;
-          }
-        >;
-      };
-    };
+    const openapiDocument = Bun.YAML.parse(openapi) as OpenApiDocument;
     expect(openapi).toContain('/v1/transactions:');
     expect(openapi).toContain('/v1/accounts:');
     expect(openapi).toContain('/v1/admin/api-keys:');
@@ -272,10 +314,69 @@ describe('framework-agnostic contract suite', () => {
     expect(openapi).toContain('/v1/accounts/{id}/credit-balance:');
     expect(openapi).toContain('CreditGrantLineagePage:');
     expect(openapi).toContain('CreateCreditGrantRequest:');
+    expect(openapi).toContain('/v1/credit-grants/{id}/refund:');
+    expect(openapi).toContain('/v1/adjustments/credit:');
+    expect(openapi).toContain('/v1/adjustments/debit:');
+    expect(openapi).toContain('RefundCreditGrantRequest:');
+    expect(openapi).toContain('CreateAdjustmentRequest:');
     expect(openapi).toContain('/v1/accounts/{id}/statement:');
     expect(openapi).toContain('/v1/accounts/{id}/credit-statement:');
     expect(openapi).toContain('AccountStatement:');
     expect(openapi).toContain('CreditLotStatement:');
     expect(openapi).toContain(`enum: [${CREDIT_LOT_MOVEMENT_KINDS.join(', ')}]`);
+
+    const schemas = openapiDocument.components?.schemas;
+    expect(schemas?.RefundCreditGrantRequest).toEqual(refundCreditGrantBodySchema);
+    expect(schemas?.CreditGrantRefund).toEqual(refundCreditGrantResponseSchema);
+    expect(schemas?.CreateAdjustmentRequest).toEqual(createAdjustmentBodySchema);
+    expect(schemas?.Adjustment).toEqual(adjustmentResponseSchema);
+
+    const assertPostContract = (
+      path: string,
+      requestSchema: string,
+      responseSchema: string,
+    ): void => {
+      const operation = openapiDocument.paths?.[path]?.post;
+      expect(operation?.requestBody).toEqual({
+        required: true,
+        content: {
+          'application/json': { schema: { $ref: `#/components/schemas/${requestSchema}` } },
+        },
+      });
+      expect(Object.keys(operation?.responses ?? {}).sort()).toEqual([
+        '200',
+        '201',
+        '400',
+        '401',
+        '404',
+        '409',
+      ]);
+      for (const status of ['200', '201']) {
+        expect(operation?.responses?.[status]).toEqual({
+          description: status === '201' ? expect.any(String) : 'Identical retry',
+          content: {
+            'application/json': { schema: { $ref: `#/components/schemas/${responseSchema}` } },
+          },
+        });
+      }
+      for (const [status, response] of [
+        ['400', 'BadRequestError'],
+        ['401', 'UnauthorizedError'],
+        ['404', 'NotFoundError'],
+        ['409', 'ConflictError'],
+      ] as const) {
+        expect(operation?.responses?.[status]).toEqual({
+          $ref: `#/components/responses/${response}`,
+        });
+      }
+    };
+
+    assertPostContract(
+      '/v1/credit-grants/{id}/refund',
+      'RefundCreditGrantRequest',
+      'CreditGrantRefund',
+    );
+    assertPostContract('/v1/adjustments/credit', 'CreateAdjustmentRequest', 'Adjustment');
+    assertPostContract('/v1/adjustments/debit', 'CreateAdjustmentRequest', 'Adjustment');
   });
 });

@@ -11,6 +11,7 @@ import {
   voidHoldResponseSchema,
 } from '@luxledger/http/contracts';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { BaseRoute } from '../routing/base-route';
 
 export class HoldsRoutes extends BaseRoute {
@@ -28,6 +29,7 @@ export class HoldsRoutes extends BaseRoute {
     server.post<{ Body: CreateHoldRequest }>(
       '/v1/holds',
       {
+        errorHandler: handleValidationError,
         schema: {
           body: createHoldRequestSchema,
           response: {
@@ -65,6 +67,7 @@ export class HoldsRoutes extends BaseRoute {
     server.post<{ Params: HoldByIdParams; Body: CommitHoldRequest }>(
       '/v1/holds/:id/commit',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: holdByIdParamsSchema,
           body: commitHoldRequestSchema,
@@ -100,6 +103,7 @@ export class HoldsRoutes extends BaseRoute {
     server.post<{ Params: HoldByIdParams }>(
       '/v1/holds/:id/void',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: holdByIdParamsSchema,
           response: { 200: voidHoldResponseSchema },

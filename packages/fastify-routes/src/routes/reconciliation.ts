@@ -19,6 +19,7 @@ import {
   toReconUploadResponse,
 } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { BaseRoute } from '../routing/base-route';
 
 export class ReconRoutes extends BaseRoute {
@@ -38,6 +39,7 @@ export class ReconRoutes extends BaseRoute {
     server.post<{ Body: CreateReconRuleRequest }>(
       '/v1/reconciliation/matching-rules',
       {
+        errorHandler: handleValidationError,
         schema: {
           body: createReconRuleRequestSchema,
           response: { 201: reconRuleResponseSchema },
@@ -68,7 +70,10 @@ export class ReconRoutes extends BaseRoute {
   private registerListMatchingRules(server: FastifyInstance): void {
     server.get(
       '/v1/reconciliation/matching-rules',
-      { schema: { response: { 200: reconRulesListResponseSchema } } },
+      {
+        errorHandler: handleValidationError,
+        schema: { response: { 200: reconRulesListResponseSchema } },
+      },
       async (request, reply) =>
         this.handle(reply, async () => {
           const rules = await this.reconciliation.listRules(request.tenantId as string);
@@ -83,6 +88,7 @@ export class ReconRoutes extends BaseRoute {
     server.post<{ Body: IngestReconRecordsRequest }>(
       '/v1/reconciliation/external-records',
       {
+        errorHandler: handleValidationError,
         schema: {
           body: ingestReconRecordsRequestSchema,
           response: { 201: reconUploadResponseSchema },
@@ -113,6 +119,7 @@ export class ReconRoutes extends BaseRoute {
     server.post<{ Body: RunReconRequest }>(
       '/v1/reconciliation/runs',
       {
+        errorHandler: handleValidationError,
         schema: {
           body: runReconRequestSchema,
           response: {
@@ -141,6 +148,7 @@ export class ReconRoutes extends BaseRoute {
     server.get<{ Params: ReconRunByIdParams }>(
       '/v1/reconciliation/runs/:id',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: reconciliationRunByIdParamsSchema,
           response: { 200: reconRunResponseSchema },

@@ -17,6 +17,7 @@ import {
 } from '@luxledger/http/contracts';
 import { toTransactionResponse } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { BasePaginatedRoute, type PaginatedRequest } from '../routing/paginated-route';
 
 export class TransactionsRoutes extends BasePaginatedRoute<
@@ -62,6 +63,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     server.get<{ Params: TransactionByIdParams }>(
       '/v1/transactions/:id',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: transactionByIdParamsSchema,
           response: { 200: transactionResponseSchema },
@@ -82,6 +84,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     server.post<{ Params: TransactionByIdParams; Body: ReverseTransactionRequest }>(
       '/v1/transactions/:id/reverse',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: transactionByIdParamsSchema,
           body: reverseTransactionRequestSchema,
@@ -110,6 +113,7 @@ export class TransactionsRoutes extends BasePaginatedRoute<
     server.post<{ Params: TransactionByIdParams; Body: CorrectTransactionRequest }>(
       '/v1/transactions/:id/correct',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: transactionByIdParamsSchema,
           body: correctTransactionRequestSchema,
