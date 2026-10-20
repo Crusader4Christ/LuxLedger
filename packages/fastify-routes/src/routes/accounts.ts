@@ -29,6 +29,7 @@ import {
   toCreditLotStatementResponse,
 } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
 import { BaseEntityRoute } from '../routing/base-route';
 
@@ -58,6 +59,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     server.post<{ Body: CreateAccountRequest }>(
       '/v1/accounts',
       {
+        errorHandler: handleValidationError,
         schema: {
           body: createAccountBodySchema,
           response: {
@@ -88,6 +90,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     server.get<{ Params: AccountByIdParams }>(
       '/v1/accounts/:id',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: accountByIdParamsSchema,
           response: {
@@ -111,6 +114,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     server.get<{ Querystring: ListAccountsQuery }>(
       '/v1/accounts',
       {
+        errorHandler: handleValidationError,
         schema: {
           querystring: createPaginationQuerySchema(listAccountsQuerySchemaExtra),
           response: {
@@ -140,6 +144,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     server.get<{ Params: AccountByIdParams; Querystring: BalanceAsOfQuery }>(
       '/v1/accounts/:id/balance-as-of',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: accountByIdParamsSchema,
           querystring: balanceAsOfQuerySchema,
@@ -168,6 +173,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     server.get<{ Params: AccountByIdParams; Querystring: BalanceHistoryQuery }>(
       '/v1/accounts/:id/balance-history',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: accountByIdParamsSchema,
           querystring: balanceHistoryQuerySchema,
@@ -207,6 +213,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     server.get<{ Params: AccountByIdParams; Querystring: StatementQuery }>(
       '/v1/accounts/:id/statement',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: accountByIdParamsSchema,
           querystring: statementQuerySchema,
@@ -233,6 +240,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
     server.get<{ Params: AccountByIdParams; Querystring: CreditLotStatementQuery }>(
       '/v1/accounts/:id/credit-statement',
       {
+        errorHandler: handleValidationError,
         schema: {
           params: accountByIdParamsSchema,
           querystring: creditLotStatementQuerySchema,

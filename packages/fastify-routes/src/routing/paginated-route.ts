@@ -2,6 +2,7 @@ import type { PaginatedResult } from '@luxledger/core/application';
 import type { UnknownRecord } from '@luxledger/core/base';
 import type { PaginationQuery } from '@luxledger/http/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { handleValidationError } from '../errors/validation-error-handler';
 import { createPaginationQuerySchema, resolvePaginationLimit } from '../query/pagination';
 import { BaseEntityRoute } from './base-route';
 
@@ -32,6 +33,7 @@ export abstract class BasePaginatedRoute<
     server.get<{ Querystring: Query }>(
       this.path,
       {
+        errorHandler: handleValidationError,
         schema: {
           querystring: this.querystringSchema(),
           response: {

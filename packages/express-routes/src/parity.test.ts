@@ -418,22 +418,6 @@ describe('express adapter parity with fastify adapter', () => {
       (request as { apiKeyId?: string }).apiKeyId = '00000000-0000-4000-8000-000000000001';
       (request as { apiKeyRole?: ApiKeyRole }).apiKeyRole = ApiKeyRole.ADMIN;
     });
-    fastifyServer.setErrorHandler((error, _request, reply) => {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'validation' in error &&
-        'message' in error &&
-        typeof (error as { message: unknown }).message === 'string'
-      ) {
-        reply.status(400).send({
-          error: 'INVALID_INPUT',
-          message: (error as { message: string }).message,
-        });
-        return;
-      }
-      reply.status(500).send({ error: 'INTERNAL_ERROR', message: 'Internal server error' });
-    });
     registerFastifyLedgerAdapter(fastifyServer, services);
 
     expressApp = express();
@@ -783,10 +767,8 @@ describe('express adapter parity with fastify adapter', () => {
             ]);
             expect(fastifyResponse.status).toBe(400);
             expect(expressResponse.status).toBe(400);
+            expect(fastifyResponse.json).toEqual(expressResponse.json);
             expect(fastifyResponse.json).toEqual(
-              expect.objectContaining({ error: 'INVALID_INPUT' }),
-            );
-            expect(expressResponse.json).toEqual(
               expect.objectContaining({ error: 'INVALID_INPUT' }),
             );
           }
@@ -1258,7 +1240,7 @@ describe('express adapter parity with fastify adapter', () => {
     }
   });
 
-  it('maps new Fastify route validation without host error-handler setup', async () => {
+  it('maps Fastify route validation without host error-handler setup', async () => {
     const server = Fastify({
       ajv: {
         customOptions: {
@@ -1272,20 +1254,31 @@ describe('express adapter parity with fastify adapter', () => {
     registerFastifyLedgerAdapter(server, {} as ApplicationServices);
 
     try {
-      for (const [url, payload, message] of [
-        ['/v1/adjustments/credit', {}, 'Invalid request body'],
+      for (const [method, url, payload, message] of [
+        ['POST', '/v1/adjustments/credit', {}, 'Invalid request body'],
+        ['POST', '/v1/credit-grants', {}, 'Invalid request body'],
         [
+          'POST',
+          '/v1/credit-grants/00000000-0000-4000-8000-000000000901/reversal',
+          {},
+          'Invalid request body',
+        ],
+        [
+          'POST',
           '/v1/credit-grants/00000000-0000-4000-8000-000000000901/refund',
           { reference: 'refund', amount_minor: '0' },
           'Invalid request body',
         ],
         [
+          'POST',
           '/v1/credit-grants/not-a-uuid/refund',
           { reference: 'refund', amount_minor: '1' },
           'Invalid path parameter',
         ],
+        ['POST', '/v1/holds', {}, 'Invalid request body'],
+        ['POST', '/v1/holds/not-a-uuid/void', undefined, 'Invalid path parameter'],
       ] as const) {
-        const response = await server.inject({ method: 'POST', url, payload });
+        const response = await server.inject({ method, url, payload });
         expect(response.statusCode).toBe(400);
         expect(JSON.parse(response.body)).toEqual({ error: 'INVALID_INPUT', message });
       }
