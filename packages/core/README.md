@@ -111,10 +111,16 @@ All fields and operators are combined with AND. Supported operators are `eq`, `n
 bigint amounts). Use `Date` objects and `bigint` values, not JSON strings. Use `eq: null`
 and `ne: null` for nullable fields. Other comparisons follow SQL null semantics, so
 `ne: 'value'` does not match null rows. Empty `where` means no additional restriction;
-empty field filters, unknown fields/operators, and invalid values throw
-`InvariantViolationError`.
+empty field filters, unknown fields/operators, non-scalar values, invalid dates,
+and non-finite numbers throw `InvariantViolationError`. Field-specific types, enum values,
+and nullability are checked by TypeScript using the existing core entities/read models;
+they are not revalidated against a separate runtime schema. Hosts accepting untyped
+input must validate it before invoking these services.
 
-The exported `LIST_FILTER_FIELDS` is the complete resource field allowlist. Resources:
+The exported `LIST_FILTER_FIELDS` contains readonly arrays of allowed field names,
+checked against core models. ID value objects are represented by their string values;
+entry Money fields are exposed as `signedAmountMinor` and `currency`. Persisted entry
+IDs and entry/transaction timestamps are non-nullable in filters. Resources:
 
 | Service method | `ListWhere` resource |
 | --- | --- |

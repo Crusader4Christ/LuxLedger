@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { InvariantViolationError } from '@luxledger/core/application';
+import { sql } from 'drizzle-orm';
 import { createApplicationServices } from '../../src/application-services';
+import * as schema from '../../src/schema';
+import { generateUuidV7 } from '../../src/uuid-v7';
 import {
   createLedger,
   createRepositoryTestClient,
@@ -290,6 +293,134 @@ describe('service list where filters against PostgreSQL', () => {
         })
       ).data,
     ).toEqual([]);
+  });
+
+  it('preserves precise account, transaction and entry cursors and accepts legacy milliseconds', async () => {
+    const { tenantId, ledgerId, wallet, funding } = await fixture();
+    const assetId = wallet.assetId;
+    if (!assetId) throw new Error('Fixture account must have an asset');
+    const ids = [1, 2, 3].map((n) => `01900000-0000-7000-8000-00000000000${n}`);
+    await client.runTenantTx(tenantId, 'seed precise list timestamps', async (tx) => {
+      for (const [index, id] of ids.entries()) {
+        // First row is exactly representable by legacy cursors; the others share
+        // a microsecond timestamp, exercising both timestamp and ID ordering.
+        const createdAt = sql`${index === 0 ? '2025-01-01T00:00:00.123000Z' : '2025-01-01T00:00:00.123001Z'}::timestamptz`;
+        await tx.insert(schema.accounts).values({
+          id,
+          tenantId,
+          ledgerId,
+          name: 'Precise',
+          side: 'DEBIT',
+          currency: 'USD',
+          assetId,
+          createdAt,
+        });
+        await tx.insert(schema.transactions).values({
+          id,
+          tenantId,
+          ledgerId,
+          reference: `precise-${index}`,
+          currency: 'USD',
+          assetId,
+          createdAt,
+        });
+        await tx.insert(schema.entries).values({
+          id,
+          tenantId,
+          transactionId: id,
+          accountId: id,
+          signedAmountMinor: 1n,
+          currency: 'USD',
+          assetId,
+          createdAt,
+        });
+        await tx.insert(schema.entries).values({
+          tenantId,
+          transactionId: id,
+          accountId: funding.id,
+          signedAmountMinor: -1n,
+          currency: 'USD',
+          assetId,
+          createdAt,
+        });
+      }
+    });
+    const readers = [
+      (cursor?: string) =>
+        services.accounts.list({ tenantId, limit: 1, cursor, where: { id: { in: ids } } }),
+      (cursor?: string) =>
+        services.transactions.list({ tenantId, limit: 1, cursor, where: { id: { in: ids } } }),
+      (cursor?: string) =>
+        services.transactions.listEntries({
+          tenantId,
+          limit: 1,
+          cursor,
+          where: { id: { in: ids } },
+        }),
+    ];
+    for (const read of readers) {
+      let cursor: string | undefined;
+      const seen: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        const page = await read(cursor);
+        seen.push(...page.data.map((row) => String(row.id)));
+        cursor = page.nextCursor ?? undefined;
+      }
+      expect(seen).toEqual(ids);
+      expect(cursor).toBeUndefined();
+      const first = await read();
+      const legacy = JSON.parse(Buffer.from(first.nextCursor ?? '', 'base64url').toString());
+      legacy.values.created_at = '2025-01-01T00:00:00.123Z';
+      const second = await read(Buffer.from(JSON.stringify(legacy)).toString('base64url'));
+      expect(second.data.map((row) => String(row.id))).toEqual([ids[1]]);
+    }
+  });
+
+  it('continues balance history across sub-millisecond timestamps without repeating rows', async () => {
+    const { tenantId, ledgerId, wallet } = await fixture();
+    const ids = [generateUuidV7(), generateUuidV7(), generateUuidV7()];
+    await client.runTenantTx(tenantId, 'seed precise history timestamps', async (tx) => {
+      for (const [index, id] of ids.entries()) {
+        await tx.insert(schema.balanceSnapshots).values({
+          id,
+          tenantId,
+          ledgerId,
+          accountId: wallet.id,
+          eventType: 'ADJUSTMENT',
+          sourceId: id,
+          postedMinor: BigInt(index),
+          reservedDeltaMinor: 0n,
+          effectiveAt: sql`${`2025-01-01T00:00:00.12300${index}Z`}::timestamptz`,
+        });
+      }
+    });
+    for (const where of [undefined, { eventType: { eq: 'ADJUSTMENT' as const } }]) {
+      const query = {
+        tenantId,
+        accountId: wallet.id,
+        limit: 1,
+        where,
+        from: new Date('2025-01-01'),
+        to: new Date('2025-01-02'),
+      };
+      let cursor: string | undefined;
+      const seen: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        const page = await services.balances.listHistory({ ...query, cursor });
+        seen.push(...page.data.map((row) => row.id));
+        cursor = page.nextCursor ?? undefined;
+      }
+      expect(seen).toEqual(ids);
+      expect(cursor).toBeUndefined();
+      const first = await services.balances.listHistory(query);
+      const legacy = JSON.parse(Buffer.from(first.nextCursor ?? '', 'base64url').toString());
+      legacy.effectiveAt = '2025-01-01T00:00:00.123Z';
+      const second = await services.balances.listHistory({
+        ...query,
+        cursor: Buffer.from(JSON.stringify(legacy)).toString('base64url'),
+      });
+      expect(second.data.map((row) => row.id)).toEqual([ids[1]]);
+    }
   });
 
   it('supports optional filters on legacy array-returning lists and retains authorization', async () => {

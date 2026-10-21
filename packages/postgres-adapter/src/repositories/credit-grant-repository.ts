@@ -22,9 +22,9 @@ import {
   type RefundCreditGrantInput,
   type ReverseCreditGrantInput,
 } from '@luxledger/core/application';
-import type { AnyColumn } from 'drizzle-orm';
 import { and, desc, eq, getTableColumns, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
+import { exactTimestamp } from '../exact-timestamp';
 import { listWhereScope, listWhereSql } from '../list-where';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
@@ -40,9 +40,6 @@ type ExpirationCandidate = CreditGrantExpirationItem & {
   currency: string;
   createdAt: Date;
 };
-
-const exactTimestamp = (column: AnyColumn): SQL<string> =>
-  sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   private readonly transactions: DrizzleTransactionRepository;
@@ -463,23 +460,18 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
   public listLots(query: CreditLotListQuery): Promise<PaginatedResult<CreditGrantLotBalance>> {
     return this.client.runTenantTx(query.tenantId, 'list credit grant lots', async (tx) => {
       const account = await this.findCreditAccount(tx, query.tenantId, query.accountId);
-      const page = await this.selectGrantPage(
-        tx,
-        query,
-        [
-          eq(schema.creditGrants.tenantId, query.tenantId),
-          eq(schema.creditGrants.accountId, query.accountId),
-          ...[listWhereSql('creditGrant', query.where)].filter(
-            (value): value is SQL => value !== undefined,
-          ),
-        ],
-        {
-          resource: 'credit-grant-lots',
-          ...listWhereScope(query.where),
-          tenantId: query.tenantId,
-          accountId: query.accountId,
-        },
-      );
+      const predicates = [
+        eq(schema.creditGrants.tenantId, query.tenantId),
+        eq(schema.creditGrants.accountId, query.accountId),
+      ];
+      const where = listWhereSql('creditGrant', query.where);
+      if (where) predicates.push(where);
+      const page = await this.selectGrantPage(tx, query, predicates, {
+        resource: 'credit-grant-lots',
+        ...listWhereScope(query.where),
+        tenantId: query.tenantId,
+        accountId: query.accountId,
+      });
       return {
         data: await this.toLots(tx, account, page.rows),
         nextCursor: page.nextCursor,

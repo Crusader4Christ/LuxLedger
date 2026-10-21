@@ -13,9 +13,10 @@ import {
   type TrialBalance,
   type TrialBalanceAccount,
 } from '@luxledger/core/application';
-import { and, asc, desc, eq, gt, gte, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gt, gte, lte, or, sql } from 'drizzle-orm';
 import stringify from 'safe-stable-stringify';
 import type { DbClient } from '../client';
+import { exactTimestamp } from '../exact-timestamp';
 import { listWhereScope, listWhereSql } from '../list-where';
 import * as schema from '../schema';
 
@@ -130,17 +131,22 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     return this.client.runTenantTx(query.tenantId, 'get balance history', async (tx) => {
       const where = listWhereSql('balanceHistory', query.where);
+      const filterScope = listWhereScope(query.where);
       const scope = JSON.stringify({
         tenantId: query.tenantId,
         accountId: query.accountId,
         from: query.from.toISOString(),
         to: query.to.toISOString(),
-        ...listWhereScope(query.where),
+        ...filterScope,
       });
-      const filtered = Object.keys(listWhereScope(query.where)).length > 0;
+      const filtered = Object.keys(filterScope).length > 0;
       const cursor = this.decodeCursor(query.cursor, filtered ? scope : undefined);
+      const cursorTime = cursor ? sql`${cursor.effectiveAt}::timestamptz` : undefined;
       const rows = await tx
-        .select()
+        .select({
+          ...getTableColumns(schema.balanceSnapshots),
+          cursorEffectiveAt: exactTimestamp(schema.balanceSnapshots.effectiveAt),
+        })
         .from(schema.balanceSnapshots)
         .where(
           and(
@@ -149,11 +155,11 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
             where,
             gte(schema.balanceSnapshots.effectiveAt, query.from),
             lte(schema.balanceSnapshots.effectiveAt, query.to),
-            cursor
+            cursor && cursorTime
               ? or(
-                  gt(schema.balanceSnapshots.effectiveAt, cursor.effectiveAt),
+                  gt(schema.balanceSnapshots.effectiveAt, cursorTime),
                   and(
-                    eq(schema.balanceSnapshots.effectiveAt, cursor.effectiveAt),
+                    eq(schema.balanceSnapshots.effectiveAt, cursorTime),
                     gt(schema.balanceSnapshots.id, cursor.id),
                   ),
                 )
@@ -177,20 +183,20 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
         effectiveAt: row.effectiveAt,
         createdAt: row.createdAt,
       }));
-      const last = data.at(-1);
+      const last = dataRows.at(-1);
       return {
         data,
         nextCursor:
           hasMore && last
-            ? this.encodeCursor(last.effectiveAt, last.id, filtered ? scope : undefined)
+            ? this.encodeCursor(last.cursorEffectiveAt, last.id, filtered ? scope : undefined)
             : null,
       };
     });
   }
 
-  private encodeCursor(effectiveAt: Date, id: string, scope?: string): string {
+  private encodeCursor(effectiveAt: string, id: string, scope?: string): string {
     const serialized = stringify({
-      effectiveAt: effectiveAt.toISOString(),
+      effectiveAt,
       id,
       ...(scope === undefined ? {} : { scope }),
     });
@@ -203,7 +209,7 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
   private decodeCursor(
     cursor: string | undefined,
     scope?: string,
-  ): { effectiveAt: Date; id: string } | null {
+  ): { effectiveAt: string; id: string } | null {
     if (!cursor) {
       return null;
     }
@@ -215,6 +221,7 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
       if (
         parsed.scope !== scope ||
         typeof parsed.effectiveAt !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(?:\d{3}|\d{6})Z$/.test(parsed.effectiveAt) ||
         typeof parsed.id !== 'string' ||
         !isUuidV7(parsed.id)
       ) {
@@ -224,7 +231,7 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
       if (Number.isNaN(effectiveAt.getTime())) {
         throw new InvariantViolationError('Invalid cursor');
       }
-      return { effectiveAt, id: parsed.id };
+      return { effectiveAt: parsed.effectiveAt, id: parsed.id };
     } catch {
       throw new InvariantViolationError('Invalid cursor');
     }

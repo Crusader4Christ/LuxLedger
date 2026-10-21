@@ -1,4 +1,12 @@
+import type { AccountEntity } from '../account/entity';
+import type { ApiKeyEntity } from '../api-key/entity';
+import type { Id } from '../base/id';
+import type { EntryEntity } from '../entry/entity';
+import type { LedgerEntity } from '../ledger/entity';
+import type { ReconRule } from '../reconciliation';
+import type { TransactionEntity } from '../transaction/entity';
 import { InvariantViolationError } from './errors';
+import type { Asset, BalanceSnapshotEvent, CreditGrant, CreditGrantLineage } from './types';
 
 /** Fields and operators are ANDed. Null matches use eq/ne; in accepts 1–100 non-null values. */
 export type FieldFilter<T> = {
@@ -9,172 +17,146 @@ export type FieldFilter<T> = {
   ? { gt?: NonNullable<T>; gte?: NonNullable<T>; lt?: NonNullable<T>; lte?: NonNullable<T> }
   : unknown);
 
-type FieldValue<D> = D extends readonly (infer V)[]
-  ? V
-  : D extends `${infer K}?`
-    ? FieldValue<K> | null
-    : D extends 'date'
-      ? Date
-      : D extends 'bigint'
-        ? bigint
-        : D extends 'number'
-          ? number
-          : D extends 'boolean'
-            ? boolean
-            : string;
-export type ListFilterResource = keyof typeof LIST_FILTER_FIELDS;
+// Entity types are the source of field types; only persisted IDs/timestamps are narrowed.
+// Entry's Money value object is projected to the existing scalar query field names.
+type Persisted<T, K extends keyof T> = Omit<T, K> & { [P in K]: NonNullable<T[P]> };
+type FilterModels = {
+  account: AccountEntity;
+  transaction: Persisted<TransactionEntity, 'createdAt' | 'effectiveAt'>;
+  entry: Persisted<EntryEntity, 'id' | 'transactionId' | 'createdAt'> & {
+    signedAmountMinor: EntryEntity['money']['amountMinor'];
+    currency: EntryEntity['money']['currency'];
+  };
+  asset: Asset;
+  ledger: LedgerEntity;
+  apiKey: ApiKeyEntity;
+  reconRule: ReconRule;
+  creditGrant: CreditGrant;
+  creditLineage: CreditGrantLineage;
+  balanceHistory: BalanceSnapshotEvent;
+};
+
+type Scalar = string | number | bigint | boolean | Date | null;
+type FilterValue<T> = T extends Id ? T['value'] : T;
+type ScalarKeys<T> = {
+  [K in keyof T]-?: FilterValue<T[K]> extends Scalar ? K : never;
+}[keyof T];
+
+/** Explicit public allowlists; adding an entity field does not expose it for filtering. */
+export const LIST_FILTER_FIELDS = {
+  account: [
+    'id',
+    'ledgerId',
+    'code',
+    'name',
+    'side',
+    'overdraftPolicy',
+    'grantEnabled',
+    'currency',
+    'assetId',
+    'balanceMinor',
+    'createdAt',
+  ],
+  transaction: [
+    'id',
+    'ledgerId',
+    'reference',
+    'currency',
+    'assetId',
+    'description',
+    'relatedTransactionId',
+    'relationType',
+    'createdAt',
+    'effectiveAt',
+  ],
+  entry: [
+    'id',
+    'transactionId',
+    'accountId',
+    'assetId',
+    'signedAmountMinor',
+    'currency',
+    'createdAt',
+  ],
+  asset: ['id', 'code', 'scale', 'createdAt'],
+  ledger: ['id', 'name', 'createdAt'],
+  apiKey: ['id', 'name', 'role', 'createdAt', 'revokedAt'],
+  reconRule: ['id', 'name', 'description', 'createdAt'],
+  creditGrant: [
+    'id',
+    'ledgerId',
+    'accountId',
+    'fundingAccountId',
+    'reference',
+    'externalReference',
+    'transactionId',
+    'createdAt',
+    'expiresAt',
+  ],
+  creditLineage: ['grantId', 'entryId', 'transactionId', 'kind', 'amountMinor', 'createdAt'],
+  balanceHistory: [
+    'id',
+    'ledgerId',
+    'accountId',
+    'eventType',
+    'sourceId',
+    'postedMinor',
+    'reservedDeltaMinor',
+    'effectiveAt',
+    'createdAt',
+  ],
+} as const satisfies {
+  [R in keyof FilterModels]: readonly Exclude<
+    ScalarKeys<FilterModels[R]>,
+    'tenantId' | 'keyHash'
+  >[];
+};
+
+export type ListFilterResource = keyof FilterModels;
 export type ListWhere<R extends ListFilterResource> = {
-  [K in keyof (typeof LIST_FILTER_FIELDS)[R]]?: FieldFilter<
-    FieldValue<(typeof LIST_FILTER_FIELDS)[R][K]>
+  [K in (typeof LIST_FILTER_FIELDS)[R][number]]?: FieldFilter<
+    FilterValue<FilterModels[R][K & keyof FilterModels[R]]>
   >;
 };
 
-/** Public allowlists; tenant scope and private fields are deliberately absent. */
-export const LIST_FILTER_FIELDS = {
-  account: {
-    id: 'uuid',
-    ledgerId: 'uuid',
-    code: 'string?',
-    name: 'string',
-    side: ['DEBIT', 'CREDIT'],
-    overdraftPolicy: ['ALLOW', 'DISALLOW'],
-    grantEnabled: 'boolean',
-    currency: 'string',
-    assetId: 'uuid?',
-    balanceMinor: 'bigint',
-    createdAt: 'date',
-  },
-  transaction: {
-    id: 'uuid',
-    ledgerId: 'uuid',
-    reference: 'string',
-    currency: 'string',
-    assetId: 'uuid?',
-    description: 'string?',
-    relatedTransactionId: 'uuid?',
-    relationType: ['REVERSAL', 'CORRECTION', null],
-    createdAt: 'date',
-    effectiveAt: 'date',
-  },
-  entry: {
-    id: 'uuid',
-    transactionId: 'uuid',
-    accountId: 'uuid',
-    assetId: 'uuid?',
-    signedAmountMinor: 'bigint',
-    currency: 'string',
-    createdAt: 'date',
-  },
-  asset: {
-    id: 'uuid',
-    code: 'string',
-    scale: 'number',
-    createdAt: 'date',
-  },
-  ledger: {
-    id: 'uuid',
-    name: 'string',
-    createdAt: 'date',
-  },
-  apiKey: {
-    id: 'uuid',
-    name: 'string',
-    role: ['ADMIN', 'SERVICE'],
-    createdAt: 'date',
-    revokedAt: 'date?',
-  },
-  reconRule: {
-    id: 'uuid',
-    name: 'string',
-    description: 'string?',
-    createdAt: 'date',
-  },
-  creditGrant: {
-    id: 'uuid',
-    ledgerId: 'uuid',
-    accountId: 'uuid',
-    fundingAccountId: 'uuid',
-    reference: 'string',
-    externalReference: 'string?',
-    transactionId: 'uuid',
-    createdAt: 'date',
-    expiresAt: 'date?',
-  },
-  creditLineage: {
-    grantId: 'uuid',
-    entryId: 'uuid',
-    transactionId: 'uuid',
-    kind: ['CONSUMPTION', 'COMPENSATION', 'EXPIRATION', 'REFUND'],
-    amountMinor: 'bigint',
-    createdAt: 'date',
-  },
-  balanceHistory: {
-    id: 'uuid',
-    ledgerId: 'uuid',
-    accountId: 'uuid',
-    eventType: ['TX_APPLIED', 'HOLD_CREATED', 'HOLD_COMMITTED', 'HOLD_VOIDED', 'ADJUSTMENT'],
-    sourceId: 'uuid',
-    postedMinor: 'bigint',
-    reservedDeltaMinor: 'bigint',
-    effectiveAt: 'date',
-    createdAt: 'date',
-  },
-} as const;
-
-type Descriptor = string | readonly (string | null)[];
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' &&
   value !== null &&
   !Array.isArray(value) &&
   (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
-const validValue = (value: unknown, descriptor: Descriptor): boolean => {
-  if (typeof descriptor !== 'string') return descriptor.some((item) => item === value);
-  if (value === null) return descriptor.endsWith('?');
-  switch (descriptor.replace('?', '')) {
-    case 'uuid':
-      return (
-        typeof value === 'string' &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-      );
-    case 'date':
-      return value instanceof Date && Number.isFinite(value.getTime());
-    case 'number':
-      return typeof value === 'number' && Number.isFinite(value);
-    case 'bigint':
-      return typeof value === 'bigint';
-    case 'boolean':
-      return typeof value === 'boolean';
-    default:
-      return typeof value === 'string';
-  }
-};
+const isOrderedValue = (value: unknown): boolean =>
+  typeof value === 'bigint' ||
+  (typeof value === 'number' && Number.isFinite(value)) ||
+  (value instanceof Date && Number.isFinite(value.getTime()));
+const isScalar = (value: unknown): boolean =>
+  value === null ||
+  typeof value === 'string' ||
+  typeof value === 'boolean' ||
+  isOrderedValue(value);
 
-/** Runtime validation also protects JavaScript callers and repository implementations. */
+/**
+ * Validate query structure and safe scalar values, not a second entity schema.
+ * Field-specific types, enums and nullability are enforced by ListWhere at compile time.
+ * Hosts accepting untyped input must validate it before calling a service.
+ */
 export const validateListWhere = (resource: ListFilterResource, where: unknown): void => {
   if (where === undefined) return;
   if (!isRecord(where)) throw new InvariantViolationError('where must be an object');
-  const fields: Readonly<Record<string, Descriptor>> = LIST_FILTER_FIELDS[resource];
+  const fields: readonly string[] = LIST_FILTER_FIELDS[resource];
   for (const [field, filter] of Object.entries(where)) {
-    if (!Object.hasOwn(fields, field) || !isRecord(filter) || Object.keys(filter).length === 0) {
+    if (!fields.includes(field) || !isRecord(filter) || Object.keys(filter).length === 0) {
       throw new InvariantViolationError(`Invalid where field: ${field}`);
     }
-    const descriptor = fields[field];
-    const ordered =
-      typeof descriptor === 'string' &&
-      ['date', 'number', 'bigint'].includes(descriptor.replace('?', ''));
     for (const [operator, value] of Object.entries(filter)) {
       const valid =
         operator === 'in'
           ? Array.isArray(value) &&
             value.length > 0 &&
             value.length <= 100 &&
-            Array.from(value).every((item) => item !== null && validValue(item, descriptor))
-          : ['eq', 'ne'].includes(operator)
-            ? validValue(value, descriptor)
-            : ordered &&
-              ['gt', 'gte', 'lt', 'lte'].includes(operator) &&
-              value !== null &&
-              validValue(value, descriptor);
+            Array.from(value).every((item) => item !== null && isScalar(item))
+          : operator === 'eq' || operator === 'ne'
+            ? isScalar(value)
+            : ['gt', 'gte', 'lt', 'lte'].includes(operator) && isOrderedValue(value);
       if (!valid)
         throw new InvariantViolationError(`Invalid where operator or value: ${field}.${operator}`);
     }
