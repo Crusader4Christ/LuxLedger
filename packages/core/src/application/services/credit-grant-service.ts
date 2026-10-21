@@ -1,6 +1,7 @@
 import { validateCreditGrant } from '../../credit-grant';
 import { assertNonEmpty } from '../../utils';
 import { CreditGrantNotFoundError, InvariantViolationError } from '../errors';
+import { validateListWhere } from '../list-filters';
 import { validatePaginationQuery } from '../pagination-query';
 import type { CreditGrantRepository } from '../repositories.interface';
 import type {
@@ -13,9 +14,9 @@ import type {
   CreditGrantLotBalance,
   CreditGrantRefundResult,
   CreditGrantResult,
+  CreditLineageQuery,
   CreditLotListQuery,
   PaginatedResult,
-  PaginationQuery,
   ProcessCreditGrantExpirationsInput,
   RefundCreditGrantInput,
   ReverseCreditGrantInput,
@@ -84,6 +85,7 @@ export class CreditGrantService {
     })) {
       if (value !== undefined) assertNonEmpty(value, `${name} must not be empty`);
     }
+    validateListWhere('creditGrant', query.where);
     return this.repository.list(query);
   }
 
@@ -92,22 +94,25 @@ export class CreditGrantService {
   ): Promise<PaginatedResult<CreditGrantLotBalance>> {
     validatePaginationQuery(query);
     assertNonEmpty(query.accountId, 'accountId is required');
+    validateListWhere('creditGrant', query.where);
     return this.repository.listLots(query);
   }
 
   public async listLineageByGrant(
-    query: PaginationQuery & { grantId: string },
+    query: CreditLineageQuery & { grantId: string },
   ): Promise<PaginatedResult<CreditGrantLineage>> {
     validatePaginationQuery(query);
     assertNonEmpty(query.grantId, 'grantId is required');
+    validateListWhere('creditLineage', query.where);
     return this.repository.listLineage(query);
   }
 
   public async listLineageByTransaction(
-    query: PaginationQuery & { transactionId: string },
+    query: CreditLineageQuery & { transactionId: string },
   ): Promise<PaginatedResult<CreditGrantLineage>> {
     validatePaginationQuery(query);
     assertNonEmpty(query.transactionId, 'transactionId is required');
+    validateListWhere('creditLineage', query.where);
     return this.repository.listLineage(query);
   }
 

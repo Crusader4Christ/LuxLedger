@@ -1,5 +1,6 @@
 import { assertNonEmpty } from '../../utils';
 import { InvariantViolationError } from '../errors';
+import { validateListWhere } from '../list-filters';
 import { validatePaginationQuery } from '../pagination-query';
 import type { BalanceApplicationRepository } from '../repositories.interface';
 import type {
@@ -45,6 +46,7 @@ export class BalanceService {
       throw new InvariantViolationError('from must be less than or equal to to');
     }
     validatePaginationQuery({ tenantId: query.tenantId, limit: query.limit, cursor: query.cursor });
+    validateListWhere('balanceHistory', query.where);
     return this.repository.listHistory(query);
   }
 }

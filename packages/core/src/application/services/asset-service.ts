@@ -1,5 +1,6 @@
 import { assertNonEmpty } from '../../utils';
 import { AssetNotFoundError, InvariantViolationError } from '../errors';
+import { type ListWhere, validateListWhere } from '../list-filters';
 import type { AssetRepository } from '../repositories.interface';
 import type { Asset, CreateAssetInput } from '../types';
 
@@ -28,8 +29,9 @@ export class AssetService {
     return asset;
   }
 
-  public async list(tenantId: string): Promise<Asset[]> {
+  public async list(tenantId: string, where?: ListWhere<'asset'>): Promise<Asset[]> {
     assertNonEmpty(tenantId, 'tenantId is required');
-    return this.repository.list(tenantId);
+    validateListWhere('asset', where);
+    return this.repository.list(tenantId, where);
   }
 }

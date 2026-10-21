@@ -25,6 +25,7 @@ import {
 import type { AnyColumn } from 'drizzle-orm';
 import { and, desc, eq, getTableColumns, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbClient, DrizzleDatabase } from '../client';
+import { listWhereScope, listWhereSql } from '../list-where';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
@@ -436,7 +437,9 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   public list(query: CreditGrantListQuery): Promise<PaginatedResult<CreditGrant>> {
     return this.client.runTenantTx(query.tenantId, 'list credit grants', async (tx) => {
+      const where = listWhereSql('creditGrant', query.where);
       const predicates = [eq(schema.creditGrants.tenantId, query.tenantId)];
+      if (where) predicates.push(where);
       if (query.accountId) predicates.push(eq(schema.creditGrants.accountId, query.accountId));
       if (query.reference) predicates.push(eq(schema.creditGrants.reference, query.reference));
       if (query.externalReference) {
@@ -444,6 +447,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
       }
       const page = await this.selectGrantPage(tx, query, predicates, {
         resource: 'credit-grants',
+        ...listWhereScope(query.where),
         tenantId: query.tenantId,
         accountId: query.accountId ?? null,
         reference: query.reference ?? null,
@@ -465,9 +469,13 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         [
           eq(schema.creditGrants.tenantId, query.tenantId),
           eq(schema.creditGrants.accountId, query.accountId),
+          ...[listWhereSql('creditGrant', query.where)].filter(
+            (value): value is SQL => value !== undefined,
+          ),
         ],
         {
           resource: 'credit-grant-lots',
+          ...listWhereScope(query.where),
           tenantId: query.tenantId,
           accountId: query.accountId,
         },
@@ -481,10 +489,12 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   public listLineage(query: CreditLineageQuery): Promise<PaginatedResult<CreditGrantLineage>> {
     return this.client.runTenantTx(query.tenantId, 'list credit grant lineage', async (tx) => {
+      const where = listWhereSql('creditLineage', query.where);
       const predicates = [
         eq(schema.creditGrantEntries.tenantId, query.tenantId),
         sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION', 'EXPIRATION', 'REFUND')`,
       ];
+      if (where) predicates.push(where);
       if (query.grantId) predicates.push(eq(schema.creditGrantEntries.grantId, query.grantId));
       if (query.transactionId) {
         predicates.push(eq(schema.entries.transactionId, query.transactionId));
@@ -497,6 +507,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         query,
         scope: {
           resource: 'credit-grant-lineage',
+          ...listWhereScope(query.where),
           tenantId: query.tenantId,
           grantId: query.grantId ?? null,
           transactionId: query.transactionId ?? null,

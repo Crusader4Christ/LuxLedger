@@ -1,6 +1,12 @@
-import type { Asset, AssetRepository, CreateAssetInput } from '@luxledger/core/application';
+import type {
+  Asset,
+  AssetRepository,
+  CreateAssetInput,
+  ListWhere,
+} from '@luxledger/core/application';
 import { and, eq } from 'drizzle-orm';
 import type { DbClient } from '../client';
+import { listWhereSql } from '../list-where';
 import * as schema from '../schema';
 
 export class DrizzleAssetRepository implements AssetRepository {
@@ -24,12 +30,12 @@ export class DrizzleAssetRepository implements AssetRepository {
     });
   }
 
-  public async list(tenantId: string): Promise<Asset[]> {
+  public async list(tenantId: string, where?: ListWhere<'asset'>): Promise<Asset[]> {
     return this.client.runTenantTx(tenantId, 'list assets', (tx) =>
       tx
         .select()
         .from(schema.assets)
-        .where(eq(schema.assets.tenantId, tenantId))
+        .where(and(eq(schema.assets.tenantId, tenantId), listWhereSql('asset', where)))
         .orderBy(schema.assets.code),
     );
   }

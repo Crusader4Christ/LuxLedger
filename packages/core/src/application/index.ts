@@ -2,6 +2,7 @@ export { AccountSide } from '../account/entity';
 export { ApiKeyRole } from '../api-key/entity';
 export * from './available-balance';
 export * from './errors';
+export * from './list-filters';
 export * from './pagination-query';
 export * from './repositories.interface';
 export * from './services';

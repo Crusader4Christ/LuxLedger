@@ -2,6 +2,7 @@ import type { EntryEntity } from '../../entry/entity';
 import type { TransactionEntity } from '../../transaction/entity';
 import { assertNonEmpty } from '../../utils';
 import { BulkTransactionError, InvariantViolationError, TransactionNotFoundError } from '../errors';
+import { validateListWhere } from '../list-filters';
 import { validatePaginationQuery } from '../pagination-query';
 import type { TransactionApplicationRepository } from '../repositories.interface';
 import type {
@@ -11,8 +12,8 @@ import type {
   CorrectTransactionResult,
   CreateTransactionInput,
   CreateTransactionResult,
+  EntryPaginationQuery,
   PaginatedResult,
-  PaginationQuery,
   ReverseTransactionInput,
   ReverseTransactionResult,
   TransactionPaginationQuery,
@@ -84,6 +85,7 @@ export class TransactionService {
     if (query.ledgerId !== undefined) {
       assertNonEmpty(query.ledgerId, 'ledgerId must be a non-empty string');
     }
+    validateListWhere('transaction', query.where);
     return this.repository.list(query);
   }
 
@@ -97,8 +99,9 @@ export class TransactionService {
     return transaction;
   }
 
-  public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
+  public async listEntries(query: EntryPaginationQuery): Promise<PaginatedResult<EntryEntity>> {
     validatePaginationQuery(query);
+    validateListWhere('entry', query.where);
     return this.repository.listEntries(query);
   }
 

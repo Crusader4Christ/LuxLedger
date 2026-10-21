@@ -11,7 +11,8 @@ type CursorComparable = Date | number | string;
 type CursorValueType = 'date' | 'number' | 'string' | 'timestamp' | 'uuid';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+// Accept existing millisecond cursors; new timestamp cursors retain six digits.
+const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(?:\d{3}|\d{6})Z$/;
 
 interface CursorOrderField<Row> {
   column: AnyColumn | SQL;

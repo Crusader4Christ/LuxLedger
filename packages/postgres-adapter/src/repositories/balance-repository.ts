@@ -16,6 +16,7 @@ import {
 import { and, asc, desc, eq, gt, gte, lte, or, sql } from 'drizzle-orm';
 import stringify from 'safe-stable-stringify';
 import type { DbClient } from '../client';
+import { listWhereScope, listWhereSql } from '../list-where';
 import * as schema from '../schema';
 
 export class DrizzleBalanceRepository implements BalanceApplicationRepository {
@@ -128,7 +129,16 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
     query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     return this.client.runTenantTx(query.tenantId, 'get balance history', async (tx) => {
-      const cursor = this.decodeCursor(query.cursor);
+      const where = listWhereSql('balanceHistory', query.where);
+      const scope = JSON.stringify({
+        tenantId: query.tenantId,
+        accountId: query.accountId,
+        from: query.from.toISOString(),
+        to: query.to.toISOString(),
+        ...listWhereScope(query.where),
+      });
+      const filtered = Object.keys(listWhereScope(query.where)).length > 0;
+      const cursor = this.decodeCursor(query.cursor, filtered ? scope : undefined);
       const rows = await tx
         .select()
         .from(schema.balanceSnapshots)
@@ -136,6 +146,7 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
           and(
             eq(schema.balanceSnapshots.tenantId, query.tenantId),
             eq(schema.balanceSnapshots.accountId, query.accountId),
+            where,
             gte(schema.balanceSnapshots.effectiveAt, query.from),
             lte(schema.balanceSnapshots.effectiveAt, query.to),
             cursor
@@ -169,15 +180,19 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
       const last = data.at(-1);
       return {
         data,
-        nextCursor: hasMore && last ? this.encodeCursor(last.effectiveAt, last.id) : null,
+        nextCursor:
+          hasMore && last
+            ? this.encodeCursor(last.effectiveAt, last.id, filtered ? scope : undefined)
+            : null,
       };
     });
   }
 
-  private encodeCursor(effectiveAt: Date, id: string): string {
+  private encodeCursor(effectiveAt: Date, id: string, scope?: string): string {
     const serialized = stringify({
       effectiveAt: effectiveAt.toISOString(),
       id,
+      ...(scope === undefined ? {} : { scope }),
     });
     if (serialized === undefined) {
       throw new InvariantViolationError('Invalid cursor');
@@ -185,7 +200,10 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
     return Buffer.from(serialized, 'utf8').toString('base64url');
   }
 
-  private decodeCursor(cursor: string | undefined): { effectiveAt: Date; id: string } | null {
+  private decodeCursor(
+    cursor: string | undefined,
+    scope?: string,
+  ): { effectiveAt: Date; id: string } | null {
     if (!cursor) {
       return null;
     }
@@ -195,6 +213,7 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
         unknown
       >;
       if (
+        parsed.scope !== scope ||
         typeof parsed.effectiveAt !== 'string' ||
         typeof parsed.id !== 'string' ||
         !isUuidV7(parsed.id)

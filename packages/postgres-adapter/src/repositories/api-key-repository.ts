@@ -3,9 +3,11 @@ import type {
   ApiKeyRepository,
   BootstrapAdminRepositoryInput,
   BootstrapAdminResult,
+  ListWhere,
 } from '@luxledger/core/application';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { DbClient } from '../client';
+import { listWhereSql } from '../list-where';
 import { toApiKeyEntity } from '../mappers/api-key-mapper';
 import * as schema from '../schema';
 
@@ -83,12 +85,12 @@ export class DrizzleApiKeyRepository implements ApiKeyRepository {
     });
   }
 
-  public async list(tenantId: string): Promise<ApiKeyEntity[]> {
+  public async list(tenantId: string, where?: ListWhere<'apiKey'>): Promise<ApiKeyEntity[]> {
     return this.client.runTenantTx(tenantId, 'list api keys', async (tx) => {
       const rows = await tx
         .select()
         .from(schema.apiKeys)
-        .where(eq(schema.apiKeys.tenantId, tenantId))
+        .where(and(eq(schema.apiKeys.tenantId, tenantId), listWhereSql('apiKey', where)))
         .orderBy(asc(schema.apiKeys.createdAt), asc(schema.apiKeys.id));
       return rows.map(toApiKeyEntity);
     });

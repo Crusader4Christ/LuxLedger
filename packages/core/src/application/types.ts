@@ -16,6 +16,7 @@ import type {
 } from '../reconciliation';
 import type { TenantEntity } from '../tenant/entity';
 import type { CreateTransactionCommand } from '../transaction/use-cases/create-transaction.command';
+import type { ListWhere } from './list-filters';
 
 export type Tenant = TenantEntity;
 export interface Asset {
@@ -97,14 +98,17 @@ export interface CreditBalance {
   remainingMinor: bigint;
 }
 export interface CreditGrantListQuery extends PaginationQuery {
+  where?: ListWhere<'creditGrant'>;
   accountId?: string;
   reference?: string;
   externalReference?: string;
 }
 export interface CreditLotListQuery extends PaginationQuery {
+  where?: ListWhere<'creditGrant'>;
   accountId: string;
 }
 export interface CreditLineageQuery extends PaginationQuery {
+  where?: ListWhere<'creditLineage'>;
   grantId?: string;
   transactionId?: string;
 }
@@ -267,11 +271,17 @@ export interface PaginationQuery {
   cursor?: string;
 }
 
+export interface EntryPaginationQuery extends PaginationQuery {
+  where?: ListWhere<'entry'>;
+}
+
 export interface AccountPaginationQuery extends PaginationQuery {
+  where?: ListWhere<'account'>;
   ledgerId?: string;
 }
 
 export interface TransactionPaginationQuery extends PaginationQuery {
+  where?: ListWhere<'transaction'>;
   ledgerId?: string;
 }
 
@@ -332,6 +342,7 @@ export interface BalanceSnapshotEvent {
 }
 
 export interface BalanceHistoryQuery {
+  where?: ListWhere<'balanceHistory'>;
   tenantId: string;
   accountId: string;
   from: Date;

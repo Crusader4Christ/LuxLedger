@@ -1,5 +1,6 @@
 import { assertNonEmpty } from '../../utils';
 import { LedgerNotFoundError } from '../errors';
+import { type ListWhere, validateListWhere } from '../list-filters';
 import type { LedgerRepository } from '../repositories.interface';
 import type { CreateLedgerInput, Ledger } from '../types';
 
@@ -22,8 +23,9 @@ export class LedgerService {
     return ledger;
   }
 
-  public async list(tenantId: string): Promise<Ledger[]> {
+  public async list(tenantId: string, where?: ListWhere<'ledger'>): Promise<Ledger[]> {
     assertNonEmpty(tenantId, 'tenantId is required');
-    return this.repository.list(tenantId);
+    validateListWhere('ledger', where);
+    return this.repository.list(tenantId, where);
   }
 }

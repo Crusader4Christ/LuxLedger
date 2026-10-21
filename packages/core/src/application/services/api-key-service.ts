@@ -3,6 +3,7 @@ import type { ApiKeyEntity } from '../../api-key/entity';
 import { ApiKeyRole } from '../../api-key/entity';
 import { assertNonEmpty } from '../../utils';
 import { ForbiddenError, InvariantViolationError, UnauthorizedError } from '../errors';
+import { type ListWhere, validateListWhere } from '../list-filters';
 import type { ApiKeyRepository } from '../repositories.interface';
 import type {
   AuthContext,
@@ -64,9 +65,13 @@ export class ApiKeyService {
     return { apiKey, key: created };
   }
 
-  public async listApiKeys(actor: AuthContext): Promise<ApiKeyEntity[]> {
+  public async listApiKeys(
+    actor: AuthContext,
+    where?: ListWhere<'apiKey'>,
+  ): Promise<ApiKeyEntity[]> {
     this.assertAdmin(actor);
-    return this.repository.list(actor.tenantId);
+    validateListWhere('apiKey', where);
+    return this.repository.list(actor.tenantId, where);
   }
 
   public async bootstrapInitialAdmin(input: BootstrapAdminInput): Promise<BootstrapAdminResult> {
