@@ -30,7 +30,7 @@ export interface Asset {
   createdAt: Date;
 }
 
-export const assetListFilter = defineListFilter<Asset>()({ exclude: ['tenantId'] });
+export const assetListFilter = defineListFilter<Asset>()(['tenantId']);
 
 export interface CreateAssetInput {
   tenantId: string;
@@ -65,9 +65,12 @@ export interface CreditGrant {
   reversedByTransactionId: string | null;
 }
 
-export const creditGrantListFilter = defineListFilter<CreditGrant>()({
-  exclude: ['tenantId', 'assetId', 'amountMinor', 'reversedByTransactionId'],
-});
+export const creditGrantListFilter = defineListFilter<CreditGrant>()([
+  'tenantId',
+  'assetId',
+  'amountMinor',
+  'reversedByTransactionId',
+]);
 
 export interface CreditGrantResult {
   grant: CreditGrant;
@@ -131,7 +134,7 @@ export interface CreditGrantLineage {
   createdAt: Date;
 }
 
-export const creditLineageListFilter = defineListFilter<CreditGrantLineage>()({ exclude: [] });
+export const creditLineageListFilter = defineListFilter<CreditGrantLineage>()([]);
 
 export interface ProcessCreditGrantExpirationsInput {
   tenantId: string;
@@ -351,9 +354,7 @@ export interface BalanceSnapshotEvent {
   createdAt: Date;
 }
 
-export const balanceHistoryListFilter = defineListFilter<BalanceSnapshotEvent>()({
-  exclude: ['tenantId'],
-});
+export const balanceHistoryListFilter = defineListFilter<BalanceSnapshotEvent>()(['tenantId']);
 
 export interface BalanceHistoryQuery
   extends PaginationQuery<WhereFor<typeof balanceHistoryListFilter>> {

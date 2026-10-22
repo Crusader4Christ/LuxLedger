@@ -118,7 +118,9 @@ they are not revalidated against a separate runtime schema. Hosts accepting unty
 input must validate it before invoking these services.
 
 Each operation uses a named filter policy beside its entity or read model. Policies
-list exclusions, not a duplicate list of model fields. `WhereFor<typeof policy>` derives
+are readonly exclusion arrays, created with `defineListFilter<Model>()(['field'])`,
+not a duplicate list of model fields. The two calls let TypeScript accept the explicit
+model type while inferring the exact excluded keys. `WhereFor<typeof policy>` derives
 scalar field types from the model, and paginated queries extend
 `PaginationQuery<WhereFor<typeof policy>>` directly:
 

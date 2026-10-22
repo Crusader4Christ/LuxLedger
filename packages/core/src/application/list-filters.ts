@@ -23,24 +23,20 @@ export type PersistedFilterModel<T, K extends keyof T> = Omit<T, K> & {
 };
 
 declare const filterModel: unique symbol;
-export interface ListFilterPolicy {
-  readonly exclude: readonly string[];
-}
+export type ListFilterPolicy = readonly string[];
 export interface ListFilter<Model, Excluded extends Extract<keyof Model, string>>
-  extends ListFilterPolicy {
-  readonly exclude: readonly Excluded[];
+  extends ReadonlyArray<Excluded> {
   readonly [filterModel]?: Model;
 }
 
 /** Place each operation's exclusions beside its model; no runtime model schema is copied. */
 export const defineListFilter =
   <Model>() =>
-  <const Excluded extends readonly Extract<keyof Model, string>[]>(options: {
-    exclude: Excluded;
-  }): ListFilter<Model, Excluded[number]> =>
-    Object.freeze({
-      exclude: Object.freeze([...options.exclude]),
-    });
+  // Keep Model explicit while inferring the exact excluded keys from the array.
+  <const Excluded extends readonly Extract<keyof Model, string>[]>(
+    excluded: Excluded,
+  ): ListFilter<Model, Excluded[number]> =>
+    Object.freeze([...excluded]);
 
 export type WhereFor<Policy> =
   Policy extends ListFilter<infer Model, infer Excluded>
@@ -78,7 +74,7 @@ export const validateListWhere = (policy: ListFilterPolicy, where: unknown): voi
   for (const [field, filter] of Object.entries(where)) {
     if (
       field === 'tenantId' ||
-      policy.exclude.includes(field) ||
+      policy.includes(field) ||
       Object.hasOwn(Object.prototype, field) ||
       !isRecord(filter) ||
       Object.keys(filter).length === 0

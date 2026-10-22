@@ -7,4 +7,4 @@ export const entryListFilter = defineListFilter<
     signedAmountMinor: EntryEntity['money']['amountMinor'];
     currency: EntryEntity['money']['currency'];
   }
->()({ exclude: ['money'] });
+>()(['money']);

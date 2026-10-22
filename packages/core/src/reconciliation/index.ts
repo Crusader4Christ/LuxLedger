@@ -43,9 +43,7 @@ export interface ReconRule {
   createdAt: Date;
 }
 
-export const reconRuleListFilter = defineListFilter<ReconRule>()({
-  exclude: ['tenantId', 'criteria'],
-});
+export const reconRuleListFilter = defineListFilter<ReconRule>()(['tenantId', 'criteria']);
 
 export interface ReconMatchCandidate {
   transactionId: string;
