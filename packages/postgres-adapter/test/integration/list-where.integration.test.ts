@@ -101,6 +101,33 @@ describe('service list where filters against PostgreSQL', () => {
     ).toEqual([]);
   });
 
+  it('rejects unknown, excluded and persistence-only fields using policies and schema columns', async () => {
+    const { tenantId, ledgerId } = await fixture();
+    for (const field of ['unknownField', 'tenantId', 'reservedDeltaMinor', 'updatedAt']) {
+      await expect(
+        services.accounts.list({
+          tenantId,
+          limit: 10,
+          where: { [field]: { eq: 0n } } as never,
+        }),
+      ).rejects.toBeInstanceOf(InvariantViolationError);
+    }
+    for (const field of ['unknownField', 'tenantId', 'metadata', 'entries', 'holdId']) {
+      await expect(
+        services.transactions.list({
+          tenantId,
+          limit: 10,
+          where: { [field]: { eq: ledgerId } } as never,
+        }),
+      ).rejects.toBeInstanceOf(InvariantViolationError);
+    }
+    await expect(
+      services.apiKeys.listApiKeys({ tenantId, apiKeyId: ledgerId, role: 'ADMIN' }, {
+        keyHash: { eq: 'private' },
+      } as never),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
   it('filters transactions and entries before limit and binds cursors to filters', async () => {
     const { tenantId, ledgerId, funding } = await fixture();
     const wallet = await services.accounts.create({

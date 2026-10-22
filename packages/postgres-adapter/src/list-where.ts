@@ -1,8 +1,9 @@
 import {
-  type ListFilterResource,
-  type ListWhere,
+  InvariantViolationError,
+  type ListFilterPolicy,
   serializeListWhere,
   validateListWhere,
+  type WhereFor,
 } from '@luxledger/core/application';
 import {
   type AnyColumn,
@@ -18,37 +19,22 @@ import {
   ne,
   type SQL,
 } from 'drizzle-orm';
-import * as schema from './schema';
 
-// Reuse table columns; the core allowlist is checked before any column is selected.
-// Only joined projections need explicit mappings.
-const columns = {
-  account: schema.accounts,
-  transaction: schema.transactions,
-  entry: schema.entries,
-  asset: schema.assets,
-  ledger: schema.ledgers,
-  apiKey: schema.apiKeys,
-  reconRule: schema.reconRules,
-  creditGrant: schema.creditGrants,
-  creditLineage: {
-    grantId: schema.creditGrantEntries.grantId,
-    entryId: schema.creditGrantEntries.entryId,
-    transactionId: schema.entries.transactionId,
-    kind: schema.creditGrantEntries.kind,
-    amountMinor: schema.creditGrantEntries.amountMinor,
-    createdAt: schema.entries.createdAt,
-  },
-  balanceHistory: schema.balanceSnapshots,
-} satisfies { [R in ListFilterResource]: Record<keyof ListWhere<R>, AnyColumn> };
-
-export const listWhereSql = (resource: ListFilterResource, where: unknown): SQL | undefined => {
-  validateListWhere(resource, where);
+/** Column maps come from the existing schema; operation policy supplies exclusions. */
+export const listWhereSql = <Policy extends ListFilterPolicy>(
+  columns: Record<keyof WhereFor<Policy>, AnyColumn>,
+  policy: Policy,
+  where: WhereFor<NoInfer<Policy>> | undefined,
+): SQL | undefined => {
+  validateListWhere(policy, where);
   const clauses: SQL[] = [];
   for (const [field, filter] of Object.entries(
     (where ?? {}) as Record<string, Record<string, unknown>>,
   )) {
-    const column = (columns[resource] as Record<string, AnyColumn>)[field];
+    if (!Object.hasOwn(columns, field)) {
+      throw new InvariantViolationError(`Invalid where field: ${field}`);
+    }
+    const column = (columns as Record<string, AnyColumn>)[field];
     for (const [operator, value] of Object.entries(filter)) {
       switch (operator) {
         case 'eq':

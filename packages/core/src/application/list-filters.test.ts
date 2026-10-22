@@ -1,23 +1,42 @@
 import { describe, expect, it } from 'bun:test';
+import { accountListFilter } from '../account/list-filter';
+import { apiKeyListFilter } from '../api-key/list-filter';
+import { entryListFilter } from '../entry/list-filter';
+import { ledgerListFilter } from '../ledger/list-filter';
+import { reconRuleListFilter } from '../reconciliation';
+import { transactionListFilter } from '../transaction/list-filter';
 import { InvariantViolationError } from './errors';
-import {
-  LIST_FILTER_FIELDS,
-  type ListWhere,
-  serializeListWhere,
-  validateListWhere,
-} from './list-filters';
+import { serializeListWhere, validateListWhere, type WhereFor } from './list-filters';
 import type { AccountRepository } from './repositories.interface';
 import { AccountService } from './services/account-service';
+import type { PaginationQuery, TransactionPaginationQuery } from './types';
+import {
+  assetListFilter,
+  balanceHistoryListFilter,
+  creditGrantListFilter,
+  creditLineageListFilter,
+} from './types';
 
 const uuid = '01900000-0000-7000-8000-000000000001';
 describe('typed list filters', () => {
   it('accepts every resource and supported scalar/operator combination', () => {
-    for (const resource of Object.keys(LIST_FILTER_FIELDS) as (keyof typeof LIST_FILTER_FIELDS)[]) {
-      expect(() => validateListWhere(resource, { createdAt: { gte: new Date(0) } })).not.toThrow();
-      expect(() => validateListWhere(resource, undefined)).not.toThrow();
-      expect(() => validateListWhere(resource, {})).not.toThrow();
+    for (const policy of [
+      accountListFilter,
+      transactionListFilter,
+      entryListFilter,
+      assetListFilter,
+      ledgerListFilter,
+      apiKeyListFilter,
+      reconRuleListFilter,
+      creditGrantListFilter,
+      creditLineageListFilter,
+      balanceHistoryListFilter,
+    ]) {
+      expect(() => validateListWhere(policy, { createdAt: { gte: new Date(0) } })).not.toThrow();
+      expect(() => validateListWhere(policy, undefined)).not.toThrow();
+      expect(() => validateListWhere(policy, {})).not.toThrow();
     }
-    const where: ListWhere<'account'> = {
+    const where: WhereFor<typeof accountListFilter> = {
       id: { in: [uuid] },
       code: { eq: null },
       name: { ne: 'Cash' },
@@ -25,10 +44,10 @@ describe('typed list filters', () => {
       side: { in: ['CREDIT'] },
       balanceMinor: { gt: -10n, gte: 0n, lt: 100n, lte: 99n },
     };
-    expect(() => validateListWhere('account', where)).not.toThrow();
-    expect(() => validateListWhere('asset', { scale: { gte: 0, lte: 18 } })).not.toThrow();
+    expect(() => validateListWhere(accountListFilter, where)).not.toThrow();
+    expect(() => validateListWhere(assetListFilter, { scale: { gte: 0, lte: 18 } })).not.toThrow();
     expect(() =>
-      validateListWhere('apiKey', { role: { eq: 'SERVICE' }, revokedAt: { ne: null } }),
+      validateListWhere(apiKeyListFilter, { role: { eq: 'SERVICE' }, revokedAt: { ne: null } }),
     ).not.toThrow();
   });
 
@@ -56,17 +75,17 @@ describe('typed list filters', () => {
       { constructor: { eq: 'x' } },
       { name: Object.create({ eq: 'Cash' }) },
     ])
-      expect(() => validateListWhere('account', where)).toThrow(InvariantViolationError);
-    expect(() => validateListWhere('asset', { scale: { eq: Infinity } })).toThrow(
+      expect(() => validateListWhere(accountListFilter, where)).toThrow(InvariantViolationError);
+    expect(() => validateListWhere(assetListFilter, { scale: { eq: Infinity } })).toThrow(
       InvariantViolationError,
     );
-    expect(() => validateListWhere('apiKey', { keyHash: { eq: 'secret' } })).toThrow(
+    expect(() => validateListWhere(apiKeyListFilter, { keyHash: { eq: 'secret' } })).toThrow(
       InvariantViolationError,
     );
   });
 
   it('derives field types, enums and nullability from core models', () => {
-    const account: ListWhere<'account'> = {
+    const account: WhereFor<typeof accountListFilter> = {
       // @ts-expect-error Enum values come from AccountEntity.
       side: { eq: 'INVALID' },
       // @ts-expect-error Amounts are bigint, not number.
@@ -80,7 +99,7 @@ describe('typed list filters', () => {
       // @ts-expect-error Boolean fields retain their entity type.
       grantEnabled: { eq: 1 },
     };
-    const transaction: ListWhere<'transaction'> = {
+    const transaction: WhereFor<typeof transactionListFilter> = {
       id: { eq: uuid },
       ledgerId: { eq: uuid },
       description: { eq: null },
@@ -88,25 +107,50 @@ describe('typed list filters', () => {
       // @ts-expect-error Persisted timestamps are always present.
       createdAt: { eq: null },
     };
-    const nested: ListWhere<'transaction'> = {
+    const nested: WhereFor<typeof transactionListFilter> = {
       // @ts-expect-error Nested metadata is not filterable.
       metadata: { eq: {} },
     };
-    const entry: ListWhere<'entry'> = {
+    const entry: WhereFor<typeof entryListFilter> = {
       accountId: { eq: uuid },
       signedAmountMinor: { lt: 0n },
       currency: { eq: 'USD' },
       // @ts-expect-error Persisted entry IDs are always present.
       id: { eq: null },
     };
-    const apiKey: ListWhere<'apiKey'> = {
+    const apiKey: WhereFor<typeof apiKeyListFilter> = {
       revokedAt: { ne: null },
       // @ts-expect-error Private fields are not part of the public allowlist.
       keyHash: { eq: 'secret' },
     };
     // Runtime checks intentionally do not repeat entity field-type validation.
-    expect(() => validateListWhere('account', { side: { eq: 'INVALID' } })).not.toThrow();
+    expect(() => validateListWhere(accountListFilter, { side: { eq: 'INVALID' } })).not.toThrow();
     expect([account, transaction, nested, entry, apiKey]).toHaveLength(5);
+  });
+
+  it('binds pagination directly to the operation policy without a where alias', () => {
+    const query: TransactionPaginationQuery = {
+      tenantId: uuid,
+      limit: 10,
+      where: { reference: { eq: 'invoice' }, createdAt: { gte: new Date(0) } },
+    };
+    const unfiltered: PaginationQuery = {
+      tenantId: uuid,
+      limit: 10,
+      // @ts-expect-error Operations without a policy do not accept filters.
+      where: {},
+    };
+    const scoped: TransactionPaginationQuery = {
+      tenantId: uuid,
+      limit: 10,
+      // @ts-expect-error Tenant scope is not a user filter.
+      where: { tenantId: { eq: uuid } },
+    };
+    expect(() => validateListWhere(transactionListFilter, query.where)).not.toThrow();
+    expect(() => validateListWhere(transactionListFilter, scoped.where)).toThrow(
+      InvariantViolationError,
+    );
+    expect(unfiltered.limit).toBe(10);
   });
 
   it('canonicalizes field/operator order and preserves bigint/date types', () => {

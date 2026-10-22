@@ -21,6 +21,7 @@ import type {
   RefundCreditGrantInput,
   ReverseCreditGrantInput,
 } from '../types';
+import { creditGrantListFilter, creditLineageListFilter } from '../types';
 
 export class CreditGrantService {
   public constructor(private readonly repository: CreditGrantRepository) {}
@@ -85,7 +86,7 @@ export class CreditGrantService {
     })) {
       if (value !== undefined) assertNonEmpty(value, `${name} must not be empty`);
     }
-    validateListWhere('creditGrant', query.where);
+    validateListWhere(creditGrantListFilter, query.where);
     return this.repository.list(query);
   }
 
@@ -94,7 +95,7 @@ export class CreditGrantService {
   ): Promise<PaginatedResult<CreditGrantLotBalance>> {
     validatePaginationQuery(query);
     assertNonEmpty(query.accountId, 'accountId is required');
-    validateListWhere('creditGrant', query.where);
+    validateListWhere(creditGrantListFilter, query.where);
     return this.repository.listLots(query);
   }
 
@@ -103,7 +104,7 @@ export class CreditGrantService {
   ): Promise<PaginatedResult<CreditGrantLineage>> {
     validatePaginationQuery(query);
     assertNonEmpty(query.grantId, 'grantId is required');
-    validateListWhere('creditLineage', query.where);
+    validateListWhere(creditLineageListFilter, query.where);
     return this.repository.listLineage(query);
   }
 
@@ -112,7 +113,7 @@ export class CreditGrantService {
   ): Promise<PaginatedResult<CreditGrantLineage>> {
     validatePaginationQuery(query);
     assertNonEmpty(query.transactionId, 'transactionId is required');
-    validateListWhere('creditLineage', query.where);
+    validateListWhere(creditLineageListFilter, query.where);
     return this.repository.listLineage(query);
   }
 

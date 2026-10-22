@@ -2,6 +2,7 @@ import type { AccountEntity } from '@luxledger/core';
 import {
   type AccountPaginationQuery,
   type AccountRepository,
+  accountListFilter,
   type CreateAccountInput,
   InvariantViolationError,
   LedgerNotFoundError,
@@ -14,6 +15,13 @@ import { listWhereScope, listWhereSql } from '../list-where';
 import { toAccountEntity } from '../mappers/account-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
+
+// These columns are persistence details, absent from AccountEntity.
+const {
+  reservedDeltaMinor: _reserved,
+  updatedAt: _updated,
+  ...accountListColumns
+} = getTableColumns(schema.accounts);
 
 export class DrizzleAccountRepository implements AccountRepository {
   public constructor(private readonly client: DbClient) {}
@@ -77,7 +85,7 @@ export class DrizzleAccountRepository implements AccountRepository {
 
   public async list(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>> {
     return this.client.runTenantTx(query.tenantId, 'list accounts', async (tx) => {
-      const where = listWhereSql('account', query.where);
+      const where = listWhereSql(accountListColumns, accountListFilter, query.where);
       const predicates = [eq(schema.accounts.tenantId, query.tenantId)];
       if (where) predicates.push(where);
       if (query.ledgerId !== undefined) {

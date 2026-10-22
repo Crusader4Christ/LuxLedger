@@ -20,6 +20,7 @@ import {
   type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
+  type EntryPaginationQuery,
   type HistoricalBalance,
   HoldService,
   type IngestReconRecordsInput,
@@ -27,7 +28,6 @@ import {
   LedgerService,
   type LedgerTrialBalanceQuery,
   type PaginatedResult,
-  type PaginationQuery,
   ReconciliationService,
   type ReconRule,
   type ReconRun,
@@ -199,7 +199,7 @@ class InMemoryLedgerRepository {
     return null;
   }
 
-  public async listEntries(_query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
+  public async listEntries(_query: EntryPaginationQuery): Promise<PaginatedResult<EntryEntity>> {
     return { data: [], nextCursor: null };
   }
 

@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { ApiKeyEntity } from '../../api-key/entity';
 import { ApiKeyRole } from '../../api-key/entity';
+import { apiKeyListFilter } from '../../api-key/list-filter';
 import { assertNonEmpty } from '../../utils';
 import { ForbiddenError, InvariantViolationError, UnauthorizedError } from '../errors';
-import { type ListWhere, validateListWhere } from '../list-filters';
+import { validateListWhere, type WhereFor } from '../list-filters';
 import type { ApiKeyRepository } from '../repositories.interface';
 import type {
   AuthContext,
@@ -67,10 +68,10 @@ export class ApiKeyService {
 
   public async listApiKeys(
     actor: AuthContext,
-    where?: ListWhere<'apiKey'>,
+    where?: WhereFor<typeof apiKeyListFilter>,
   ): Promise<ApiKeyEntity[]> {
     this.assertAdmin(actor);
-    validateListWhere('apiKey', where);
+    validateListWhere(apiKeyListFilter, where);
     return this.repository.list(actor.tenantId, where);
   }
 

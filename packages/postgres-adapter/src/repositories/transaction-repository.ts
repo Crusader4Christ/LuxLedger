@@ -18,6 +18,7 @@ import {
   type CreateTransactionResult,
   CreditGrantConflictError,
   type EntryPaginationQuery,
+  entryListFilter,
   InvariantViolationError,
   type PaginatedResult,
   RepositoryError,
@@ -25,6 +26,7 @@ import {
   type ReverseTransactionResult,
   type TransactionApplicationRepository,
   type TransactionPaginationQuery,
+  transactionListFilter,
 } from '@luxledger/core/application';
 import { and, desc, eq, getTableColumns, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -48,6 +50,9 @@ import { validatePosting, validatePostingEntries } from './posting-validation';
 
 type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
+
+// Hold linkage is a persistence detail, absent from TransactionEntity.
+const { holdId: _holdId, ...transactionListColumns } = getTableColumns(schema.transactions);
 
 export class DrizzleTransactionRepository implements TransactionApplicationRepository {
   public constructor(private readonly client: DbClient) {}
@@ -278,7 +283,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
     return this.client.runTenantTx(query.tenantId, 'list transactions', async (tx) => {
-      const where = listWhereSql('transaction', query.where);
+      const where = listWhereSql(transactionListColumns, transactionListFilter, query.where);
       const predicates = [eq(schema.transactions.tenantId, query.tenantId)];
       if (where) predicates.push(where);
       if (query.ledgerId !== undefined) {
@@ -392,7 +397,7 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
             .where(
               and(
                 eq(schema.entries.tenantId, query.tenantId),
-                listWhereSql('entry', query.where),
+                listWhereSql(getTableColumns(schema.entries), entryListFilter, query.where),
                 cursorPredicate,
               ),
             )

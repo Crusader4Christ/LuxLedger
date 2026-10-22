@@ -12,6 +12,7 @@ import type {
   PaginatedResult,
   TrialBalance,
 } from '../types';
+import { balanceHistoryListFilter } from '../types';
 
 export class BalanceService {
   public constructor(private readonly repository: BalanceApplicationRepository) {}
@@ -46,7 +47,7 @@ export class BalanceService {
       throw new InvariantViolationError('from must be less than or equal to to');
     }
     validatePaginationQuery({ tenantId: query.tenantId, limit: query.limit, cursor: query.cursor });
-    validateListWhere('balanceHistory', query.where);
+    validateListWhere(balanceHistoryListFilter, query.where);
     return this.repository.listHistory(query);
   }
 }

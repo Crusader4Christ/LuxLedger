@@ -23,7 +23,7 @@ interface CursorOrderField<Row> {
 }
 
 interface PaginateByCursorOptions<Row> {
-  query: PaginationQuery;
+  query: PaginationQuery<unknown>;
   scope: UnknownRecord;
   order: [CursorOrderField<Row>, ...CursorOrderField<Row>[]];
   selectRows: (params: {

@@ -15,6 +15,8 @@ import {
   type CreditGrantResult,
   type CreditLineageQuery,
   type CreditLotListQuery,
+  creditGrantListFilter,
+  creditLineageListFilter,
   InvariantViolationError,
   type PaginatedResult,
   type PaginationQuery,
@@ -39,6 +41,15 @@ type ExpirationCandidate = CreditGrantExpirationItem & {
   ledgerId: string;
   currency: string;
   createdAt: Date;
+};
+
+const lineageListColumns = {
+  grantId: schema.creditGrantEntries.grantId,
+  entryId: schema.creditGrantEntries.entryId,
+  transactionId: schema.entries.transactionId,
+  kind: schema.creditGrantEntries.kind,
+  amountMinor: schema.creditGrantEntries.amountMinor,
+  createdAt: schema.entries.createdAt,
 };
 
 export class DrizzleCreditGrantRepository implements CreditGrantRepository {
@@ -434,7 +445,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   public list(query: CreditGrantListQuery): Promise<PaginatedResult<CreditGrant>> {
     return this.client.runTenantTx(query.tenantId, 'list credit grants', async (tx) => {
-      const where = listWhereSql('creditGrant', query.where);
+      const where = listWhereSql(
+        getTableColumns(schema.creditGrants),
+        creditGrantListFilter,
+        query.where,
+      );
       const predicates = [eq(schema.creditGrants.tenantId, query.tenantId)];
       if (where) predicates.push(where);
       if (query.accountId) predicates.push(eq(schema.creditGrants.accountId, query.accountId));
@@ -464,7 +479,11 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
         eq(schema.creditGrants.tenantId, query.tenantId),
         eq(schema.creditGrants.accountId, query.accountId),
       ];
-      const where = listWhereSql('creditGrant', query.where);
+      const where = listWhereSql(
+        getTableColumns(schema.creditGrants),
+        creditGrantListFilter,
+        query.where,
+      );
       if (where) predicates.push(where);
       const page = await this.selectGrantPage(tx, query, predicates, {
         resource: 'credit-grant-lots',
@@ -481,7 +500,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   public listLineage(query: CreditLineageQuery): Promise<PaginatedResult<CreditGrantLineage>> {
     return this.client.runTenantTx(query.tenantId, 'list credit grant lineage', async (tx) => {
-      const where = listWhereSql('creditLineage', query.where);
+      const where = listWhereSql(lineageListColumns, creditLineageListFilter, query.where);
       const predicates = [
         eq(schema.creditGrantEntries.tenantId, query.tenantId),
         sql`${schema.creditGrantEntries.kind} in ('CONSUMPTION', 'COMPENSATION', 'EXPIRATION', 'REFUND')`,
@@ -553,7 +572,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   private selectGrantPage(
     tx: Tx,
-    query: PaginationQuery,
+    query: PaginationQuery<unknown>,
     predicates: SQL[],
     scope: Record<string, string | null>,
   ) {

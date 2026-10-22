@@ -93,9 +93,9 @@ Paginated methods accept it inside the query; existing array-returning methods a
 as a second argument. Existing calls remain valid.
 
 ```ts
-import type { ListWhere } from '@luxledger/core/application';
+import { accountListFilter, type WhereFor } from '@luxledger/core/application';
 
-const where: ListWhere<'account'> = {
+const where: WhereFor<typeof accountListFilter> = {
   name: { eq: 'Wallet' },
   currency: { in: ['USD', 'EUR'] },
   balanceMinor: { gte: 0n },
@@ -111,29 +111,58 @@ All fields and operators are combined with AND. Supported operators are `eq`, `n
 bigint amounts). Use `Date` objects and `bigint` values, not JSON strings. Use `eq: null`
 and `ne: null` for nullable fields. Other comparisons follow SQL null semantics, so
 `ne: 'value'` does not match null rows. Empty `where` means no additional restriction;
-empty field filters, unknown fields/operators, non-scalar values, invalid dates,
+empty field filters, excluded fields, unknown operators, non-scalar values, invalid dates,
 and non-finite numbers throw `InvariantViolationError`. Field-specific types, enum values,
 and nullability are checked by TypeScript using the existing core entities/read models;
 they are not revalidated against a separate runtime schema. Hosts accepting untyped
 input must validate it before invoking these services.
 
-The exported `LIST_FILTER_FIELDS` contains readonly arrays of allowed field names,
-checked against core models. ID value objects are represented by their string values;
-entry Money fields are exposed as `signedAmountMinor` and `currency`. Persisted entry
-IDs and entry/transaction timestamps are non-nullable in filters. Resources:
+Each operation uses a named filter policy beside its entity or read model. Policies
+list exclusions, not a duplicate list of model fields. `WhereFor<typeof policy>` derives
+scalar field types from the model, and paginated queries extend
+`PaginationQuery<WhereFor<typeof policy>>` directly:
 
-| Service method | `ListWhere` resource |
+```ts
+import {
+  type PaginationQuery,
+  transactionListFilter,
+  type WhereFor,
+} from '@luxledger/core/application';
+
+export interface TransactionPaginationQuery
+  extends PaginationQuery<WhereFor<typeof transactionListFilter>> {
+  ledgerId?: string;
+}
+```
+
+`PaginationQuery` defaults to no filters (`never`). Pagination helpers accept
+`PaginationQuery<unknown>` to inspect pagination independently of filter types.
+Existing non-paginated list methods retain their optional second `where` argument.
+
+| Service method | Filter policy |
 | --- | --- |
-| accounts.list | account |
-| transactions.list | transaction |
-| transactions.listEntries | entry |
-| assets.list | asset |
-| ledgers.list | ledger |
-| apiKeys.listApiKeys | apiKey |
-| reconciliation.listRules | reconRule |
-| creditGrants.list, creditGrants.listLots | creditGrant |
-| creditGrants.listLineageByGrant, creditGrants.listLineageByTransaction | creditLineage |
-| balances.listHistory | balanceHistory |
+| accounts.list | accountListFilter |
+| transactions.list | transactionListFilter |
+| transactions.listEntries | entryListFilter |
+| assets.list | assetListFilter |
+| ledgers.list | ledgerListFilter |
+| apiKeys.listApiKeys | apiKeyListFilter |
+| reconciliation.listRules | reconRuleListFilter |
+| creditGrants.list, creditGrants.listLots | creditGrantListFilter |
+| creditGrants.listLineageByGrant, creditGrants.listLineageByTransaction | creditLineageListFilter |
+| balances.listHistory | balanceHistoryListFilter |
+
+Policies and `WhereFor` are exported from `@luxledger/core/application`. Entity policies
+are also exported from their domain entry points, such as `@luxledger/core/transaction`.
+ID value objects use string filter values. Persisted entry IDs and entry/transaction
+timestamps are non-nullable in filters.
+
+Core validates policy exclusions, query structure and scalar values. The persistence
+adapter checks field existence against its existing runtime schema and omits columns
+that are absent from the domain read model (for example, transaction hold linkage).
+An alternative adapter must perform the same field-existence check before applying
+filters. New scalar model fields are eligible unless excluded by the operation policy;
+review exclusions when adding private fields. No separate resource-name registry exists.
 
 Lot filters target persisted grant fields such as reference and expiration, not derived
 remaining/consumed capacity. Entry amounts use `signedAmountMinor`; lineage amounts use

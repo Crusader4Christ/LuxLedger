@@ -4,6 +4,7 @@ import {
   type BalanceAtQuery,
   type BalanceHistoryQuery,
   type BalanceSnapshotEvent,
+  balanceHistoryListFilter,
   type HistoricalBalance,
   InvariantViolationError,
   LedgerNotFoundError,
@@ -130,7 +131,11 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
     query: BalanceHistoryQuery,
   ): Promise<PaginatedResult<BalanceSnapshotEvent>> {
     return this.client.runTenantTx(query.tenantId, 'get balance history', async (tx) => {
-      const where = listWhereSql('balanceHistory', query.where);
+      const where = listWhereSql(
+        getTableColumns(schema.balanceSnapshots),
+        balanceHistoryListFilter,
+        query.where,
+      );
       const filterScope = listWhereScope(query.where);
       const scope = JSON.stringify({
         tenantId: query.tenantId,

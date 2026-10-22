@@ -1,5 +1,5 @@
 import { type ReconResultStatus, reconcileOneToOne } from '@luxledger/core';
-import type { ListWhere } from '@luxledger/core/application';
+import type { WhereFor } from '@luxledger/core/application';
 import {
   type CreateReconRuleInput,
   type IngestReconRecordsInput,
@@ -9,8 +9,9 @@ import {
   type ReconRun,
   type ReconUpload,
   type RunReconInput,
+  reconRuleListFilter,
 } from '@luxledger/core/application';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, inArray } from 'drizzle-orm';
 import type { DbClient } from '../client';
 import { listWhereSql } from '../list-where';
 import {
@@ -85,12 +86,17 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
     );
   }
 
-  public async listRules(tenantId: string, where?: ListWhere<'reconRule'>) {
+  public async listRules(tenantId: string, where?: WhereFor<typeof reconRuleListFilter>) {
     return this.client.runTenantTx(tenantId, 'list reconciliation matching rules', async (tx) => {
       const rows = await tx
         .select()
         .from(schema.reconRules)
-        .where(and(eq(schema.reconRules.tenantId, tenantId), listWhereSql('reconRule', where)))
+        .where(
+          and(
+            eq(schema.reconRules.tenantId, tenantId),
+            listWhereSql(getTableColumns(schema.reconRules), reconRuleListFilter, where),
+          ),
+        )
         .orderBy(asc(schema.reconRules.createdAt), asc(schema.reconRules.id));
       return rows.map(toReconRule);
     });

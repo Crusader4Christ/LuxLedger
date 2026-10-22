@@ -1,6 +1,7 @@
 export * from './entity';
 export * from './errors';
 export * from './input.interface';
+export * from './list-filter';
 export * from './metadata';
 export * from './repository.interface';
 export * from './use-cases/create-transaction.command';

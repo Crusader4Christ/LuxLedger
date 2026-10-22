@@ -1,9 +1,11 @@
 import type { AccountSide, OverdraftPolicy } from '../account/entity';
 import type { CreateAccountInput } from '../account/input.interface';
+import type { accountListFilter } from '../account/list-filter';
 import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { JsonObject } from '../base/json';
 import type { UnknownRecord } from '../base/object';
+import type { entryListFilter } from '../entry/list-filter';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type {
@@ -15,8 +17,9 @@ import type {
   ReconStrategy,
 } from '../reconciliation';
 import type { TenantEntity } from '../tenant/entity';
+import type { transactionListFilter } from '../transaction/list-filter';
 import type { CreateTransactionCommand } from '../transaction/use-cases/create-transaction.command';
-import type { ListWhere } from './list-filters';
+import { defineListFilter, type WhereFor } from './list-filters';
 
 export type Tenant = TenantEntity;
 export interface Asset {
@@ -26,6 +29,8 @@ export interface Asset {
   scale: number;
   createdAt: Date;
 }
+
+export const assetListFilter = defineListFilter<Asset>()({ exclude: ['tenantId'] });
 
 export interface CreateAssetInput {
   tenantId: string;
@@ -59,6 +64,10 @@ export interface CreditGrant {
   expiresAt: Date | null;
   reversedByTransactionId: string | null;
 }
+
+export const creditGrantListFilter = defineListFilter<CreditGrant>()({
+  exclude: ['tenantId', 'assetId', 'amountMinor', 'reversedByTransactionId'],
+});
 
 export interface CreditGrantResult {
   grant: CreditGrant;
@@ -97,18 +106,18 @@ export interface CreditBalance {
   ledgerBalanceMinor: bigint;
   remainingMinor: bigint;
 }
-export interface CreditGrantListQuery extends PaginationQuery {
-  where?: ListWhere<'creditGrant'>;
+export interface CreditGrantListQuery
+  extends PaginationQuery<WhereFor<typeof creditGrantListFilter>> {
   accountId?: string;
   reference?: string;
   externalReference?: string;
 }
-export interface CreditLotListQuery extends PaginationQuery {
-  where?: ListWhere<'creditGrant'>;
+export interface CreditLotListQuery
+  extends PaginationQuery<WhereFor<typeof creditGrantListFilter>> {
   accountId: string;
 }
-export interface CreditLineageQuery extends PaginationQuery {
-  where?: ListWhere<'creditLineage'>;
+export interface CreditLineageQuery
+  extends PaginationQuery<WhereFor<typeof creditLineageListFilter>> {
   grantId?: string;
   transactionId?: string;
 }
@@ -121,6 +130,8 @@ export interface CreditGrantLineage {
   amountMinor: bigint;
   createdAt: Date;
 }
+
+export const creditLineageListFilter = defineListFilter<CreditGrantLineage>()({ exclude: [] });
 
 export interface ProcessCreditGrantExpirationsInput {
   tenantId: string;
@@ -265,23 +276,22 @@ export interface VoidHoldResult {
   voided: boolean;
 }
 
-export interface PaginationQuery {
+export interface PaginationQuery<TWhere = never> {
+  where?: TWhere;
   tenantId: string;
   limit: number;
   cursor?: string;
 }
 
-export interface EntryPaginationQuery extends PaginationQuery {
-  where?: ListWhere<'entry'>;
-}
+export interface EntryPaginationQuery extends PaginationQuery<WhereFor<typeof entryListFilter>> {}
 
-export interface AccountPaginationQuery extends PaginationQuery {
-  where?: ListWhere<'account'>;
+export interface AccountPaginationQuery
+  extends PaginationQuery<WhereFor<typeof accountListFilter>> {
   ledgerId?: string;
 }
 
-export interface TransactionPaginationQuery extends PaginationQuery {
-  where?: ListWhere<'transaction'>;
+export interface TransactionPaginationQuery
+  extends PaginationQuery<WhereFor<typeof transactionListFilter>> {
   ledgerId?: string;
 }
 
@@ -341,14 +351,15 @@ export interface BalanceSnapshotEvent {
   createdAt: Date;
 }
 
-export interface BalanceHistoryQuery {
-  where?: ListWhere<'balanceHistory'>;
-  tenantId: string;
+export const balanceHistoryListFilter = defineListFilter<BalanceSnapshotEvent>()({
+  exclude: ['tenantId'],
+});
+
+export interface BalanceHistoryQuery
+  extends PaginationQuery<WhereFor<typeof balanceHistoryListFilter>> {
   accountId: string;
   from: Date;
   to: Date;
-  limit: number;
-  cursor?: string;
 }
 
 export interface StatementBalance {
