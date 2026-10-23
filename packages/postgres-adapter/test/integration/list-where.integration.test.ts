@@ -30,6 +30,19 @@ async function collectPages<T>(
   return items;
 }
 
+const replaceCursorTimestamp = (cursor: string, key: string, value: string): string => {
+  const payload = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<
+    string,
+    unknown
+  >;
+  if ('values' in payload && typeof payload.values === 'object' && payload.values !== null) {
+    (payload.values as Record<string, unknown>)[key] = value;
+  } else {
+    payload[key] = value;
+  }
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+};
+
 async function fixture() {
   const tenantId = await createTenant(db, 'filters');
   const ledgerId = await createLedger(db, tenantId, 'Main');
@@ -450,6 +463,15 @@ describe('service list where filters against PostgreSQL', () => {
       legacy.values.created_at = '2025-01-01T00:00:00.123Z';
       const second = await read(Buffer.from(JSON.stringify(legacy)).toString('base64url'));
       expect(second.data.map((row) => String(row.id))).toEqual([ids[1]]);
+      await expect(
+        read(
+          replaceCursorTimestamp(
+            first.nextCursor as string,
+            'created_at',
+            '2025-02-31T00:00:00.123000Z',
+          ),
+        ),
+      ).rejects.toBeInstanceOf(InvariantViolationError);
     }
   });
 
@@ -497,6 +519,16 @@ describe('service list where filters against PostgreSQL', () => {
         cursor: Buffer.from(JSON.stringify(legacy)).toString('base64url'),
       });
       expect(second.data.map((row) => row.id)).toEqual([ids[1]]);
+      await expect(
+        services.balances.listHistory({
+          ...query,
+          cursor: replaceCursorTimestamp(
+            first.nextCursor as string,
+            'effectiveAt',
+            '2025-02-31T00:00:00.123000Z',
+          ),
+        }),
+      ).rejects.toBeInstanceOf(InvariantViolationError);
     }
   });
 

@@ -19,6 +19,7 @@ import stringify from 'safe-stable-stringify';
 import type { DbClient } from '../client';
 import { exactTimestamp } from '../exact-timestamp';
 import { listWhereScope, listWhereSql } from '../list-where';
+import { isValidCursorTimestamp } from '../paginate-by-cursor';
 import * as schema from '../schema';
 
 export class DrizzleBalanceRepository implements BalanceApplicationRepository {
@@ -225,15 +226,10 @@ export class DrizzleBalanceRepository implements BalanceApplicationRepository {
       >;
       if (
         parsed.scope !== scope ||
-        typeof parsed.effectiveAt !== 'string' ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(?:\d{3}|\d{6})Z$/.test(parsed.effectiveAt) ||
+        !isValidCursorTimestamp(parsed.effectiveAt) ||
         typeof parsed.id !== 'string' ||
         !isUuidV7(parsed.id)
       ) {
-        throw new InvariantViolationError('Invalid cursor');
-      }
-      const effectiveAt = new Date(parsed.effectiveAt);
-      if (Number.isNaN(effectiveAt.getTime())) {
         throw new InvariantViolationError('Invalid cursor');
       }
       return { effectiveAt: parsed.effectiveAt, id: parsed.id };

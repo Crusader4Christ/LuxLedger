@@ -35,6 +35,33 @@ interface PaginateByCursorOptions<Row> {
 
 const CURSOR_VERSION = 1;
 
+export const isValidCursorTimestamp = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !TIMESTAMP_PATTERN.test(value)) return false;
+
+  const [date, time] = value.split('T');
+  if (!date || !time) return false;
+  const [yearText, monthText, dayText] = date.split('-');
+  const [hourText, minuteText, secondFraction] = time.split(':');
+  const secondText = secondFraction?.split('.')[0];
+  if (!yearText || !monthText || !dayText || !hourText || !minuteText || !secondText) {
+    return false;
+  }
+
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day >= 1 && day <= (daysInMonth[month - 1] ?? 0);
+};
+
 const fingerprintScope = (scope: UnknownRecord): string => {
   const serialized = stringify(scope);
   if (serialized === undefined) {
@@ -46,11 +73,7 @@ const fingerprintScope = (scope: UnknownRecord): string => {
 
 const parseCursorValue = (raw: unknown, type: CursorValueType): CursorComparable => {
   if (type === 'timestamp') {
-    if (
-      typeof raw !== 'string' ||
-      !TIMESTAMP_PATTERN.test(raw) ||
-      Number.isNaN(new Date(raw).getTime())
-    ) {
+    if (!isValidCursorTimestamp(raw)) {
       throw new InvariantViolationError('Invalid cursor');
     }
 
