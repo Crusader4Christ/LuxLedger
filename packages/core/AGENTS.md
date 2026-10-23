@@ -34,6 +34,12 @@ These rules extend the repository root instructions for `packages/core`.
   needed, package exports/build entry points if a new subpath is introduced, and README examples.
 - Avoid exporting implementation helpers unless they are intentionally supported contracts.
 
+## Domain Guarantees
+
+- Core emits domain/application errors only; transport and database failures do not belong here.
+- Preserve explicit transaction requirements for state changes and balance projections, and
+  idempotency semantics in addition to database uniqueness.
+
 ## Tests
 
 - Test domain and application behavior without a database or framework.

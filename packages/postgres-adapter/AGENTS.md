@@ -50,6 +50,8 @@ record the extraction as follow-up work instead of performing an incidental refa
   and associated lineage atomic.
 - Follow the documented deterministic account/grant lock order. Changes to locking require real
   concurrent integration coverage and must not weaken correctness to improve throughput.
+- Enforce the unique `(tenant_id, reference)` idempotency index; do not introduce soft deletes in
+  core tables or implicit balance recalculation outside a transaction.
 - Database constraints and RLS are defense in depth; mirror business invariants in core rather than
   making PostgreSQL their only definition.
 
