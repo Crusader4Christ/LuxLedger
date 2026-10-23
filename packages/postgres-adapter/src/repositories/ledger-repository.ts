@@ -1,7 +1,9 @@
 import type { LedgerEntity } from '@luxledger/core';
-import type { CreateLedgerInput, LedgerRepository } from '@luxledger/core/application';
-import { and, asc, eq } from 'drizzle-orm';
+import type { CreateLedgerInput, LedgerRepository, WhereFor } from '@luxledger/core/application';
+import { ledgerListFilter } from '@luxledger/core/application';
+import { and, asc, eq, getTableColumns } from 'drizzle-orm';
 import type { DbClient } from '../client';
+import { listWhereSql } from '../list-where';
 import { toLedgerEntity } from '../mappers/ledger-mapper';
 import * as schema from '../schema';
 
@@ -29,12 +31,20 @@ export class DrizzleLedgerRepository implements LedgerRepository {
     });
   }
 
-  public async list(tenantId: string): Promise<LedgerEntity[]> {
+  public async list(
+    tenantId: string,
+    where?: WhereFor<typeof ledgerListFilter>,
+  ): Promise<LedgerEntity[]> {
     return this.client.runTenantTx(tenantId, 'find ledgers by tenant', async (tx) => {
       const rows = await tx
         .select()
         .from(schema.ledgers)
-        .where(eq(schema.ledgers.tenantId, tenantId))
+        .where(
+          and(
+            eq(schema.ledgers.tenantId, tenantId),
+            listWhereSql(getTableColumns(schema.ledgers), ledgerListFilter, where),
+          ),
+        )
         .orderBy(asc(schema.ledgers.createdAt), asc(schema.ledgers.id));
       return rows.map(toLedgerEntity);
     });

@@ -17,18 +17,22 @@ import {
   type CreateTransactionInput,
   type CreateTransactionResult,
   CreditGrantConflictError,
+  type EntryPaginationQuery,
+  entryListFilter,
   InvariantViolationError,
   type PaginatedResult,
-  type PaginationQuery,
   RepositoryError,
   type ReverseTransactionInput,
   type ReverseTransactionResult,
   type TransactionApplicationRepository,
   type TransactionPaginationQuery,
+  transactionListFilter,
 } from '@luxledger/core/application';
-import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DbClient } from '../client';
+import { exactTimestamp } from '../exact-timestamp';
+import { listWhereScope, listWhereSql } from '../list-where';
 import { toEntryEntity } from '../mappers/entry-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
@@ -46,6 +50,9 @@ import { validatePosting, validatePostingEntries } from './posting-validation';
 
 type TransactionRow = typeof schema.transactions.$inferSelect;
 type EntryRow = typeof schema.entries.$inferSelect;
+
+// Hold linkage is a persistence detail, absent from TransactionEntity.
+const { holdId: _holdId, ...transactionListColumns } = getTableColumns(schema.transactions);
 
 export class DrizzleTransactionRepository implements TransactionApplicationRepository {
   public constructor(private readonly client: DbClient) {}
@@ -276,15 +283,18 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     query: TransactionPaginationQuery,
   ): Promise<PaginatedResult<TransactionEntity>> {
     return this.client.runTenantTx(query.tenantId, 'list transactions', async (tx) => {
+      const where = listWhereSql(transactionListColumns, transactionListFilter, query.where);
       const predicates = [eq(schema.transactions.tenantId, query.tenantId)];
+      if (where) predicates.push(where);
       if (query.ledgerId !== undefined) {
         predicates.push(eq(schema.transactions.ledgerId, query.ledgerId));
       }
 
-      const page = await paginateByCursor<TransactionRow>({
+      const page = await paginateByCursor<TransactionRow & { cursorCreatedAt: string }>({
         query,
         scope: {
           resource: 'transactions',
+          ...listWhereScope(query.where),
           tenantId: query.tenantId,
           ledgerId: query.ledgerId ?? null,
         },
@@ -292,9 +302,9 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
           {
             column: schema.transactions.createdAt,
             key: 'created_at',
-            type: 'date',
+            type: 'timestamp',
             direction: 'asc',
-            getValue: (row: TransactionRow) => row.createdAt,
+            getValue: (row) => row.cursorCreatedAt,
           },
           {
             column: schema.transactions.id,
@@ -306,7 +316,10 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         ],
         selectRows: async ({ cursorPredicate, limit, orderBy }) =>
           tx
-            .select()
+            .select({
+              ...getTableColumns(schema.transactions),
+              cursorCreatedAt: exactTimestamp(schema.transactions.createdAt),
+            })
             .from(schema.transactions)
             .where(and(...predicates, cursorPredicate))
             .orderBy(...orderBy)
@@ -353,18 +366,18 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     });
   }
 
-  public async listEntries(query: PaginationQuery): Promise<PaginatedResult<EntryEntity>> {
+  public async listEntries(query: EntryPaginationQuery): Promise<PaginatedResult<EntryEntity>> {
     return this.client.runTenantTx(query.tenantId, 'list entries', async (tx) => {
-      const page = await paginateByCursor<EntryRow>({
+      const page = await paginateByCursor<EntryRow & { cursorCreatedAt: string }>({
         query,
-        scope: { resource: 'entries', tenantId: query.tenantId },
+        scope: { resource: 'entries', tenantId: query.tenantId, ...listWhereScope(query.where) },
         order: [
           {
             column: schema.entries.createdAt,
             key: 'created_at',
-            type: 'date',
+            type: 'timestamp',
             direction: 'asc',
-            getValue: (row: EntryRow) => row.createdAt,
+            getValue: (row) => row.cursorCreatedAt,
           },
           {
             column: schema.entries.id,
@@ -376,9 +389,18 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
         ],
         selectRows: async ({ cursorPredicate, limit, orderBy }) =>
           tx
-            .select()
+            .select({
+              ...getTableColumns(schema.entries),
+              cursorCreatedAt: exactTimestamp(schema.entries.createdAt),
+            })
             .from(schema.entries)
-            .where(and(eq(schema.entries.tenantId, query.tenantId), cursorPredicate))
+            .where(
+              and(
+                eq(schema.entries.tenantId, query.tenantId),
+                listWhereSql(getTableColumns(schema.entries), entryListFilter, query.where),
+                cursorPredicate,
+              ),
+            )
             .orderBy(...orderBy)
             .limit(limit),
       });

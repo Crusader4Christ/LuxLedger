@@ -1,3 +1,4 @@
+import { defineListFilter } from '../application/list-filters';
 import type { UnknownRecord } from '../base/object';
 import type { TransactionEntity } from '../transaction/entity';
 
@@ -41,6 +42,8 @@ export interface ReconRule {
   criteria: ReconMatchCriterion[];
   createdAt: Date;
 }
+
+export const reconRuleListFilter = defineListFilter<ReconRule>()(['tenantId', 'criteria']);
 
 export interface ReconMatchCandidate {
   transactionId: string;

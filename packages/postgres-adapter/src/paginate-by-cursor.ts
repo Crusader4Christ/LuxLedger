@@ -11,7 +11,8 @@ type CursorComparable = Date | number | string;
 type CursorValueType = 'date' | 'number' | 'string' | 'timestamp' | 'uuid';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+// Accept existing millisecond cursors; new timestamp cursors retain six digits.
+const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(?:\d{3}|\d{6})Z$/;
 
 interface CursorOrderField<Row> {
   column: AnyColumn | SQL;
@@ -22,7 +23,7 @@ interface CursorOrderField<Row> {
 }
 
 interface PaginateByCursorOptions<Row> {
-  query: PaginationQuery;
+  query: PaginationQuery<unknown>;
   scope: UnknownRecord;
   order: [CursorOrderField<Row>, ...CursorOrderField<Row>[]];
   selectRows: (params: {
@@ -33,6 +34,33 @@ interface PaginateByCursorOptions<Row> {
 }
 
 const CURSOR_VERSION = 1;
+
+export const isValidCursorTimestamp = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !TIMESTAMP_PATTERN.test(value)) return false;
+
+  const [date, time] = value.split('T');
+  if (!date || !time) return false;
+  const [yearText, monthText, dayText] = date.split('-');
+  const [hourText, minuteText, secondFraction] = time.split(':');
+  const secondText = secondFraction?.split('.')[0];
+  if (!yearText || !monthText || !dayText || !hourText || !minuteText || !secondText) {
+    return false;
+  }
+
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day >= 1 && day <= (daysInMonth[month - 1] ?? 0);
+};
 
 const fingerprintScope = (scope: UnknownRecord): string => {
   const serialized = stringify(scope);
@@ -45,11 +73,7 @@ const fingerprintScope = (scope: UnknownRecord): string => {
 
 const parseCursorValue = (raw: unknown, type: CursorValueType): CursorComparable => {
   if (type === 'timestamp') {
-    if (
-      typeof raw !== 'string' ||
-      !TIMESTAMP_PATTERN.test(raw) ||
-      Number.isNaN(new Date(raw).getTime())
-    ) {
+    if (!isValidCursorTimestamp(raw)) {
       throw new InvariantViolationError('Invalid cursor');
     }
 

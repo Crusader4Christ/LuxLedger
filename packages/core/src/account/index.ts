@@ -2,4 +2,5 @@ export * from './available-balance';
 export * from './entity';
 export * from './errors';
 export * from './input.interface';
+export * from './list-filter';
 export * from './validators';

@@ -1,6 +1,8 @@
 import { type AccountEntity, AccountSide, OverdraftPolicy } from '../../account/entity';
+import { accountListFilter } from '../../account/list-filter';
 import { assertNonEmpty } from '../../utils';
 import { AccountNotFoundError, InvariantViolationError } from '../errors';
+import { validateListWhere } from '../list-filters';
 import { validatePaginationQuery } from '../pagination-query';
 import type { AccountRepository } from '../repositories.interface';
 import type { AccountPaginationQuery, CreateAccountInput, PaginatedResult } from '../types';
@@ -52,6 +54,7 @@ export class AccountService {
     if (query.ledgerId !== undefined) {
       assertNonEmpty(query.ledgerId, 'ledgerId must be a non-empty string');
     }
+    validateListWhere(accountListFilter, query.where);
     return this.repository.list(query);
   }
 }

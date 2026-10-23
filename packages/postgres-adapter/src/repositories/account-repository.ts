@@ -2,16 +2,26 @@ import type { AccountEntity } from '@luxledger/core';
 import {
   type AccountPaginationQuery,
   type AccountRepository,
+  accountListFilter,
   type CreateAccountInput,
   InvariantViolationError,
   LedgerNotFoundError,
   type PaginatedResult,
 } from '@luxledger/core/application';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, getTableColumns } from 'drizzle-orm';
 import type { DbClient } from '../client';
+import { exactTimestamp } from '../exact-timestamp';
+import { listWhereScope, listWhereSql } from '../list-where';
 import { toAccountEntity } from '../mappers/account-mapper';
 import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
+
+// These columns are persistence details, absent from AccountEntity.
+const {
+  reservedDeltaMinor: _reserved,
+  updatedAt: _updated,
+  ...accountListColumns
+} = getTableColumns(schema.accounts);
 
 export class DrizzleAccountRepository implements AccountRepository {
   public constructor(private readonly client: DbClient) {}
@@ -75,15 +85,20 @@ export class DrizzleAccountRepository implements AccountRepository {
 
   public async list(query: AccountPaginationQuery): Promise<PaginatedResult<AccountEntity>> {
     return this.client.runTenantTx(query.tenantId, 'list accounts', async (tx) => {
+      const where = listWhereSql(accountListColumns, accountListFilter, query.where);
       const predicates = [eq(schema.accounts.tenantId, query.tenantId)];
+      if (where) predicates.push(where);
       if (query.ledgerId !== undefined) {
         predicates.push(eq(schema.accounts.ledgerId, query.ledgerId));
       }
 
-      const page = await paginateByCursor<typeof schema.accounts.$inferSelect>({
+      const page = await paginateByCursor<
+        typeof schema.accounts.$inferSelect & { cursorCreatedAt: string }
+      >({
         query,
         scope: {
           resource: 'accounts',
+          ...listWhereScope(query.where),
           tenantId: query.tenantId,
           ledgerId: query.ledgerId ?? null,
         },
@@ -91,9 +106,9 @@ export class DrizzleAccountRepository implements AccountRepository {
           {
             column: schema.accounts.createdAt,
             key: 'created_at',
-            type: 'date',
+            type: 'timestamp',
             direction: 'asc',
-            getValue: (row) => row.createdAt,
+            getValue: (row) => row.cursorCreatedAt,
           },
           {
             column: schema.accounts.id,
@@ -105,7 +120,10 @@ export class DrizzleAccountRepository implements AccountRepository {
         ],
         selectRows: async ({ cursorPredicate, limit, orderBy }) =>
           tx
-            .select()
+            .select({
+              ...getTableColumns(schema.accounts),
+              cursorCreatedAt: exactTimestamp(schema.accounts.createdAt),
+            })
             .from(schema.accounts)
             .where(and(...predicates, cursorPredicate))
             .orderBy(...orderBy)

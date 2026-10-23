@@ -2,7 +2,7 @@ import { assertNonEmpty } from '../utils';
 import { InvariantViolationError } from './errors';
 import type { PaginationQuery } from './types';
 
-export const validatePaginationQuery = (query: PaginationQuery): void => {
+export const validatePaginationQuery = (query: PaginationQuery<unknown>): void => {
   assertNonEmpty(query.tenantId, 'tenantId is required');
 
   if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 200) {

@@ -1,5 +1,7 @@
+import { reconRuleListFilter } from '../../reconciliation';
 import { assertNonEmpty } from '../../utils';
 import { InvariantViolationError, ReconRunNotFoundError } from '../errors';
+import { validateListWhere, type WhereFor } from '../list-filters';
 import type { ReconciliationApplicationRepository } from '../repositories.interface';
 import type {
   CreateReconRuleInput,
@@ -71,9 +73,13 @@ export class ReconciliationService {
     return this.repository.createRule(input);
   }
 
-  public async listRules(tenantId: string): Promise<ReconRule[]> {
+  public async listRules(
+    tenantId: string,
+    where?: WhereFor<typeof reconRuleListFilter>,
+  ): Promise<ReconRule[]> {
     assertNonEmpty(tenantId, 'tenantId is required');
-    return this.repository.listRules(tenantId);
+    validateListWhere(reconRuleListFilter, where);
+    return this.repository.listRules(tenantId, where);
   }
 
   public async run(input: RunReconInput): Promise<ReconRun> {
