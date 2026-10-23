@@ -17,6 +17,10 @@
 - [Release 0.3.0 coordinated package and API notes](./releases/0.3.0.md)
 - [Release 0.4.0 bounded credit reads](./releases/0.4.0.md)
 
+## Contributors
+
+- [Contributor Workflow](./contributing.md)
+
 ## Governance
 
 - [Release Policy](./governance/release-policy.md)

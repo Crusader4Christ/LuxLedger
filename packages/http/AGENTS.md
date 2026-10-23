@@ -36,7 +36,9 @@ These rules extend the repository root instructions for `packages/http`.
   limits, and identical rejection behavior in both adapters.
 - When adding a package subpath, update `package.json` exports, build entry points, and README usage.
 
-## Verification
+## Tests and Verification
+
+- Unit tests remain database-free; use core contracts without a persistence adapter.
 
 - Run `bun run contract:verify` for every HTTP contract or OpenAPI change, in addition to the root
   code-change checks.
