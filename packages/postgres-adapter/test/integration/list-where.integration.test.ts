@@ -17,6 +17,19 @@ const client = createRepositoryTestClient();
 const db = createRepositoryTestDatabase(client);
 const services = createApplicationServices(client);
 
+async function collectPages<T>(
+  fetchPage: (cursor?: string) => Promise<{ data: T[]; nextCursor: string | null }>,
+): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await fetchPage(cursor);
+    items.push(...page.data);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  return items;
+}
+
 async function fixture() {
   const tenantId = await createTenant(db, 'filters');
   const ledgerId = await createLedger(db, tenantId, 'Main');
@@ -273,23 +286,60 @@ describe('service list where filters against PostgreSQL', () => {
   it('filters lineage through its joined transaction and grant columns', async () => {
     const { tenantId, wallet } = await fixture();
     const grants = await services.creditGrants.list({ tenantId, limit: 10 });
-    for (const grant of grants.data) {
-      await services.creditGrants.refund({
+    const selected = grants.data[1];
+    if (!selected) throw new Error('Fixture grant is missing');
+    let transactionId = '';
+    for (let index = 0; index < 3; index += 1) {
+      const refund = await services.creditGrants.refund({
         tenantId,
-        grantId: grant.id,
-        reference: `refund-${grant.reference}`,
+        grantId: selected.id,
+        reference: `refund-${index}-${selected.reference}`,
         amountMinor: 10n,
       });
+      transactionId = refund.transactionId;
     }
-    const selected = grants.data[1];
+    const where = { kind: { eq: 'REFUND' as const }, amountMinor: { eq: 10n } };
     const grantLineage = await services.creditGrants.listLineageByGrant({
       tenantId,
       grantId: selected.id,
-      limit: 1,
-      where: { kind: { eq: 'REFUND' }, amountMinor: { eq: 10n } },
+      limit: 10,
+      where,
     });
-    expect(grantLineage.data).toHaveLength(1);
-    const transactionId = grantLineage.data[0].transactionId;
+    expect(grantLineage.data).toHaveLength(3);
+    const filtered = await services.creditGrants.listLineageByGrant({
+      tenantId,
+      grantId: selected.id,
+      limit: 1,
+      where,
+    });
+    expect(filtered.nextCursor).not.toBeNull();
+    const paged = await collectPages((cursor) =>
+      services.creditGrants.listLineageByGrant({
+        tenantId,
+        grantId: selected.id,
+        limit: 1,
+        where,
+        cursor,
+      }),
+    );
+    expect(paged.map(({ entryId }) => entryId)).toEqual(
+      grantLineage.data.map(({ entryId }) => entryId),
+    );
+    expect(new Set(paged.map(({ entryId }) => entryId)).size).toBe(3);
+    for (const changedWhere of [
+      { kind: { eq: 'CONSUMPTION' as const }, amountMinor: { eq: 10n } },
+      undefined,
+    ]) {
+      await expect(
+        services.creditGrants.listLineageByGrant({
+          tenantId,
+          grantId: selected.id,
+          limit: 1,
+          where: changedWhere,
+          cursor: filtered.nextCursor ?? undefined,
+        }),
+      ).rejects.toBeInstanceOf(InvariantViolationError);
+    }
     expect(
       (
         await services.creditGrants.listLineageByTransaction({
