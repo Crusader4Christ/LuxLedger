@@ -6,17 +6,23 @@ are linked from each entry.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-25
+
 ### Changed
 
 - **Breaking:** `PaginationQuery` now takes a filter policy, for example `PaginationQuery<typeof assetListFilter>`, rather than a precomputed `WhereFor` type. Shared helpers accept `BasePaginationQuery`. Empty resource query aliases are removed; use `PaginationQuery<typeof policy>` directly.
 
 - **Breaking:** ledger, API key, and reconciliation matching-rule list APIs now use bounded cursor pagination and return `{ data, next_cursor }`.
 - Added paginated reconciliation run results at `/v1/reconciliation/runs/{id}/results`.
+- Added policy-derived core list filters and typed HTTP `where` filters, with filter-bound cursors.
+- Preserved PostgreSQL microseconds in timestamp cursors and accepted UUIDv7 path parameters.
 
 Upgrade notes: library callers pass pagination query objects to `LedgerService.list`,
 `AssetService.list`, `ApiKeyService.listApiKeys`, and `ReconciliationService.listRules`. HTTP callers
 should read items from `data` and continue with `next_cursor`; `GET /v1/ledgers` changes from an
 array response, while the API key and matching-rule envelopes gain `next_cursor`.
+
+See [the 0.5.0 release notes](docs/releases/0.5.0.md).
 
 ## [0.4.0] - 2026-10-17
 
