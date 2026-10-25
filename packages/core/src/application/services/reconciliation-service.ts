@@ -1,16 +1,22 @@
 import { reconRuleListFilter } from '../../reconciliation';
 import { assertNonEmpty } from '../../utils';
 import { InvariantViolationError, ReconRunNotFoundError } from '../errors';
-import { validateListWhere, type WhereFor } from '../list-filters';
+import { validateListWhere } from '../list-filters';
+import { validatePaginationQuery } from '../pagination-query';
 import type { ReconciliationApplicationRepository } from '../repositories.interface';
 import type {
   CreateReconRuleInput,
   IngestReconRecordsInput,
+  PaginatedResult,
+  PaginationQuery,
+  ReconResult,
+  ReconResultPaginationQuery,
   ReconRule,
   ReconRun,
   ReconUpload,
   RunReconInput,
 } from '../types';
+import { reconResultListFilter } from '../types';
 
 export class ReconciliationService {
   public constructor(private readonly repository: ReconciliationApplicationRepository) {}
@@ -74,12 +80,22 @@ export class ReconciliationService {
   }
 
   public async listRules(
-    tenantId: string,
-    where?: WhereFor<typeof reconRuleListFilter>,
-  ): Promise<ReconRule[]> {
-    assertNonEmpty(tenantId, 'tenantId is required');
-    validateListWhere(reconRuleListFilter, where);
-    return this.repository.listRules(tenantId, where);
+    query: PaginationQuery<typeof reconRuleListFilter>,
+  ): Promise<PaginatedResult<ReconRule>> {
+    validatePaginationQuery(query);
+    validateListWhere(reconRuleListFilter, query.where);
+    return this.repository.listRules(query);
+  }
+
+  public async listResults(
+    query: ReconResultPaginationQuery,
+  ): Promise<PaginatedResult<ReconResult>> {
+    validatePaginationQuery(query);
+    assertNonEmpty(query.runId, 'reconciliation run id is required');
+    validateListWhere(reconResultListFilter, query.where);
+    const page = await this.repository.listResults(query);
+    if (page === null) throw new ReconRunNotFoundError(query.runId);
+    return page;
   }
 
   public async run(input: RunReconInput): Promise<ReconRun> {

@@ -6,6 +6,7 @@ import {
   type TransactionEntity,
   type TransactionMetadata,
 } from '@luxledger/core';
+import type { PaginationQuery } from '@luxledger/core/application';
 import {
   AdjustmentConflictError,
   assertAvailableBalance,
@@ -17,7 +18,6 @@ import {
   type CreateTransactionInput,
   type CreateTransactionResult,
   CreditGrantConflictError,
-  type EntryPaginationQuery,
   entryListFilter,
   InvariantViolationError,
   type PaginatedResult,
@@ -366,7 +366,9 @@ export class DrizzleTransactionRepository implements TransactionApplicationRepos
     });
   }
 
-  public async listEntries(query: EntryPaginationQuery): Promise<PaginatedResult<EntryEntity>> {
+  public async listEntries(
+    query: PaginationQuery<typeof entryListFilter>,
+  ): Promise<PaginatedResult<EntryEntity>> {
     return this.client.runTenantTx(query.tenantId, 'list entries', async (tx) => {
       const page = await paginateByCursor<EntryRow & { cursorCreatedAt: string }>({
         query,

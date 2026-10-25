@@ -4,6 +4,7 @@ import { AccountSide } from '@luxledger/core';
 import {
   BulkTransactionError,
   InvariantViolationError,
+  ReconRunNotFoundError,
   RepositoryError,
 } from '@luxledger/core/application';
 import { CrossLedgerAccountError } from '@luxledger/core/transaction';
@@ -15,6 +16,7 @@ import {
 import {
   accounts,
   assets,
+  reconResults,
   reconRuns,
   reconUploads,
   transactions,
@@ -598,6 +600,106 @@ describe('application services integration (services + repositories + real DB)',
 
     const persisted = await services.reconciliation.getRun(tenantId, run.id);
     expect(persisted.results).toHaveLength(run.results.length);
+
+    const collisionTimestamp = new Date('2026-01-01T00:00:00.123Z');
+    await db
+      .update(reconResults)
+      .set({ createdAt: collisionTimestamp })
+      .where(eq(reconResults.runId, run.id));
+
+    const resultIds: string[] = [];
+    let cursor: string | undefined;
+    let firstCursor: string | null = null;
+    do {
+      const page = await services.reconciliation.listResults({
+        tenantId,
+        runId: run.id,
+        limit: 2,
+        cursor,
+      });
+      resultIds.push(...page.data.map((result) => result.id));
+      firstCursor ??= page.nextCursor;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    expect(resultIds).toHaveLength(run.results.length);
+    expect(new Set(resultIds).size).toBe(run.results.length);
+    expect(resultIds.sort()).toEqual(run.results.map((result) => result.id).sort());
+    expect(firstCursor).not.toBeNull();
+
+    const secondRun = await services.reconciliation.run({
+      tenantId,
+      ledgerId: ledger.id,
+      uploadId: upload.id,
+      strategy: 'one_to_one',
+      matchingRuleIds: [exactRule.id],
+    });
+    await expect(
+      services.reconciliation.listResults({
+        tenantId,
+        runId: run.id,
+        limit: 2,
+        cursor: firstCursor ?? undefined,
+        where: { status: { eq: 'matched' } },
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(
+      services.reconciliation.listResults({
+        tenantId,
+        runId: secondRun.id,
+        limit: 2,
+        cursor: firstCursor ?? undefined,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const matchedResults = await services.reconciliation.listResults({
+      tenantId,
+      runId: run.id,
+      limit: 10,
+      where: { status: { eq: 'matched' } },
+    });
+    expect(matchedResults.data.map((result) => result.externalId)).toEqual(['ext-1']);
+    const nullExternalIdResults = await services.reconciliation.listResults({
+      tenantId,
+      runId: run.id,
+      limit: 20,
+      where: { externalId: { eq: null } },
+    });
+    expect(nullExternalIdResults.data.length).toBeGreaterThan(0);
+    const externalIdSet = await services.reconciliation.listResults({
+      tenantId,
+      runId: run.id,
+      limit: 20,
+      where: { externalId: { in: ['ext-1', 'ext-2'] } },
+    });
+    expect(externalIdSet.data.map((result) => result.externalId).sort()).toEqual([
+      'ext-1',
+      'ext-2',
+    ]);
+    const emptyPage = await services.reconciliation.listResults({
+      tenantId,
+      runId: run.id,
+      limit: 10,
+      where: { externalId: { eq: 'not-present' } },
+    });
+    expect(emptyPage).toEqual({ data: [], nextCursor: null });
+    await expect(
+      services.reconciliation.listResults({
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        runId: run.id,
+        limit: 10,
+      }),
+    ).rejects.toBeInstanceOf(ReconRunNotFoundError);
+    const emptyResults = await services.reconciliation
+      .listResults({
+        tenantId,
+        runId: '00000000-0000-4000-8000-000000000999',
+        limit: 10,
+      })
+      .catch((error: unknown) => {
+        expect(error).toBeInstanceOf(ReconRunNotFoundError);
+        return null;
+      });
+    expect(emptyResults).toBeNull();
 
     const beforeDryRunRows = await db.select({ id: reconRuns.id }).from(reconRuns);
     const dryRun = await services.reconciliation.run({

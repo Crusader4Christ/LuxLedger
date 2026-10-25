@@ -22,7 +22,7 @@ afterAll(() => client.sql.end({ timeout: 5 }));
 const fixture = async (name: string) => {
   const tenantId = await createTenant(db, name);
   const ledgerId = await createLedger(db, tenantId, name);
-  const asset = (await services.assets.list(tenantId))[0];
+  const asset = (await services.assets.list({ tenantId, limit: 50 })).data[0];
   const wallet = await services.accounts.create({
     tenantId,
     ledgerId,

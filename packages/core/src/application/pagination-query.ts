@@ -1,8 +1,8 @@
 import { assertNonEmpty } from '../utils';
 import { InvariantViolationError } from './errors';
-import type { PaginationQuery } from './types';
+import type { BasePaginationQuery } from './types';
 
-export const validatePaginationQuery = (query: PaginationQuery<unknown>): void => {
+export const validatePaginationQuery = (query: BasePaginationQuery): void => {
   assertNonEmpty(query.tenantId, 'tenantId is required');
 
   if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 200) {

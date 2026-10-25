@@ -1,8 +1,9 @@
 import { assertNonEmpty } from '../../utils';
 import { AssetNotFoundError, InvariantViolationError } from '../errors';
-import { validateListWhere, type WhereFor } from '../list-filters';
+import { validateListWhere } from '../list-filters';
+import { validatePaginationQuery } from '../pagination-query';
 import type { AssetRepository } from '../repositories.interface';
-import type { Asset, CreateAssetInput } from '../types';
+import type { Asset, CreateAssetInput, PaginatedResult, PaginationQuery } from '../types';
 import { assetListFilter } from '../types';
 
 export class AssetService {
@@ -30,9 +31,11 @@ export class AssetService {
     return asset;
   }
 
-  public async list(tenantId: string, where?: WhereFor<typeof assetListFilter>): Promise<Asset[]> {
-    assertNonEmpty(tenantId, 'tenantId is required');
-    validateListWhere(assetListFilter, where);
-    return this.repository.list(tenantId, where);
+  public async list(
+    query: PaginationQuery<typeof assetListFilter>,
+  ): Promise<PaginatedResult<Asset>> {
+    validatePaginationQuery(query);
+    validateListWhere(assetListFilter, query.where);
+    return this.repository.list(query);
   }
 }

@@ -1,7 +1,8 @@
 import { whereQueryProperty } from '../query/list-filter';
-import { reconRuleFilterFields } from '../query/list-filter-fields';
+import { reconResultListFilterFields, reconRuleFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
+import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
 
 export const reconCriterionRequestSchema = {
   type: 'object',
@@ -26,11 +27,9 @@ export const reconCriterionRequestSchema = {
     },
   },
 } as const;
-export const listReconRulesQuerySchema = {
-  type: 'object',
-  additionalProperties: false,
+export const listReconRulesQuerySchema = mergePaginationQuerySchema({
   properties: { where: whereQueryProperty(reconRuleFilterFields) },
-} as const;
+});
 
 export const createReconRuleRequestSchema = {
   type: 'object',
@@ -146,14 +145,7 @@ export const reconRuleResponseSchema = {
   },
 } as const;
 
-export const reconRulesListResponseSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['data'],
-  properties: {
-    data: { type: 'array', items: reconRuleResponseSchema },
-  },
-} as const;
+export const reconRulesListResponseSchema = createPaginatedResponseSchema(reconRuleResponseSchema);
 
 export const reconUploadResponseSchema = {
   type: 'object',
@@ -239,6 +231,11 @@ export const reconRunResponseSchema = {
     results: { type: 'array', items: reconResultResponseSchema },
   },
 } as const;
+export const reconResultsListQuerySchema = mergePaginationQuerySchema({
+  properties: { where: whereQueryProperty(reconResultListFilterFields) },
+});
+export const reconResultsListResponseSchema =
+  createPaginatedResponseSchema(reconResultResponseSchema);
 
 export type ReconCriterionRequest = InferSchema<typeof reconCriterionRequestSchema>;
 export type CreateReconRuleRequest = InferSchema<typeof createReconRuleRequestSchema>;

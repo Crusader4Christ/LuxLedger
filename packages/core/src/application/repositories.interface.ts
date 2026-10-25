@@ -3,11 +3,11 @@ import type { ApiKeyEntity } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { apiKeyListFilter } from '../api-key/list-filter';
 import type { EntryEntity } from '../entry/entity';
+import type { entryListFilter } from '../entry/list-filter';
 import type { LedgerEntity } from '../ledger/entity';
 import type { ledgerListFilter } from '../ledger/list-filter';
 import type { ReconRule, reconRuleListFilter } from '../reconciliation';
 import type { TransactionEntity } from '../transaction/entity';
-import type { WhereFor } from './list-filters';
 import type {
   AccountPaginationQuery,
   AccountStatement,
@@ -49,12 +49,14 @@ import type {
   CreditLotListQuery,
   CreditLotStatement,
   CreditLotStatementQuery,
-  EntryPaginationQuery,
   HistoricalBalance,
   IngestReconRecordsInput,
   LedgerTrialBalanceQuery,
   PaginatedResult,
+  PaginationQuery,
   ProcessCreditGrantExpirationsInput,
+  ReconResult,
+  ReconResultPaginationQuery,
   ReconRun,
   ReconUpload,
   RefundCreditGrantInput,
@@ -92,13 +94,13 @@ export interface CreditGrantRepository {
 export interface AssetRepository {
   create(input: CreateAssetInput): Promise<Asset>;
   findById(tenantId: string, assetId: string): Promise<Asset | null>;
-  list(tenantId: string, where?: WhereFor<typeof assetListFilter>): Promise<Asset[]>;
+  list(query: PaginationQuery<typeof assetListFilter>): Promise<PaginatedResult<Asset>>;
 }
 
 export interface LedgerRepository {
   create(input: CreateLedgerInput): Promise<LedgerEntity>;
   findById(tenantId: string, ledgerId: string): Promise<LedgerEntity | null>;
-  list(tenantId: string, where?: WhereFor<typeof ledgerListFilter>): Promise<LedgerEntity[]>;
+  list(query: PaginationQuery<typeof ledgerListFilter>): Promise<PaginatedResult<LedgerEntity>>;
 }
 
 export interface ApiKeyRepository {
@@ -106,7 +108,7 @@ export interface ApiKeyRepository {
   findActiveByHash(keyHash: string): Promise<ApiKeyEntity | null>;
   findById(apiKeyId: string): Promise<ApiKeyEntity | null>;
   create(input: CreateApiKeyInput): Promise<ApiKeyEntity>;
-  list(tenantId: string, where?: WhereFor<typeof apiKeyListFilter>): Promise<ApiKeyEntity[]>;
+  list(query: PaginationQuery<typeof apiKeyListFilter>): Promise<PaginatedResult<ApiKeyEntity>>;
   revoke(tenantId: string, apiKeyId: string): Promise<boolean>;
 }
 
@@ -123,7 +125,9 @@ export interface TransactionApplicationRepository {
   correct(input: CorrectTransactionInput): Promise<CorrectTransactionResult>;
   findById(tenantId: string, transactionId: string): Promise<TransactionEntity | null>;
   list(query: TransactionPaginationQuery): Promise<PaginatedResult<TransactionEntity>>;
-  listEntries(query: EntryPaginationQuery): Promise<PaginatedResult<EntryEntity>>;
+  listEntries(
+    query: PaginationQuery<typeof entryListFilter>,
+  ): Promise<PaginatedResult<EntryEntity>>;
 }
 
 export interface HoldApplicationRepository {
@@ -146,7 +150,10 @@ export interface StatementRepository {
 export interface ReconciliationApplicationRepository {
   ingest(input: IngestReconRecordsInput): Promise<ReconUpload>;
   createRule(input: CreateReconRuleInput): Promise<ReconRule>;
-  listRules(tenantId: string, where?: WhereFor<typeof reconRuleListFilter>): Promise<ReconRule[]>;
+  listRules(
+    query: PaginationQuery<typeof reconRuleListFilter>,
+  ): Promise<PaginatedResult<ReconRule>>;
+  listResults(query: ReconResultPaginationQuery): Promise<PaginatedResult<ReconResult> | null>;
   getRule(tenantId: string, ruleId: string): Promise<ReconRule | null>;
   run(input: RunReconInput): Promise<ReconRun>;
   getRun(tenantId: string, runId: string): Promise<ReconRun | null>;

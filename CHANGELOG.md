@@ -6,6 +6,18 @@ are linked from each entry.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `PaginationQuery` now takes a filter policy, for example `PaginationQuery<typeof assetListFilter>`, rather than a precomputed `WhereFor` type. Shared helpers accept `BasePaginationQuery`. Empty resource query aliases are removed; use `PaginationQuery<typeof policy>` directly.
+
+- **Breaking:** ledger, API key, and reconciliation matching-rule list APIs now use bounded cursor pagination and return `{ data, next_cursor }`.
+- Added paginated reconciliation run results at `/v1/reconciliation/runs/{id}/results`.
+
+Upgrade notes: library callers pass pagination query objects to `LedgerService.list`,
+`AssetService.list`, `ApiKeyService.listApiKeys`, and `ReconciliationService.listRules`. HTTP callers
+should read items from `data` and continue with `next_cursor`; `GET /v1/ledgers` changes from an
+array response, while the API key and matching-rule envelopes gain `next_cursor`.
+
 ## [0.4.0] - 2026-10-17
 
 ### Added

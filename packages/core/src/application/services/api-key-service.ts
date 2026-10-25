@@ -4,7 +4,8 @@ import { ApiKeyRole } from '../../api-key/entity';
 import { apiKeyListFilter } from '../../api-key/list-filter';
 import { assertNonEmpty } from '../../utils';
 import { ForbiddenError, InvariantViolationError, UnauthorizedError } from '../errors';
-import { validateListWhere, type WhereFor } from '../list-filters';
+import { validateListWhere } from '../list-filters';
+import { validatePaginationQuery } from '../pagination-query';
 import type { ApiKeyRepository } from '../repositories.interface';
 import type {
   AuthContext,
@@ -12,6 +13,8 @@ import type {
   BootstrapAdminResult,
   CreateApiKeyRequestInput,
   CreateApiKeyResult,
+  PaginatedResult,
+  PaginationQuery,
 } from '../types';
 
 const API_KEY_PREFIX = 'llk_';
@@ -68,11 +71,13 @@ export class ApiKeyService {
 
   public async listApiKeys(
     actor: AuthContext,
-    where?: WhereFor<typeof apiKeyListFilter>,
-  ): Promise<ApiKeyEntity[]> {
+    query: Omit<PaginationQuery<typeof apiKeyListFilter>, 'tenantId'>,
+  ): Promise<PaginatedResult<ApiKeyEntity>> {
     this.assertAdmin(actor);
-    validateListWhere(apiKeyListFilter, where);
-    return this.repository.list(actor.tenantId, where);
+    const scopedQuery = { ...query, tenantId: actor.tenantId };
+    validatePaginationQuery(scopedQuery);
+    validateListWhere(apiKeyListFilter, query.where);
+    return this.repository.list(scopedQuery);
   }
 
   public async bootstrapInitialAdmin(input: BootstrapAdminInput): Promise<BootstrapAdminResult> {

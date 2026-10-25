@@ -2,12 +2,14 @@ import type {
   Asset,
   AssetRepository,
   CreateAssetInput,
-  WhereFor,
+  PaginatedResult,
+  PaginationQuery,
 } from '@luxledger/core/application';
 import { assetListFilter } from '@luxledger/core/application';
 import { and, eq, getTableColumns } from 'drizzle-orm';
 import type { DbClient } from '../client';
-import { listWhereSql } from '../list-where';
+import { listWhereScope, listWhereSql } from '../list-where';
+import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
 
 export class DrizzleAssetRepository implements AssetRepository {
@@ -31,18 +33,30 @@ export class DrizzleAssetRepository implements AssetRepository {
     });
   }
 
-  public async list(tenantId: string, where?: WhereFor<typeof assetListFilter>): Promise<Asset[]> {
-    return this.client.runTenantTx(tenantId, 'list assets', (tx) =>
-      tx
-        .select()
-        .from(schema.assets)
-        .where(
-          and(
-            eq(schema.assets.tenantId, tenantId),
-            listWhereSql(getTableColumns(schema.assets), assetListFilter, where),
-          ),
-        )
-        .orderBy(schema.assets.code),
-    );
+  public async list(
+    query: PaginationQuery<typeof assetListFilter>,
+  ): Promise<PaginatedResult<Asset>> {
+    return this.client.runTenantTx(query.tenantId, 'list assets', async (tx) => {
+      const predicates = [
+        eq(schema.assets.tenantId, query.tenantId),
+        listWhereSql(getTableColumns(schema.assets), assetListFilter, query.where),
+      ];
+      const page = await paginateByCursor<typeof schema.assets.$inferSelect>({
+        query,
+        scope: { resource: 'assets', tenantId: query.tenantId, ...listWhereScope(query.where) },
+        order: [
+          { column: schema.assets.code, key: 'code', type: 'string', getValue: (row) => row.code },
+          { column: schema.assets.id, key: 'id', type: 'uuid', getValue: (row) => row.id },
+        ],
+        selectRows: async ({ cursorPredicate, limit, orderBy }) =>
+          tx
+            .select()
+            .from(schema.assets)
+            .where(and(...predicates, cursorPredicate))
+            .orderBy(...orderBy)
+            .limit(limit),
+      });
+      return { data: page.rows, nextCursor: page.nextCursor };
+    });
   }
 }

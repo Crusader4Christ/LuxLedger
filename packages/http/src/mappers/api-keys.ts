@@ -15,8 +15,12 @@ export const toApiKeyContract = (key: ApiKeyEntity): ApiKeyContract => ({
   revoked_at: key.revokedAt ? key.revokedAt.toISOString() : null,
 });
 
-export const toListApiKeysResponse = (keys: ApiKeyEntity[]): ListApiKeysResponse => ({
+export const toListApiKeysResponse = (
+  keys: ApiKeyEntity[],
+  nextCursor: string | null,
+): ListApiKeysResponse => ({
   data: keys.map(toApiKeyContract),
+  next_cursor: nextCursor,
 });
 
 export const toCreateApiKeyResponse = (result: CreateApiKeyResult): CreateApiKeyResponse => ({

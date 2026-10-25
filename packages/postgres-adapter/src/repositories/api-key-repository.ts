@@ -3,13 +3,16 @@ import type {
   ApiKeyRepository,
   BootstrapAdminRepositoryInput,
   BootstrapAdminResult,
-  WhereFor,
+  PaginatedResult,
+  PaginationQuery,
 } from '@luxledger/core/application';
 import { apiKeyListFilter } from '@luxledger/core/application';
-import { and, asc, eq, getTableColumns, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, sql } from 'drizzle-orm';
 import type { DbClient } from '../client';
-import { listWhereSql } from '../list-where';
+import { exactTimestamp } from '../exact-timestamp';
+import { listWhereScope, listWhereSql } from '../list-where';
 import { toApiKeyEntity } from '../mappers/api-key-mapper';
+import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
 
 export class DrizzleApiKeyRepository implements ApiKeyRepository {
@@ -87,21 +90,39 @@ export class DrizzleApiKeyRepository implements ApiKeyRepository {
   }
 
   public async list(
-    tenantId: string,
-    where?: WhereFor<typeof apiKeyListFilter>,
-  ): Promise<ApiKeyEntity[]> {
-    return this.client.runTenantTx(tenantId, 'list api keys', async (tx) => {
-      const rows = await tx
-        .select()
-        .from(schema.apiKeys)
-        .where(
-          and(
-            eq(schema.apiKeys.tenantId, tenantId),
-            listWhereSql(getTableColumns(schema.apiKeys), apiKeyListFilter, where),
-          ),
-        )
-        .orderBy(asc(schema.apiKeys.createdAt), asc(schema.apiKeys.id));
-      return rows.map(toApiKeyEntity);
+    query: PaginationQuery<typeof apiKeyListFilter>,
+  ): Promise<PaginatedResult<ApiKeyEntity>> {
+    return this.client.runTenantTx(query.tenantId, 'list api keys', async (tx) => {
+      const predicates = [
+        eq(schema.apiKeys.tenantId, query.tenantId),
+        listWhereSql(getTableColumns(schema.apiKeys), apiKeyListFilter, query.where),
+      ];
+      const page = await paginateByCursor<
+        typeof schema.apiKeys.$inferSelect & { cursorCreatedAt: string }
+      >({
+        query,
+        scope: { resource: 'api-keys', tenantId: query.tenantId, ...listWhereScope(query.where) },
+        order: [
+          {
+            column: schema.apiKeys.createdAt,
+            key: 'created_at',
+            type: 'timestamp',
+            getValue: (row) => row.cursorCreatedAt,
+          },
+          { column: schema.apiKeys.id, key: 'id', type: 'uuid', getValue: (row) => row.id },
+        ],
+        selectRows: async ({ cursorPredicate, limit, orderBy }) =>
+          tx
+            .select({
+              ...getTableColumns(schema.apiKeys),
+              cursorCreatedAt: exactTimestamp(schema.apiKeys.createdAt),
+            })
+            .from(schema.apiKeys)
+            .where(and(...predicates, cursorPredicate))
+            .orderBy(...orderBy)
+            .limit(limit),
+      });
+      return { data: page.rows.map(toApiKeyEntity), nextCursor: page.nextCursor };
     });
   }
 

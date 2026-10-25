@@ -77,9 +77,9 @@ describe('Drizzle ledger repository', () => {
     await ledgerRepository.create({ tenantId: tenantA, name: 'A-2' });
     await ledgerRepository.create({ tenantId: tenantB, name: 'B-1' });
 
-    const tenantLedgers = await ledgerRepository.list(tenantA);
+    const tenantLedgers = await ledgerRepository.list({ tenantId: tenantA, limit: 10 });
 
-    expect(tenantLedgers.length).toBe(2);
-    expect(tenantLedgers.every((ledger) => ledger.tenantId === tenantA)).toBeTrue();
+    expect(tenantLedgers.data.length).toBe(2);
+    expect(tenantLedgers.data.every((ledger) => ledger.tenantId === tenantA)).toBeTrue();
   });
 });

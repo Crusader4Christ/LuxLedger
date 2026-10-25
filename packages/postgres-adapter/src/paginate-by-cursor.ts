@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { UnknownRecord } from '@luxledger/core';
-import { InvariantViolationError, type PaginationQuery } from '@luxledger/core/application';
+import { type BasePaginationQuery, InvariantViolationError } from '@luxledger/core/application';
 import type { AnyColumn } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, lt, or, SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import stringify from 'safe-stable-stringify';
@@ -23,7 +23,7 @@ interface CursorOrderField<Row> {
 }
 
 interface PaginateByCursorOptions<Row> {
-  query: PaginationQuery<unknown>;
+  query: BasePaginationQuery;
   scope: UnknownRecord;
   order: [CursorOrderField<Row>, ...CursorOrderField<Row>[]];
   selectRows: (params: {

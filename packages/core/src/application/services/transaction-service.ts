@@ -14,8 +14,8 @@ import type {
   CorrectTransactionResult,
   CreateTransactionInput,
   CreateTransactionResult,
-  EntryPaginationQuery,
   PaginatedResult,
+  PaginationQuery,
   ReverseTransactionInput,
   ReverseTransactionResult,
   TransactionPaginationQuery,
@@ -101,7 +101,9 @@ export class TransactionService {
     return transaction;
   }
 
-  public async listEntries(query: EntryPaginationQuery): Promise<PaginatedResult<EntryEntity>> {
+  public async listEntries(
+    query: PaginationQuery<typeof entryListFilter>,
+  ): Promise<PaginatedResult<EntryEntity>> {
     validatePaginationQuery(query);
     validateListWhere(entryListFilter, query.where);
     return this.repository.listEntries(query);
