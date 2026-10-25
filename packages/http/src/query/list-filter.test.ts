@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { MAX_WHERE_LENGTH, parseWhere, readWhereParameter } from './list-filter';
-import { accountFilterFields } from './list-filter-fields';
+import {
+  MAX_WHERE_LENGTH,
+  parseWhere,
+  readWhereParameter,
+  whereFieldsToJsonSchema,
+} from './list-filter';
+import { accountFilterFields, transactionFilterFields } from './list-filter-fields';
 
 describe('typed list filter parsing', () => {
   it('parses typed values, aliases snake case and preserves bigint precision', () => {
@@ -34,6 +39,10 @@ describe('typed list filter parsing', () => {
       expect(parseWhere(value, accountFilterFields)).toBeNull();
     }
     expect(readWhereParameter('/?where=%7B%7D&where=%7B%7D', accountFilterFields)).toBeNull();
+    expect(readWhereParameter('/?where%5Bname%5D%5Beq%5D=Cash', accountFilterFields)).toBeNull();
+    expect(
+      readWhereParameter('/?where=%7B%7D&where%5Bname%5D%5Beq%5D=Cash', accountFilterFields),
+    ).toBeNull();
     expect(parseWhere(`{"name":{"eq":"${'x'.repeat(8200)}"}}`, accountFilterFields)).toBeNull();
   });
 
@@ -54,6 +63,16 @@ describe('typed list filter parsing', () => {
       parseWhere('{"created_at":{"gte":"2024-02-29T10:20:30+02:00"}}', timeFields),
     ).not.toBeNull();
     expect(parseWhere('{"created_at":{"gte":"2025-02-29T10:20:30Z"}}', timeFields)).toBeNull();
+  });
+
+  it('documents nullable enum values as JSON Schema nulls', () => {
+    const schema = whereFieldsToJsonSchema(transactionFilterFields) as {
+      properties: { relation_type: { properties: { eq: { type: string[]; enum: unknown[] } } } };
+    };
+    expect(schema.properties.relation_type.properties.eq).toEqual({
+      type: ['string', 'null'],
+      enum: ['REVERSAL', 'CORRECTION', null],
+    });
   });
 
   it('enforces enum, UUID, boolean and decimal integer wire types', () => {

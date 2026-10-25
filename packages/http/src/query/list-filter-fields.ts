@@ -32,7 +32,7 @@ export const transactionFilterFields = {
     target: 'relationType',
   },
   created_at: { ...time, target: 'createdAt' },
-  effective_at: { ...time, nullable: true, target: 'effectiveAt' },
+  effective_at: { ...time, target: 'effectiveAt' },
 } satisfies FilterFields;
 export const entryFilterFields = {
   id,
@@ -40,13 +40,12 @@ export const entryFilterFields = {
   account_id: { ...id, target: 'accountId' },
   signed_amount_minor: { ...minor, target: 'signedAmountMinor' },
   currency: text,
-  created_at: { ...time, nullable: true, target: 'createdAt' },
+  created_at: { ...time, target: 'createdAt' },
 } satisfies FilterFields;
 export const ledgerFilterFields = {
   id,
   name: text,
   created_at: { ...time, target: 'createdAt' },
-  updated_at: { ...time, target: 'updatedAt' },
 } satisfies FilterFields;
 export const apiKeyFilterFields = {
   id,

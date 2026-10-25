@@ -22,6 +22,19 @@ import {
   transactionEntryRequestSchema,
   transactionResponseSchema,
 } from '../index';
+import type { FilterFields } from '../query/list-filter';
+import { whereFieldsToJsonSchema } from '../query/list-filter';
+import {
+  accountFilterFields,
+  apiKeyFilterFields,
+  balanceHistoryFilterFields,
+  creditGrantFilterFields,
+  creditLineageFilterFields,
+  entryFilterFields,
+  ledgerFilterFields,
+  reconRuleFilterFields,
+  transactionFilterFields,
+} from '../query/list-filter-fields';
 import { createContractHarness } from './harness';
 
 const openapiPath = resolve(import.meta.dir, '../../openapi/openapi.yaml');
@@ -388,20 +401,20 @@ describe('framework-agnostic contract suite', () => {
 
   it('documents typed where parameters on every scoped list operation', () => {
     const document = Bun.YAML.parse(readFileSync(openapiPath, 'utf8')) as OpenApiDocument;
-    const routes = {
-      '/v1/accounts': 'AccountsWhere',
-      '/v1/transactions': 'TransactionsWhere',
-      '/v1/entries': 'EntriesWhere',
-      '/v1/ledgers': 'LedgersWhere',
-      '/v1/admin/api-keys': 'ApiKeysWhere',
-      '/v1/reconciliation/matching-rules': 'ReconciliationRulesWhere',
-      '/v1/credit-grants': 'CreditGrantsWhere',
-      '/v1/credit-grants/{id}/allocations': 'CreditLineageWhere',
-      '/v1/transactions/{id}/credit-allocations': 'CreditLineageWhere',
-      '/v1/accounts/{id}/credit-lots': 'CreditGrantsWhere',
-      '/v1/accounts/{id}/balance-history': 'BalanceHistoryWhere',
+    const routes: Record<string, [string, FilterFields]> = {
+      '/v1/accounts': ['AccountsWhere', accountFilterFields],
+      '/v1/transactions': ['TransactionsWhere', transactionFilterFields],
+      '/v1/entries': ['EntriesWhere', entryFilterFields],
+      '/v1/ledgers': ['LedgersWhere', ledgerFilterFields],
+      '/v1/admin/api-keys': ['ApiKeysWhere', apiKeyFilterFields],
+      '/v1/reconciliation/matching-rules': ['ReconciliationRulesWhere', reconRuleFilterFields],
+      '/v1/credit-grants': ['CreditGrantsWhere', creditGrantFilterFields],
+      '/v1/credit-grants/{id}/allocations': ['CreditLineageWhere', creditLineageFilterFields],
+      '/v1/transactions/{id}/credit-allocations': ['CreditLineageWhere', creditLineageFilterFields],
+      '/v1/accounts/{id}/credit-lots': ['CreditGrantsWhere', creditGrantFilterFields],
+      '/v1/accounts/{id}/balance-history': ['BalanceHistoryWhere', balanceHistoryFilterFields],
     };
-    for (const [path, schema] of Object.entries(routes)) {
+    for (const [path, [schema, fields]] of Object.entries(routes)) {
       const parameters = document.paths?.[path]?.get?.parameters ?? [];
       const where = parameters.find((parameter) => parameter.name === 'where');
       expect(where).toBeDefined();
@@ -410,7 +423,7 @@ describe('framework-agnostic contract suite', () => {
         required: false,
         content: { 'application/json': { schema: { $ref: `#/components/schemas/${schema}` } } },
       });
-      expect(document.components?.schemas?.[schema]?.additionalProperties).toBe(false);
+      expect(document.components?.schemas?.[schema]).toEqual(whereFieldsToJsonSchema(fields));
     }
   });
 });

@@ -157,6 +157,8 @@ export const whereQueryProperty = (fields: FilterFields): UnknownRecord => ({
 export const readWhereParameter = <T>(url: string, fields: FilterFields): T | undefined | null => {
   const params = new URL(url, 'http://luxledger.local').searchParams;
   const values = params.getAll('where');
+  if ([...params.keys()].some((key) => key.startsWith('where[') || key.startsWith('where.')))
+    return null;
   if (values.length > 1) return null;
   return parseWhere<T>(values[0], fields);
 };
@@ -178,7 +180,19 @@ const scalarSchema = (field: FilterField): UnknownRecord => ({
       : field.kind === 'uuid'
         ? { type: 'string', format: 'uuid' }
         : field.kind === 'enum'
-          ? { type: 'string', enum: field.values }
+          ? {
+              type: field.nullable ? ['string', 'null'] : 'string',
+              enum: field.nullable ? [...(field.values ?? []), null] : field.values,
+            }
           : { type: field.kind }),
-  ...(field.nullable ? { nullable: true } : {}),
+  ...(field.nullable && field.kind !== 'enum'
+    ? {
+        type: [
+          field.kind === 'integer-string' || field.kind === 'date-time' || field.kind === 'uuid'
+            ? 'string'
+            : field.kind,
+          'null',
+        ],
+      }
+    : {}),
 });

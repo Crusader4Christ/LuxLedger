@@ -177,12 +177,13 @@ export const registerCreditGrantRoutes = (
     }),
   );
 
-  const registerPagedGet = <Item, Dto>(
+  const registerPagedGet = <Item, Dto, Where>(
     path: string,
+    parseWhere: (url: string) => Where | undefined | null,
     load: (
       tenantId: string,
       id: string,
-      page: { limit: number; cursor?: string },
+      page: { limit: number; cursor?: string; where?: Where },
     ) => Promise<{ data: Item[]; nextCursor: string | null }>,
     toDto: (item: Item) => Dto,
   ): void => {
@@ -194,12 +195,7 @@ export const registerCreditGrantRoutes = (
           return;
         }
         const pagination = parsePaginationQuery(req.query);
-        const fields = path.endsWith('/credit-lots')
-          ? creditGrantFilterFields
-          : creditLineageFilterFields;
-        const where = path.endsWith('/credit-lots')
-          ? readWhereParameter<WhereFor<typeof creditGrantListFilter>>(req.originalUrl, fields)
-          : readWhereParameter<WhereFor<typeof creditLineageListFilter>>(req.originalUrl, fields);
+        const where = parseWhere(req.originalUrl);
         if (pagination === null || where === null) {
           sendInvalidInput(res, 'Invalid querystring');
           return;
@@ -208,10 +204,7 @@ export const registerCreditGrantRoutes = (
         res
           .status(200)
           .json(
-            toPaginatedResponse(
-              await load(tenantId, params.id, { ...pagination, where } as never),
-              toDto,
-            ),
+            toPaginatedResponse(await load(tenantId, params.id, { ...pagination, where }), toDto),
           );
       }),
     );
@@ -219,18 +212,24 @@ export const registerCreditGrantRoutes = (
 
   registerPagedGet(
     '/v1/credit-grants/:id/allocations',
+    (url) =>
+      readWhereParameter<WhereFor<typeof creditLineageListFilter>>(url, creditLineageFilterFields),
     (tenantId, grantId, page) =>
       services.creditGrants.listLineageByGrant({ tenantId, grantId, ...page }),
     toCreditGrantLineageItemResponse,
   );
   registerPagedGet(
     '/v1/transactions/:id/credit-allocations',
+    (url) =>
+      readWhereParameter<WhereFor<typeof creditLineageListFilter>>(url, creditLineageFilterFields),
     (tenantId, transactionId, page) =>
       services.creditGrants.listLineageByTransaction({ tenantId, transactionId, ...page }),
     toCreditGrantLineageItemResponse,
   );
   registerPagedGet(
     '/v1/accounts/:id/credit-lots',
+    (url) =>
+      readWhereParameter<WhereFor<typeof creditGrantListFilter>>(url, creditGrantFilterFields),
     (tenantId, accountId, page) => services.creditGrants.listLots({ tenantId, accountId, ...page }),
     toCreditGrantLotResponse,
   );
