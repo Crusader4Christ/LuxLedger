@@ -38,4 +38,6 @@ The adapter registers these route families:
 
 The complete and versioned route surface, including bulk posting, reversal/correction, historical balances, holds, and reconciliation, is defined by [`@luxledger/http` OpenAPI](../http/openapi/openapi.yaml). Hosts must register authentication before these routes and keep business logic in application services.
 
+Ledger, API key, and reconciliation matching-rule list routes accept `limit` (default 50, maximum 200), an opaque `cursor`, and endpoint-specific typed `where` filters. They return `{ data, next_cursor }`. Reconciliation run results are available through `GET /v1/reconciliation/runs/{id}/results`.
+
 Pin compatible LuxLedger package versions and verify the released OpenAPI before production; see [versioning and publication](../../docs/integration/versioning.md).

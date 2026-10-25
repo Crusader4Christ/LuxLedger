@@ -94,3 +94,16 @@ export const reconRuleFilterFields = {
   description: nullableText,
   created_at: { ...time, target: 'createdAt' },
 } satisfies FilterFields;
+export const reconResultListFilterFields = {
+  id,
+  run_id: { ...id, target: 'runId' },
+  external_record_id: { ...id, nullable: true, target: 'externalRecordId' },
+  external_id: { ...nullableText, target: 'externalId' },
+  transaction_id: { ...id, nullable: true, target: 'transactionId' },
+  status: {
+    kind: 'enum',
+    values: ['matched', 'unmatched_external', 'unmatched_internal', 'mismatched', 'conflict'],
+  },
+  reason: text,
+  created_at: { ...time, target: 'createdAt' },
+} satisfies FilterFields;

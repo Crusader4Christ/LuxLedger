@@ -1,5 +1,6 @@
 import {
   AccountNotFoundError,
+  type BasePaginationQuery,
   type CreateCreditGrantInput,
   type CreditBalance,
   type CreditGrant,
@@ -19,7 +20,6 @@ import {
   creditLineageListFilter,
   InvariantViolationError,
   type PaginatedResult,
-  type PaginationQuery,
   type ProcessCreditGrantExpirationsInput,
   type RefundCreditGrantInput,
   type ReverseCreditGrantInput,
@@ -572,7 +572,7 @@ export class DrizzleCreditGrantRepository implements CreditGrantRepository {
 
   private selectGrantPage(
     tx: Tx,
-    query: PaginationQuery<unknown>,
+    query: BasePaginationQuery,
     predicates: SQL[],
     scope: Record<string, string | null>,
   ) {

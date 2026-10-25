@@ -26,7 +26,7 @@ import {
   type CreateReconRuleInput,
   type CreateTransactionInput,
   type CreateTransactionResult,
-  type EntryPaginationQuery,
+  type entryListFilter,
   type HistoricalBalance,
   HoldService,
   type IngestReconRecordsInput,
@@ -36,9 +36,11 @@ import {
   LedgerService,
   type LedgerTrialBalanceQuery,
   type PaginatedResult,
+  type PaginationQuery,
   ReconciliationService,
   type ReconRule,
   type ReconRun,
+  ReconRunNotFoundError,
   type ReconUpload,
   type RunReconInput,
   TransactionNotFoundError,
@@ -76,8 +78,16 @@ class InMemoryLedgerRepository {
     return ledger && ledger.tenantId === tenantId ? ledger : null;
   }
 
-  public async listLedgers(tenantId: string): Promise<Ledger[]> {
-    return [...this.ledgers.values()].filter((ledger) => ledger.tenantId === tenantId);
+  public async listLedgers(query: {
+    tenantId: string;
+    limit: number;
+  }): Promise<PaginatedResult<Ledger>> {
+    return {
+      data: [...this.ledgers.values()]
+        .filter((ledger) => ledger.tenantId === query.tenantId)
+        .slice(0, query.limit),
+      nextCursor: null,
+    };
   }
 
   public async createTransaction(input: CreateTransactionInput): Promise<CreateTransactionResult> {
@@ -265,7 +275,9 @@ class InMemoryLedgerRepository {
     return { data, nextCursor: null };
   }
 
-  public async listEntries(_query: EntryPaginationQuery): Promise<PaginatedResult<EntryEntity>> {
+  public async listEntries(
+    _query: PaginationQuery<typeof entryListFilter>,
+  ): Promise<PaginatedResult<EntryEntity>> {
     return { data: [], nextCursor: null };
   }
 
@@ -318,8 +330,11 @@ class InMemoryLedgerRepository {
     };
   }
 
-  public async listReconciliationMatchingRules(_tenantId: string): Promise<ReconRule[]> {
-    return [];
+  public async listReconciliationMatchingRules(_query: {
+    tenantId: string;
+    limit: number;
+  }): Promise<PaginatedResult<ReconRule>> {
+    return { data: [], nextCursor: null };
   }
 
   public async getReconciliationMatchingRule(
@@ -374,15 +389,16 @@ const createServices = (repository: InMemoryLedgerRepository) => ({
   ledgers: new LedgerService({
     create: (input) => repository.createLedger(input),
     findById: (tenantId, ledgerId) => repository.findLedger(tenantId, ledgerId),
-    list: (tenantId) => repository.listLedgers(tenantId),
+    list: (query) => repository.listLedgers(query),
   }),
   reconciliation: new ReconciliationService({
     ingest: (input) => repository.ingestExternalRecords(input),
     createRule: (input) => repository.createReconciliationMatchingRule(input),
-    listRules: (tenantId) => repository.listReconciliationMatchingRules(tenantId),
+    listRules: (query) => repository.listReconciliationMatchingRules(query),
     getRule: (tenantId, ruleId) => repository.getReconciliationMatchingRule(tenantId, ruleId),
     run: (input) => repository.runReconciliation(input),
     getRun: (tenantId, runId) => repository.getReconciliationRun(tenantId, runId),
+    listResults: async () => ({ data: [], nextCursor: null }),
   }),
   transactions: new TransactionService({
     create: (input) => repository.createTransaction(input),
@@ -461,7 +477,39 @@ describe('application services', () => {
     const repository = new InMemoryLedgerRepository();
     const services = createServices(repository);
 
-    await expect(services.ledgers.list('')).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(services.ledgers.list({ tenantId: '', limit: 50 })).rejects.toBeInstanceOf(
+      InvariantViolationError,
+    );
+  });
+
+  it('validates reconciliation result pagination filters and maps missing runs', async () => {
+    const repository = new InMemoryLedgerRepository();
+    const services = createServices(repository);
+    const query = { tenantId: 'tenant-a', runId: 'run-1', limit: 10 };
+
+    expect(await services.reconciliation.listResults(query)).toEqual({
+      data: [],
+      nextCursor: null,
+    });
+    await expect(
+      services.reconciliation.listResults({
+        ...query,
+        where: { candidateTransactionIds: { eq: ['tx-1'] } },
+      } as never),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const missingRunService = new ReconciliationService({
+      ingest: (input) => repository.ingestExternalRecords(input),
+      createRule: (input) => repository.createReconciliationMatchingRule(input),
+      listRules: (input) => repository.listReconciliationMatchingRules(input),
+      getRule: (tenantId, ruleId) => repository.getReconciliationMatchingRule(tenantId, ruleId),
+      run: (input) => repository.runReconciliation(input),
+      getRun: (tenantId, runId) => repository.getReconciliationRun(tenantId, runId),
+      listResults: async () => null,
+    });
+    await expect(missingRunService.listResults(query)).rejects.toBeInstanceOf(
+      ReconRunNotFoundError,
+    );
   });
 
   it('createTransaction delegates to repository', async () => {

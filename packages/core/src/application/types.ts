@@ -5,7 +5,6 @@ import type { ApiKeyEntity, ApiKeyRole } from '../api-key/entity';
 import type { CreateApiKeyInput } from '../api-key/input.interface';
 import type { JsonObject } from '../base/json';
 import type { UnknownRecord } from '../base/object';
-import type { entryListFilter } from '../entry/list-filter';
 import type { LedgerEntity } from '../ledger/entity';
 import type { CreateLedgerInput } from '../ledger/input.interface';
 import type {
@@ -19,7 +18,7 @@ import type {
 import type { TenantEntity } from '../tenant/entity';
 import type { transactionListFilter } from '../transaction/list-filter';
 import type { CreateTransactionCommand } from '../transaction/use-cases/create-transaction.command';
-import { defineListFilter, type WhereFor } from './list-filters';
+import { defineListFilter, type ListFilterPolicy, type WhereFor } from './list-filters';
 
 export type Tenant = TenantEntity;
 export interface Asset {
@@ -109,18 +108,15 @@ export interface CreditBalance {
   ledgerBalanceMinor: bigint;
   remainingMinor: bigint;
 }
-export interface CreditGrantListQuery
-  extends PaginationQuery<WhereFor<typeof creditGrantListFilter>> {
+export interface CreditGrantListQuery extends PaginationQuery<typeof creditGrantListFilter> {
   accountId?: string;
   reference?: string;
   externalReference?: string;
 }
-export interface CreditLotListQuery
-  extends PaginationQuery<WhereFor<typeof creditGrantListFilter>> {
+export interface CreditLotListQuery extends PaginationQuery<typeof creditGrantListFilter> {
   accountId: string;
 }
-export interface CreditLineageQuery
-  extends PaginationQuery<WhereFor<typeof creditLineageListFilter>> {
+export interface CreditLineageQuery extends PaginationQuery<typeof creditLineageListFilter> {
   grantId?: string;
   transactionId?: string;
 }
@@ -279,22 +275,22 @@ export interface VoidHoldResult {
   voided: boolean;
 }
 
-export interface PaginationQuery<TWhere = never> {
-  where?: TWhere;
+export interface BasePaginationQuery {
   tenantId: string;
   limit: number;
   cursor?: string;
 }
 
-export interface EntryPaginationQuery extends PaginationQuery<WhereFor<typeof entryListFilter>> {}
+export interface PaginationQuery<Policy extends ListFilterPolicy = never>
+  extends BasePaginationQuery {
+  where?: WhereFor<Policy>;
+}
 
-export interface AccountPaginationQuery
-  extends PaginationQuery<WhereFor<typeof accountListFilter>> {
+export interface AccountPaginationQuery extends PaginationQuery<typeof accountListFilter> {
   ledgerId?: string;
 }
 
-export interface TransactionPaginationQuery
-  extends PaginationQuery<WhereFor<typeof transactionListFilter>> {
+export interface TransactionPaginationQuery extends PaginationQuery<typeof transactionListFilter> {
   ledgerId?: string;
 }
 
@@ -356,8 +352,7 @@ export interface BalanceSnapshotEvent {
 
 export const balanceHistoryListFilter = defineListFilter<BalanceSnapshotEvent>()(['tenantId']);
 
-export interface BalanceHistoryQuery
-  extends PaginationQuery<WhereFor<typeof balanceHistoryListFilter>> {
+export interface BalanceHistoryQuery extends PaginationQuery<typeof balanceHistoryListFilter> {
   accountId: string;
   from: Date;
   to: Date;
@@ -490,6 +485,12 @@ export interface ReconResult {
   reason: string;
   candidateTransactionIds: string[];
   createdAt: Date;
+}
+
+export const reconResultListFilter = defineListFilter<ReconResult>()(['candidateTransactionIds']);
+
+export interface ReconResultPaginationQuery extends PaginationQuery<typeof reconResultListFilter> {
+  runId: string;
 }
 
 export interface ReconRun {

@@ -47,4 +47,6 @@ This package reads no environment variables. Authentication, JWT, rate limiting,
 
 The complete and versioned route surface is defined by [`@luxledger/http` OpenAPI](../http/openapi/openapi.yaml). See the repository [integration guide](../../docs/integration/README.md) before composing the adapter in a host application.
 
+Ledger, API key, and reconciliation matching-rule list routes accept `limit` (default 50, maximum 200), an opaque `cursor`, and endpoint-specific typed `where` filters. They return `{ data, next_cursor }`. Reconciliation run results are available through `GET /v1/reconciliation/runs/{id}/results`.
+
 Pin compatible LuxLedger package versions and verify the released OpenAPI before production; see [versioning and publication](../../docs/integration/versioning.md).

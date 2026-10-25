@@ -5,6 +5,7 @@ import {
   type ApplicationServices,
   type CreditGrant,
   InvariantViolationError,
+  ReconRunNotFoundError,
 } from '@luxledger/core/application';
 import type { UnknownRecord } from '@luxledger/core/base';
 import type { TransactionMetadata } from '@luxledger/core/transaction';
@@ -134,9 +135,9 @@ class FakeLedgerService {
     return { data: this.lastAccount ? [this.lastAccount] : [], nextCursor: null };
   }
 
-  public async listLedgers(_tenantId: string, where?: unknown): Promise<unknown[]> {
-    observeList('ledgers', { tenantId: _tenantId, where });
-    return [];
+  public async listLedgers(query: unknown): Promise<{ data: unknown[]; nextCursor: null }> {
+    observeList('ledgers', query);
+    return { data: [], nextCursor: null };
   }
 
   public async listEntries(query: unknown) {
@@ -149,9 +150,17 @@ class FakeLedgerService {
     return { data: [], nextCursor: null };
   }
 
-  public async listRules(tenantId: string, where: unknown) {
-    observeList('reconciliation-rules', { tenantId, where });
-    return [];
+  public async listRules(query: unknown) {
+    observeList('reconciliation-rules', query);
+    return { data: [], nextCursor: null };
+  }
+
+  public async listResults(query: unknown) {
+    observeList('reconciliation-results', query);
+    if ((query as { runId?: string }).runId === '01900000-0000-7000-8000-000000000999') {
+      throw new ReconRunNotFoundError('01900000-0000-7000-8000-000000000999');
+    }
+    return { data: [], nextCursor: null };
   }
 
   public async createTransaction(input: {
@@ -245,9 +254,9 @@ class FakeLedgerService {
 }
 
 class FakeApiKeyService {
-  public async listApiKeys(auth: unknown, where: unknown): Promise<unknown[]> {
-    observeList('api-keys', { auth, where });
-    return [];
+  public async listApiKeys(auth: unknown, query: unknown) {
+    observeList('api-keys', { auth, ...(query as Record<string, unknown>) });
+    return { data: [], nextCursor: null };
   }
 }
 
@@ -382,8 +391,7 @@ describe('express adapter parity with fastify adapter', () => {
       balances: fakeLedgerService,
       holds: fakeLedgerService,
       ledgers: {
-        list: (currentTenantId: string, where: unknown) =>
-          fakeLedgerService.listLedgers(currentTenantId, where),
+        list: (query: unknown) => fakeLedgerService.listLedgers(query),
       },
       reconciliation: fakeLedgerService,
       statements: {
@@ -1164,6 +1172,7 @@ describe('express adapter parity with fastify adapter', () => {
 
   it('forwards scoped list filters, pagination, and fixed query values through both adapters', async () => {
     const id = '00000000-0000-4000-8000-000000000101';
+    const runIdV7 = '01900000-0000-7000-8000-000000000001';
     const grantId = '00000000-0000-4000-8000-000000000901';
     const transactionId = '00000000-0000-4000-8000-000000000300';
     const date = '2026-01-01T00:00:00.1200Z';
@@ -1208,25 +1217,48 @@ describe('express adapter parity with fastify adapter', () => {
       },
       {
         endpoint: 'ledgers',
-        path: `/v1/ledgers?${where('created_at', 'gte', date)}`,
-        expected: { tenantId, where: { createdAt: { gte: new Date(date) } } },
+        path: `/v1/ledgers?limit=7&cursor=opaque&${where('created_at', 'gte', date)}`,
+        expected: {
+          tenantId,
+          limit: 7,
+          cursor: 'opaque',
+          where: { createdAt: { gte: new Date(date) } },
+        },
       },
       {
         endpoint: 'api-keys',
-        path: `/v1/admin/api-keys?${where('role', 'eq', 'ADMIN')}`,
+        path: `/v1/admin/api-keys?limit=7&cursor=opaque&${where('role', 'eq', 'ADMIN')}`,
         expected: {
           auth: {
             tenantId,
             apiKeyId: '00000000-0000-4000-8000-000000000001',
             role: ApiKeyRole.ADMIN,
           },
+          limit: 7,
+          cursor: 'opaque',
           where: { role: { eq: 'ADMIN' } },
         },
       },
       {
         endpoint: 'reconciliation-rules',
-        path: `/v1/reconciliation/matching-rules?${where('created_at', 'gte', date)}`,
-        expected: { tenantId, where: { createdAt: { gte: new Date(date) } } },
+        path: `/v1/reconciliation/matching-rules?limit=7&cursor=opaque&${where('created_at', 'gte', date)}`,
+        expected: {
+          tenantId,
+          limit: 7,
+          cursor: 'opaque',
+          where: { createdAt: { gte: new Date(date) } },
+        },
+      },
+      {
+        endpoint: 'reconciliation-results',
+        path: `/v1/reconciliation/runs/${runIdV7}/results?limit=7&cursor=opaque&${where('status', 'eq', 'matched')}`,
+        expected: {
+          tenantId,
+          runId: runIdV7,
+          limit: 7,
+          cursor: 'opaque',
+          where: { status: { eq: 'matched' } },
+        },
       },
       {
         endpoint: 'credit-grants',
@@ -1315,6 +1347,8 @@ describe('express adapter parity with fastify adapter', () => {
     const privateField = `where=${encodeURIComponent(JSON.stringify({ tenant_id: { eq: tenantId } }))}`;
     const invalidWhereQueries = [
       privateField,
+      `where=${encodeURIComponent(JSON.stringify({ key_hash: { eq: 'sensitive-hash' } }))}`,
+      `where=${encodeURIComponent(JSON.stringify({ candidate_transaction_ids: { eq: ['id'] } }))}`,
       'where=%7Bbad',
       'where=%7B%7D&where=%7B%7D',
       `where=${'x'.repeat(8193)}`,
@@ -1333,12 +1367,40 @@ describe('express adapter parity with fastify adapter', () => {
       }
     }
 
-    for (const path of ['/v1/ledgers', '/v1/admin/api-keys', '/v1/reconciliation/matching-rules']) {
+    for (const path of [
+      '/v1/ledgers',
+      '/v1/admin/api-keys',
+      '/v1/reconciliation/matching-rules',
+      `/v1/reconciliation/runs/${id}/results`,
+    ]) {
       for (const request of [requestFastify, requestExpress]) {
         listObservations.clear();
         const response = await request('GET', `${path}?unexpected=1`);
         expect(response.status).toBe(400);
         expect(listObservations.size).toBe(0);
+      }
+    }
+
+    const defaultPagePaths = [
+      ['/v1/ledgers', 'ledgers'],
+      ['/v1/admin/api-keys', 'api-keys'],
+      ['/v1/reconciliation/matching-rules', 'reconciliation-rules'],
+      [`/v1/reconciliation/runs/${runIdV7}/results`, 'reconciliation-results'],
+    ] as const;
+    for (const [path, endpoint] of defaultPagePaths) {
+      for (const request of [requestFastify, requestExpress]) {
+        listObservations.clear();
+        const response = await request('GET', path);
+        expect(response.status).toBe(200);
+        expect(response.json).toEqual({ data: [], next_cursor: null });
+        const observation = listObservations.get(endpoint)?.[0] as Record<string, unknown>;
+        expect(observation).toMatchObject({ limit: 50, cursor: undefined, where: undefined });
+      }
+      for (const request of [requestFastify, requestExpress]) {
+        listObservations.clear();
+        const response = await request('GET', `${path}?limit=201`);
+        expect(response.status).toBe(400);
+        expect(listObservations.has(endpoint)).toBeFalse();
       }
     }
 
@@ -1354,6 +1416,21 @@ describe('express adapter parity with fastify adapter', () => {
       const response = await request('GET', `/v1/transactions?${mixedPrecisionWhere}`);
       expect(response.status).toBe(400);
       expect(listObservations.has('transactions')).toBeFalse();
+    }
+
+    const missingRunPath = '/v1/reconciliation/runs/01900000-0000-7000-8000-000000000999/results';
+    const invalidRunPath = '/v1/reconciliation/runs/not-a-uuid/results';
+    for (const request of [requestFastify, requestExpress]) {
+      listObservations.clear();
+      const missing = await request('GET', missingRunPath);
+      expect(missing.status).toBe(404);
+      expect(missing.json).toMatchObject({ error: 'RECONCILIATION_RUN_NOT_FOUND' });
+      expect(JSON.stringify(missing.json)).not.toContain('database');
+
+      listObservations.clear();
+      const invalid = await request('GET', invalidRunPath);
+      expect(invalid.status).toBe(400);
+      expect(listObservations.has('reconciliation-results')).toBeFalse();
     }
   });
 

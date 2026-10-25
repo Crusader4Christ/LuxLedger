@@ -12,6 +12,7 @@ import { toApiKeyContract } from '@luxledger/http/mappers';
 import { parseUuidParam } from '@luxledger/http/validation-utils';
 import type { Application, Response } from 'express';
 import { sendInvalidInput, withDomainErrorHandling } from '../errors/handlers';
+import { parsePaginationQuery } from '../query/pagination';
 import { assertAdmin, requireContext } from '../request/context';
 import { validate } from '../request/validation';
 import type { RequestWithContext } from '../types';
@@ -24,7 +25,11 @@ export const registerAdminApiKeyRoutes = (
 ): void => {
   app.get('/v1/admin/api-keys', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      if (validate(listApiKeysQuerySchema, req.query) === null) {
+      const pagination = parsePaginationQuery(req.query);
+      if (
+        pagination === null ||
+        validate(listApiKeysQuerySchema, { ...req.query, limit: pagination.limit }) === null
+      ) {
         sendInvalidInput(res, 'Invalid querystring');
         return;
       }
@@ -44,10 +49,11 @@ export const registerAdminApiKeyRoutes = (
           tenantId: context.tenantId,
           role: context.apiKeyRole,
         },
-        where,
+        { ...pagination, where },
       );
       const response: ListApiKeysResponse = {
-        data: keys.map(toApiKeyContract),
+        data: keys.data.map(toApiKeyContract),
+        next_cursor: keys.nextCursor,
       };
       res.status(200).json(response);
     }),

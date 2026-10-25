@@ -1,5 +1,11 @@
 import { type ReconResultStatus, reconcileOneToOne } from '@luxledger/core';
-import type { WhereFor } from '@luxledger/core/application';
+import type {
+  PaginatedResult,
+  PaginationQuery,
+  ReconResult,
+  ReconResultPaginationQuery,
+  ReconRule,
+} from '@luxledger/core/application';
 import {
   type CreateReconRuleInput,
   type IngestReconRecordsInput,
@@ -9,18 +15,22 @@ import {
   type ReconRun,
   type ReconUpload,
   type RunReconInput,
+  reconResultListFilter,
   reconRuleListFilter,
 } from '@luxledger/core/application';
 import { and, asc, eq, getTableColumns, inArray } from 'drizzle-orm';
 import type { DbClient } from '../client';
-import { listWhereSql } from '../list-where';
+import { exactTimestamp } from '../exact-timestamp';
+import { listWhereScope, listWhereSql } from '../list-where';
 import {
   serializeMatchingCriteria,
   toReconRecord,
+  toReconResult,
   toReconRule,
   toReconRun,
 } from '../mappers/reconciliation-mapper';
 import { toTransactionEntity } from '../mappers/transaction-mapper';
+import { paginateByCursor } from '../paginate-by-cursor';
 import * as schema from '../schema';
 import { generateUuidV7 } from '../uuid-v7';
 import { loadEntriesByTransactionIds } from './entry-loader';
@@ -86,19 +96,99 @@ export class DrizzleReconciliationRepository implements ReconciliationApplicatio
     );
   }
 
-  public async listRules(tenantId: string, where?: WhereFor<typeof reconRuleListFilter>) {
-    return this.client.runTenantTx(tenantId, 'list reconciliation matching rules', async (tx) => {
-      const rows = await tx
-        .select()
-        .from(schema.reconRules)
+  public async listRules(
+    query: PaginationQuery<typeof reconRuleListFilter>,
+  ): Promise<PaginatedResult<ReconRule>> {
+    return this.client.runTenantTx(
+      query.tenantId,
+      'list reconciliation matching rules',
+      async (tx) => {
+        const predicates = [
+          eq(schema.reconRules.tenantId, query.tenantId),
+          listWhereSql(getTableColumns(schema.reconRules), reconRuleListFilter, query.where),
+        ];
+        const page = await paginateByCursor<
+          typeof schema.reconRules.$inferSelect & { cursorCreatedAt: string }
+        >({
+          query,
+          scope: {
+            resource: 'reconciliation-rules',
+            tenantId: query.tenantId,
+            ...listWhereScope(query.where),
+          },
+          order: [
+            {
+              column: schema.reconRules.createdAt,
+              key: 'created_at',
+              type: 'timestamp',
+              getValue: (row) => row.cursorCreatedAt,
+            },
+            { column: schema.reconRules.id, key: 'id', type: 'uuid', getValue: (row) => row.id },
+          ],
+          selectRows: async ({ cursorPredicate, limit, orderBy }) =>
+            tx
+              .select({
+                ...getTableColumns(schema.reconRules),
+                cursorCreatedAt: exactTimestamp(schema.reconRules.createdAt),
+              })
+              .from(schema.reconRules)
+              .where(and(...predicates, cursorPredicate))
+              .orderBy(...orderBy)
+              .limit(limit),
+        });
+        return { data: page.rows.map(toReconRule), nextCursor: page.nextCursor };
+      },
+    );
+  }
+
+  public async listResults(
+    query: ReconResultPaginationQuery,
+  ): Promise<PaginatedResult<ReconResult> | null> {
+    return this.client.runTenantTx(query.tenantId, 'list reconciliation results', async (tx) => {
+      const [run] = await tx
+        .select({ id: schema.reconRuns.id })
+        .from(schema.reconRuns)
         .where(
-          and(
-            eq(schema.reconRules.tenantId, tenantId),
-            listWhereSql(getTableColumns(schema.reconRules), reconRuleListFilter, where),
-          ),
+          and(eq(schema.reconRuns.tenantId, query.tenantId), eq(schema.reconRuns.id, query.runId)),
         )
-        .orderBy(asc(schema.reconRules.createdAt), asc(schema.reconRules.id));
-      return rows.map(toReconRule);
+        .limit(1);
+      if (!run) return null;
+      const predicates = [
+        eq(schema.reconResults.tenantId, query.tenantId),
+        eq(schema.reconResults.runId, query.runId),
+        listWhereSql(getTableColumns(schema.reconResults), reconResultListFilter, query.where),
+      ];
+      const page = await paginateByCursor<
+        typeof schema.reconResults.$inferSelect & { cursorCreatedAt: string }
+      >({
+        query,
+        scope: {
+          resource: 'reconciliation-results',
+          tenantId: query.tenantId,
+          runId: query.runId,
+          ...listWhereScope(query.where),
+        },
+        order: [
+          {
+            column: schema.reconResults.createdAt,
+            key: 'created_at',
+            type: 'timestamp',
+            getValue: (row) => row.cursorCreatedAt,
+          },
+          { column: schema.reconResults.id, key: 'id', type: 'uuid', getValue: (row) => row.id },
+        ],
+        selectRows: async ({ cursorPredicate, limit, orderBy }) =>
+          tx
+            .select({
+              ...getTableColumns(schema.reconResults),
+              cursorCreatedAt: exactTimestamp(schema.reconResults.createdAt),
+            })
+            .from(schema.reconResults)
+            .where(and(...predicates, cursorPredicate))
+            .orderBy(...orderBy)
+            .limit(limit),
+      });
+      return { data: page.rows.map(toReconResult), nextCursor: page.nextCursor };
     });
   }
 

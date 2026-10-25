@@ -3,6 +3,7 @@ import { whereQueryProperty } from '../query/list-filter';
 import { apiKeyFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
+import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
 export { ApiKeyRole };
 
 export const MIN_JWT_ACCESS_TTL_SECONDS = 300;
@@ -41,16 +42,10 @@ export const apiKeyContractSchema = {
   },
 } as const;
 
-export const listApiKeysResponseSchema = {
-  type: 'object',
-  required: ['data'],
-  properties: { data: { type: 'array', items: apiKeyContractSchema } },
-} as const;
-export const listApiKeysQuerySchema = {
-  type: 'object',
-  additionalProperties: false,
+export const listApiKeysResponseSchema = createPaginatedResponseSchema(apiKeyContractSchema);
+export const listApiKeysQuerySchema = mergePaginationQuerySchema({
   properties: { where: whereQueryProperty(apiKeyFilterFields) },
-} as const;
+});
 
 export const createApiKeyBodySchema = {
   type: 'object',

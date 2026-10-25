@@ -89,8 +89,9 @@ Before production use, pin compatible LuxLedger package versions and cross-check
 ## List filters
 
 Every `list`/`list*` service read accepts an optional persistence-neutral `where`.
-Paginated methods accept it inside the query; existing array-returning methods accept it
-as a second argument. Existing calls remain valid.
+All list methods accept it inside an explicit pagination query with `limit` (1–200) and
+optional `cursor`, returning `{ data, nextCursor }`. API-key lists receive the authenticated
+actor separately; their query cannot select a tenant.
 
 ```ts
 import { accountListFilter, type WhereFor } from '@luxledger/core/application';
@@ -102,8 +103,11 @@ const where: WhereFor<typeof accountListFilter> = {
   code: { ne: null },
 };
 const page = await services.accounts.list({ tenantId, ledgerId, limit: 25, where });
-const ledgers = await services.ledgers.list(tenantId, { name: { eq: 'Main' } });
-const keys = await services.apiKeys.listApiKeys(adminActor, { revokedAt: { eq: null } });
+const ledgers = await services.ledgers.list({ tenantId, limit: 25, where: { name: { eq: 'Main' } } });
+const keys = await services.apiKeys.listApiKeys(adminActor, { limit: 25, where: { revokedAt: { eq: null } } });
+const results = await services.reconciliation.listResults({
+  tenantId, runId, limit: 25, where: { status: { eq: 'conflict' } },
+});
 ```
 
 All fields and operators are combined with AND. Supported operators are `eq`, `ne`, `in`
@@ -121,25 +125,26 @@ Each operation uses a named filter policy beside its entity or read model. Polic
 are readonly exclusion arrays, created with `defineListFilter<Model>()(['field'])`,
 not a duplicate list of model fields. The two calls let TypeScript accept the explicit
 model type while inferring the exact excluded keys. `WhereFor<typeof policy>` derives
-scalar field types from the model, and paginated queries extend
-`PaginationQuery<WhereFor<typeof policy>>` directly:
+scalar field types from the model. Consumers use `PaginationQuery<typeof policy>` directly;
+a named query type is needed only when it adds operation-specific fields:
 
 ```ts
 import {
   type PaginationQuery,
   transactionListFilter,
-  type WhereFor,
 } from '@luxledger/core/application';
 
 export interface TransactionPaginationQuery
-  extends PaginationQuery<WhereFor<typeof transactionListFilter>> {
+  extends PaginationQuery<typeof transactionListFilter> {
   ledgerId?: string;
 }
 ```
 
-`PaginationQuery` defaults to no filters (`never`). Pagination helpers accept
-`PaginationQuery<unknown>` to inspect pagination independently of filter types.
-Existing non-paginated list methods retain their optional second `where` argument.
+`PaginationQuery` takes the filter policy itself and derives `where` through `WhereFor`.
+It defaults to no filters (`never`). Shared pagination helpers accept `BasePaginationQuery`
+to inspect tenant, limit and cursor independently of the operation filter policy.
+Cursors are bound to the tenant, resource, fixed scope and `where`. Reuse the same filter
+when following `nextCursor`; consume every page instead of assuming the first page is complete.
 
 | Service method | Filter policy |
 | --- | --- |
@@ -150,6 +155,7 @@ Existing non-paginated list methods retain their optional second `where` argumen
 | ledgers.list | ledgerListFilter |
 | apiKeys.listApiKeys | apiKeyListFilter |
 | reconciliation.listRules | reconRuleListFilter |
+| reconciliation.listResults | reconResultListFilter |
 | creditGrants.list, creditGrants.listLots | creditGrantListFilter |
 | creditGrants.listLineageByGrant, creditGrants.listLineageByTransaction | creditLineageListFilter |
 | balances.listHistory | balanceHistoryListFilter |
@@ -175,4 +181,7 @@ ledger/account, time range, fixed filters, and cursor conditions. Filters cannot
 these scopes. Keep the same `where` when following a cursor: changing or removing it is
 rejected. Field/operator key order does not matter; `in` value order must remain the same.
 Existing unfiltered cursor formats remain compatible (including the legacy history codec).
-This contract is for service/repository calls; HTTP query parameters are unchanged.
+HTTP adapters expose pagination as `limit`/`cursor` and serialize typed filters through `where`.
+
+Reconciliation result pages use `reconResultListFilter`; candidate ID arrays are excluded
+from filtering. Existing reconciliation run responses and reports are unchanged.

@@ -45,7 +45,7 @@ try {
       runTenantTx: (_tenant, operation, action) => client.execute(operation, () => action(tx)),
     };
     const services = createApplicationServices(bound);
-    const asset = (await services.assets.list(tenantId))[0];
+    const asset = (await services.assets.list({ tenantId, limit: 1 })).data[0];
     const funding = await services.accounts.create({
       tenantId,
       ledgerId,

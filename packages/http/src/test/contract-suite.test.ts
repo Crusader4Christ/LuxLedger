@@ -4,6 +4,11 @@ import { resolve } from 'node:path';
 import { CREDIT_LOT_MOVEMENT_KINDS } from '@luxledger/core/application';
 import Ajv from 'ajv';
 import {
+  reconResultResponseSchema,
+  reconResultsListQuerySchema,
+  reconResultsListResponseSchema,
+} from '../contracts/reconciliation';
+import {
   accountResponseSchema,
   accountStatementResponseSchema,
   adjustmentResponseSchema,
@@ -24,7 +29,7 @@ import {
   transactionResponseSchema,
 } from '../index';
 import type { FilterFields } from '../query/list-filter';
-import { parseWhere, whereFieldsToJsonSchema } from '../query/list-filter';
+import { parseWhere, whereFieldsToJsonSchema, whereQueryProperty } from '../query/list-filter';
 import {
   accountFilterFields,
   apiKeyFilterFields,
@@ -33,6 +38,7 @@ import {
   creditLineageFilterFields,
   entryFilterFields,
   ledgerFilterFields,
+  reconResultListFilterFields,
   reconRuleFilterFields,
   transactionFilterFields,
 } from '../query/list-filter-fields';
@@ -415,6 +421,10 @@ describe('framework-agnostic contract suite', () => {
       '/v1/ledgers': ['LedgersWhere', ledgerFilterFields],
       '/v1/admin/api-keys': ['ApiKeysWhere', apiKeyFilterFields],
       '/v1/reconciliation/matching-rules': ['ReconciliationRulesWhere', reconRuleFilterFields],
+      '/v1/reconciliation/runs/{id}/results': [
+        'ReconciliationResultsWhere',
+        reconResultListFilterFields,
+      ],
       '/v1/credit-grants': ['CreditGrantsWhere', creditGrantFilterFields],
       '/v1/credit-grants/{id}/allocations': ['CreditLineageWhere', creditLineageFilterFields],
       '/v1/transactions/{id}/credit-allocations': ['CreditLineageWhere', creditLineageFilterFields],
@@ -442,10 +452,80 @@ describe('framework-agnostic contract suite', () => {
       expect(parseWhere(JSON.stringify(example), fields)).not.toBeNull();
     }
 
-    for (const path of ['/v1/ledgers', '/v1/admin/api-keys', '/v1/reconciliation/matching-rules']) {
+    for (const path of [
+      '/v1/ledgers',
+      '/v1/admin/api-keys',
+      '/v1/reconciliation/matching-rules',
+      '/v1/reconciliation/runs/{id}/results',
+    ]) {
       expect(document.paths?.[path]?.get?.responses?.['400']).toEqual({
         $ref: '#/components/responses/BadRequestError',
       });
     }
+
+    const resultsPath = '/v1/reconciliation/runs/{id}/results';
+    const resultsOperation = document.paths?.[resultsPath]?.get;
+    const resultParameters = resultsOperation?.parameters ?? [];
+    expect(resultParameters.find((parameter) => parameter.name === 'id')).toMatchObject({
+      in: 'path',
+      required: true,
+      schema: { type: 'string', format: 'uuid' },
+    });
+    expect(resultParameters.find((parameter) => parameter.name === 'limit')).toMatchObject({
+      in: 'query',
+      required: false,
+      schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+    });
+    expect(resultParameters.find((parameter) => parameter.name === 'cursor')).toMatchObject({
+      in: 'query',
+      required: false,
+      schema: { type: 'string', minLength: 1 },
+    });
+    const resultsWhere = resultParameters.find((parameter) => parameter.name === 'where');
+    expect(
+      (resultsWhere?.content as { 'application/json'?: { example?: unknown } } | undefined)?.[
+        'application/json'
+      ]?.example,
+    ).toEqual({ status: { eq: 'conflict' } });
+    expect(reconResultsListQuerySchema.properties.where).toEqual(
+      whereQueryProperty(reconResultListFilterFields),
+    );
+    expect(document.components?.schemas?.ReconciliationResultsListResponse).toEqual({
+      type: 'object',
+      additionalProperties: false,
+      required: ['data', 'next_cursor'],
+      properties: {
+        data: { type: 'array', items: { $ref: '#/components/schemas/ReconciliationResult' } },
+        next_cursor: { type: 'string', nullable: true },
+      },
+    });
+    expect(reconResultsListResponseSchema.properties.data.items).toEqual(reconResultResponseSchema);
+    expect(resultsOperation?.responses?.['200']).toEqual({
+      description: expect.any(String),
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ReconciliationResultsListResponse' },
+        },
+      },
+    });
+    expect(resultsOperation?.responses?.['404']).toEqual({
+      $ref: '#/components/responses/NotFoundError',
+    });
+    const resultExample = {
+      id: '00000000-0000-4000-8000-000000000001',
+      run_id: '00000000-0000-4000-8000-000000000002',
+      external_record_id: null,
+      external_id: null,
+      transaction_id: null,
+      status: 'unmatched_internal',
+      reason: 'no_matching_external_record',
+      candidate_transaction_ids: [],
+      created_at: '2026-01-01T00:00:00.000Z',
+    };
+    const resultValidator = new Ajv({ strict: false, validateFormats: false }).compile(
+      reconResultResponseSchema,
+    );
+    expect(resultValidator(resultExample)).toBe(true);
+    expect(reconResultsListResponseSchema.properties.data.items).toEqual(reconResultResponseSchema);
   });
 });

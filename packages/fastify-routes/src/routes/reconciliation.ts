@@ -1,9 +1,15 @@
 import type {
   ReconciliationService,
+  reconResultListFilter,
   reconRuleListFilter,
   WhereFor,
 } from '@luxledger/core/application';
-import { invalidWhereError, readWhereParameter, reconRuleFilterFields } from '@luxledger/http';
+import {
+  invalidWhereError,
+  readWhereParameter,
+  reconResultListFilterFields,
+  reconRuleFilterFields,
+} from '@luxledger/http';
 import {
   type CreateReconRuleRequest,
   createReconRuleRequestSchema,
@@ -13,6 +19,8 @@ import {
   type ReconRunByIdParams,
   type RunReconRequest,
   reconciliationRunByIdParamsSchema,
+  reconResultsListQuerySchema,
+  reconResultsListResponseSchema,
   reconRuleResponseSchema,
   reconRulesListResponseSchema,
   reconRunResponseSchema,
@@ -20,12 +28,14 @@ import {
   runReconRequestSchema,
 } from '@luxledger/http/contracts';
 import {
+  toReconResultResponse,
   toReconRuleResponse,
   toReconRunResponse,
   toReconUploadResponse,
 } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
 import { handleValidationError } from '../errors/validation-error-handler';
+import { resolvePaginationLimit } from '../query/pagination';
 import { BaseRoute } from '../routing/base-route';
 
 export class ReconRoutes extends BaseRoute {
@@ -39,6 +49,7 @@ export class ReconRoutes extends BaseRoute {
     this.registerIngestExternalRecords(server);
     this.registerRunReconciliation(server);
     this.registerGetReconciliationRun(server);
+    this.registerListReconciliationResults(server);
   }
 
   private registerCreateMatchingRule(server: FastifyInstance): void {
@@ -74,7 +85,7 @@ export class ReconRoutes extends BaseRoute {
   }
 
   private registerListMatchingRules(server: FastifyInstance): void {
-    server.get<{ Querystring: { where?: string } }>(
+    server.get<{ Querystring: { where?: string; limit?: number; cursor?: string } }>(
       '/v1/reconciliation/matching-rules',
       {
         errorHandler: handleValidationError,
@@ -90,10 +101,51 @@ export class ReconRoutes extends BaseRoute {
             reconRuleFilterFields,
           );
           if (where === null) throw invalidWhereError();
-          const rules = await this.reconciliation.listRules(request.tenantId as string, where);
-          return reply.status(200).send({
-            data: rules.map(toReconRuleResponse),
+          const rules = await this.reconciliation.listRules({
+            tenantId: request.tenantId as string,
+            limit: resolvePaginationLimit(request.query.limit),
+            cursor: request.query.cursor,
+            where,
           });
+          return reply.status(200).send({
+            data: rules.data.map(toReconRuleResponse),
+            next_cursor: rules.nextCursor,
+          });
+        }),
+    );
+  }
+
+  private registerListReconciliationResults(server: FastifyInstance): void {
+    server.get<{
+      Params: ReconRunByIdParams;
+      Querystring: { where?: string; limit?: number; cursor?: string };
+    }>(
+      '/v1/reconciliation/runs/:id/results',
+      {
+        errorHandler: handleValidationError,
+        schema: {
+          params: reconciliationRunByIdParamsSchema,
+          querystring: reconResultsListQuerySchema,
+          response: { 200: reconResultsListResponseSchema },
+        },
+      },
+      async (request, reply) =>
+        this.handle(reply, async () => {
+          const where = readWhereParameter<WhereFor<typeof reconResultListFilter>>(
+            request.raw.url ?? '',
+            reconResultListFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
+          const result = await this.reconciliation.listResults({
+            tenantId: request.tenantId as string,
+            runId: request.params.id,
+            limit: resolvePaginationLimit(request.query.limit),
+            cursor: request.query.cursor,
+            where,
+          });
+          return reply
+            .status(200)
+            .send({ data: result.data.map(toReconResultResponse), next_cursor: result.nextCursor });
         }),
     );
   }

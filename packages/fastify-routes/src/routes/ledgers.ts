@@ -29,6 +29,7 @@ import {
 import { toTrialBalanceResponse } from '@luxledger/http/mappers';
 import type { FastifyInstance } from 'fastify';
 import { handleValidationError } from '../errors/validation-error-handler';
+import { resolvePaginationLimit } from '../query/pagination';
 import { BaseRoute } from '../routing/base-route';
 
 export class LedgerRoutes extends BaseRoute {
@@ -191,7 +192,7 @@ export class LedgerRoutes extends BaseRoute {
   }
 
   private registerGetLedgers(server: FastifyInstance): void {
-    server.get<{ Querystring: { where?: string } }>(
+    server.get<{ Querystring: { where?: string; limit?: number; cursor?: string } }>(
       '/v1/ledgers',
       {
         errorHandler: handleValidationError,
@@ -209,8 +210,13 @@ export class LedgerRoutes extends BaseRoute {
             ledgerFilterFields,
           );
           if (where === null) throw invalidWhereError();
-          const ledgers = await this.ledgers.list(request.tenantId as string, where);
-          return reply.status(200).send(ledgers);
+          const result = await this.ledgers.list({
+            tenantId: request.tenantId as string,
+            limit: resolvePaginationLimit(request.query.limit),
+            cursor: request.query.cursor,
+            where,
+          });
+          return reply.status(200).send({ data: result.data, next_cursor: result.nextCursor });
         }),
     );
   }

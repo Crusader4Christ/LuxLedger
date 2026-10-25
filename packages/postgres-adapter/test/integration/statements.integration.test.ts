@@ -69,7 +69,9 @@ const databaseTime = async (): Promise<Date> => {
 
 const setup = async (tenantId: string) => {
   const ledgerId = await createLedger(db, tenantId, 'Statement ledger');
-  const asset = (await services.assets.list(tenantId)).find((item) => item.code === 'USD');
+  const asset = (await services.assets.list({ tenantId, limit: 50 })).data.find(
+    (item) => item.code === 'USD',
+  );
   if (!asset) throw new Error('Missing USD asset');
   const wallet = await services.accounts.create({
     tenantId,
@@ -234,7 +236,9 @@ describe('bounded statements', () => {
   it('uses snapshot id as the stable pagination tie-breaker for equal effective times', async () => {
     const tenantId = await createTenant(db, 'statement-ties');
     const ledgerId = await createLedger(db, tenantId, 'Statement ties');
-    const asset = (await services.assets.list(tenantId)).find((item) => item.code === 'USD');
+    const asset = (await services.assets.list({ tenantId, limit: 50 })).data.find(
+      (item) => item.code === 'USD',
+    );
     if (!asset) throw new Error('Missing USD asset');
     const cash = await services.accounts.create({
       tenantId,

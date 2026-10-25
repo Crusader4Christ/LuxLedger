@@ -110,7 +110,9 @@ const withDatabaseClock = (
 
 const setup = async (tenantId: string) => {
   const ledgerId = await createLedger(db, tenantId, 'Credits');
-  const asset = (await services.assets.list(tenantId)).find((item) => item.code === 'USD');
+  const asset = (await services.assets.list({ tenantId, limit: 50 })).data.find(
+    (item) => item.code === 'USD',
+  );
   if (!asset) throw new Error('Missing test asset');
   const wallet = await services.accounts.create({
     tenantId,

@@ -59,4 +59,8 @@ Date-time filter values require a timezone and must be exactly representable in 
 Extra fractional digits are accepted only when zero (for example, `.123000Z`); values such as
 `.123001Z` return `400 INVALID_INPUT` instead of silently changing the comparison boundary.
 
+Paginated list endpoints accept `limit` (default 50, maximum 200) and an opaque `cursor`, and return
+`{ data, next_cursor }`. Reconciliation results can be fetched from
+`GET /v1/reconciliation/runs/{id}/results` with typed `where` filters.
+
 Before production use, cross-check this README against the OpenAPI shipped with the installed package version and review the [documentation publication checklist](../../docs/integration/versioning.md#documentation-publication-checklist).

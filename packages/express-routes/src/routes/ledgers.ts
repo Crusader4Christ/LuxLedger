@@ -11,6 +11,7 @@ import { toTrialBalanceResponse } from '@luxledger/http/mappers';
 import { parseUuidParam } from '@luxledger/http/validation-utils';
 import type { Application, Response } from 'express';
 import { sendInvalidInput, withDomainErrorHandling } from '../errors/handlers';
+import { parsePaginationQuery } from '../query/pagination';
 import { requireContext } from '../request/context';
 import { validate } from '../request/validation';
 import type { RequestWithContext } from '../types';
@@ -36,7 +37,11 @@ export const registerLedgerRoutes = (app: Application, services: LedgerRouteServ
 
   app.get('/v1/ledgers', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
-      if (validate(listLedgersQuerySchema, req.query) === null) {
+      const pagination = parsePaginationQuery(req.query);
+      if (
+        pagination === null ||
+        validate(listLedgersQuerySchema, { ...req.query, limit: pagination.limit }) === null
+      ) {
         sendInvalidInput(res, 'Invalid querystring');
         return;
       }
@@ -49,8 +54,12 @@ export const registerLedgerRoutes = (app: Application, services: LedgerRouteServ
         return;
       }
       const context = requireContext(req);
-      const ledgers = await services.ledgers.list(context.tenantId, where);
-      res.status(200).json(ledgers);
+      const result = await services.ledgers.list({
+        tenantId: context.tenantId,
+        ...pagination,
+        where,
+      });
+      res.status(200).json({ data: result.data, next_cursor: result.nextCursor });
     }),
   );
 

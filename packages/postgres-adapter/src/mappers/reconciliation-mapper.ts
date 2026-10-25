@@ -66,17 +66,17 @@ export const toReconRun = (run: ReconRunRow, resultRows: ReconResultRow[]): Reco
   conflictCount: run.conflictCount,
   startedAt: run.startedAt,
   completedAt: run.completedAt,
-  results: resultRows.map(
-    (row): ReconResult => ({
-      id: row.id,
-      runId: row.runId,
-      externalRecordId: row.externalRecordId,
-      externalId: row.externalId,
-      transactionId: row.transactionId,
-      status: row.status,
-      reason: row.reason,
-      candidateTransactionIds: row.candidateTransactionIds,
-      createdAt: row.createdAt,
-    }),
-  ),
+  results: resultRows.map(toReconResult),
+});
+
+export const toReconResult = (row: ReconResultRow): ReconResult => ({
+  id: row.id,
+  runId: row.runId,
+  externalRecordId: row.externalRecordId,
+  externalId: row.externalId,
+  transactionId: row.transactionId,
+  status: row.status,
+  reason: row.reason,
+  candidateTransactionIds: row.candidateTransactionIds,
+  createdAt: row.createdAt,
 });

@@ -148,9 +148,15 @@ describe('service list where filters against PostgreSQL', () => {
       ).rejects.toBeInstanceOf(InvariantViolationError);
     }
     await expect(
-      services.apiKeys.listApiKeys({ tenantId, apiKeyId: ledgerId, role: 'ADMIN' }, {
-        keyHash: { eq: 'private' },
-      } as never),
+      services.apiKeys.listApiKeys(
+        { tenantId, apiKeyId: ledgerId, role: 'ADMIN' },
+        {
+          limit: 10,
+          where: {
+            keyHash: { eq: 'private' },
+          } as never,
+        },
+      ),
     ).rejects.toBeInstanceOf(InvariantViolationError);
   });
 
@@ -532,16 +538,198 @@ describe('service list where filters against PostgreSQL', () => {
     }
   });
 
+  it('paginates assets, ledgers, rules and API keys with tenant and filter-bound cursors', async () => {
+    const { tenantId, ledgerId } = await fixture();
+    const otherTenantId = await createTenant(db, 'pagination-other');
+    const actor = { tenantId, apiKeyId: ledgerId, role: 'ADMIN' as const };
+
+    const eur = await services.assets.create({ tenantId, code: 'EUR', scale: 2 });
+    await services.assets.create({ tenantId, code: 'GBP', scale: 2 });
+    const nextLedger = await services.ledgers.create({ tenantId, name: 'Secondary' });
+    const rules = await Promise.all(
+      ['Rule A', 'Rule B'].map((name) =>
+        services.reconciliation.createRule({
+          tenantId,
+          name,
+          criteria: [{ field: 'reference', operator: 'equals' }],
+        }),
+      ),
+    );
+    const keys = await Promise.all(
+      ['Page A', 'Page B'].map((name) =>
+        services.apiKeys.createApiKey(actor, { tenantId, name, role: 'SERVICE' }),
+      ),
+    );
+    const preciseTimestamp = sql`'2026-01-01T00:00:00.123456Z'::timestamptz`;
+    await client.runTenantTx(tenantId, 'set exact pagination timestamps', async (tx) => {
+      await tx.execute(
+        sql`update ledgers set created_at = ${preciseTimestamp} where tenant_id = ${tenantId}`,
+      );
+      await tx.execute(
+        sql`update recon_rules set created_at = ${preciseTimestamp} where tenant_id = ${tenantId}`,
+      );
+      await tx.execute(
+        sql`update api_keys set created_at = ${preciseTimestamp} where tenant_id = ${tenantId}`,
+      );
+    });
+
+    const assetQuery = { tenantId, limit: 1, where: { code: { in: ['EUR', 'USD'] } } };
+    const assetFirst = await services.assets.list(assetQuery);
+    expect(assetFirst.data.map((asset) => asset.code)).toEqual(['EUR']);
+    expect(assetFirst.nextCursor).not.toBeNull();
+    const assetCursor = assetFirst.nextCursor;
+    if (assetCursor === null) throw new Error('Expected an asset continuation cursor');
+    const assetSecond = await services.assets.list({
+      ...assetQuery,
+      cursor: assetCursor,
+    });
+    expect(assetSecond.data.map((asset) => asset.code)).toEqual(['USD']);
+    await expect(
+      services.assets.list({
+        ...assetQuery,
+        where: { code: { eq: 'GBP' } },
+        cursor: assetCursor,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const ledgerQuery = {
+      tenantId,
+      limit: 1,
+      where: { name: { in: ['Main', 'Secondary'] } },
+    };
+    const ledgerFirst = await services.ledgers.list(ledgerQuery);
+    expect(ledgerFirst.data.map((ledger) => ledger.name)).toEqual(['Main']);
+    expect(ledgerFirst.nextCursor).not.toBeNull();
+    const ledgerCursor = ledgerFirst.nextCursor;
+    if (ledgerCursor === null) throw new Error('Expected a ledger continuation cursor');
+    const ledgerSecond = await services.ledgers.list({
+      ...ledgerQuery,
+      cursor: ledgerCursor,
+    });
+    expect(ledgerSecond.data.map((ledger) => ledger.name)).toEqual(['Secondary']);
+    await expect(
+      services.ledgers.list({
+        ...ledgerQuery,
+        where: { name: { eq: 'Main' } },
+        cursor: ledgerCursor,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const ruleQuery = { tenantId, limit: 1, where: { name: { in: ['Rule A', 'Rule B'] } } };
+    const ruleFirst = await services.reconciliation.listRules(ruleQuery);
+    expect(ruleFirst.data.map((rule) => rule.name)).toEqual(['Rule A']);
+    expect(ruleFirst.nextCursor).not.toBeNull();
+    const ruleCursor = ruleFirst.nextCursor;
+    if (ruleCursor === null) throw new Error('Expected a rule continuation cursor');
+    const ruleSecond = await services.reconciliation.listRules({
+      ...ruleQuery,
+      cursor: ruleCursor,
+    });
+    expect(ruleSecond.data.map((rule) => rule.name)).toEqual(['Rule B']);
+    await expect(
+      services.reconciliation.listRules({
+        ...ruleQuery,
+        where: { name: { eq: 'Rule B' } },
+        cursor: ruleCursor,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const keyQuery = { limit: 1, where: { name: { in: ['Page A', 'Page B'] } } };
+    const keyFirst = await services.apiKeys.listApiKeys(actor, keyQuery);
+    expect(keyFirst.data.map((key) => key.name)).toEqual(['Page A']);
+    expect(keyFirst.nextCursor).not.toBeNull();
+    const keyCursor = keyFirst.nextCursor;
+    if (keyCursor === null) throw new Error('Expected an API key continuation cursor');
+    const keySecond = await services.apiKeys.listApiKeys(actor, {
+      ...keyQuery,
+      cursor: keyCursor,
+    });
+    expect(keySecond.data.map((key) => key.name)).toEqual(['Page B']);
+    await expect(
+      services.apiKeys.listApiKeys(actor, {
+        ...keyQuery,
+        where: { name: { eq: 'Page B' } },
+        cursor: keyCursor,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+
+    const tenantBActor = { ...actor, tenantId: otherTenantId };
+    expect(
+      (
+        await services.assets.list({
+          tenantId: otherTenantId,
+          limit: 10,
+          where: { id: { eq: eur.id } },
+        })
+      ).data,
+    ).toEqual([]);
+    expect(
+      (
+        await services.ledgers.list({
+          tenantId: otherTenantId,
+          limit: 10,
+          where: { id: { eq: nextLedger.id } },
+        })
+      ).data,
+    ).toEqual([]);
+    expect(
+      (
+        await services.reconciliation.listRules({
+          tenantId: otherTenantId,
+          limit: 10,
+          where: { id: { in: rules.map((rule) => rule.id) } },
+        })
+      ).data,
+    ).toEqual([]);
+    expect(
+      (
+        await services.apiKeys.listApiKeys(tenantBActor, {
+          limit: 10,
+          where: { id: { in: keys.map((key) => key.key.id) } },
+        })
+      ).data,
+    ).toEqual([]);
+    await expect(
+      services.ledgers.list({
+        ...ledgerQuery,
+        tenantId: otherTenantId,
+        cursor: ledgerCursor,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+    await expect(
+      services.ledgers.list({
+        tenantId,
+        limit: 1,
+        where: { name: { eq: 'Secondary' } },
+        cursor: assetCursor,
+      }),
+    ).rejects.toBeInstanceOf(InvariantViolationError);
+  });
+
   it('supports optional filters on legacy array-returning lists and retains authorization', async () => {
     const { tenantId, ledgerId } = await fixture();
     expect(
-      (await services.assets.list(tenantId, { code: { eq: 'USD' }, scale: { eq: 2 } })).map(
-        (a) => a.code,
-      ),
+      (
+        await services.assets.list({
+          tenantId,
+          limit: 10,
+          where: { code: { eq: 'USD' }, scale: { eq: 2 } },
+        })
+      ).data.map((a) => a.code),
     ).toEqual(['USD']);
-    expect(await services.assets.list(tenantId, { code: { eq: "USD' OR true --" } })).toEqual([]);
     expect(
-      (await services.ledgers.list(tenantId, { name: { eq: 'Main' } })).map((l) => l.id),
+      (
+        await services.assets.list({
+          tenantId,
+          limit: 10,
+          where: { code: { eq: "USD' OR true --" } },
+        })
+      ).data,
+    ).toEqual([]);
+    expect(
+      (
+        await services.ledgers.list({ tenantId, limit: 10, where: { name: { eq: 'Main' } } })
+      ).data.map((l) => l.id),
     ).toEqual([ledgerId]);
     const rule = await services.reconciliation.createRule({
       tenantId,
@@ -549,25 +737,41 @@ describe('service list where filters against PostgreSQL', () => {
       criteria: [{ field: 'reference', operator: 'equals' }],
     });
     expect(
-      (await services.reconciliation.listRules(tenantId, { name: { eq: 'Match' } })).map(
-        (r) => r.id,
-      ),
+      (
+        await services.reconciliation.listRules({
+          tenantId,
+          limit: 10,
+          where: { name: { eq: 'Match' } },
+        })
+      ).data.map((r) => r.id),
     ).toEqual([rule.id]);
-    expect(await services.reconciliation.listRules(tenantId, { name: { ne: 'Match' } })).toEqual(
-      [],
-    );
+    expect(
+      (
+        await services.reconciliation.listRules({
+          tenantId,
+          limit: 10,
+          where: { name: { ne: 'Match' } },
+        })
+      ).data,
+    ).toEqual([]);
     const actor = { tenantId, apiKeyId: ledgerId, role: 'ADMIN' as const };
     await services.apiKeys.createApiKey(actor, { tenantId, name: 'Service', role: 'SERVICE' });
     expect(
       (
         await services.apiKeys.listApiKeys(actor, {
-          role: { eq: 'SERVICE' },
-          revokedAt: { eq: null },
+          limit: 10,
+          where: {
+            role: { eq: 'SERVICE' },
+            revokedAt: { eq: null },
+          },
         })
-      ).map((k) => k.name),
+      ).data.map((k) => k.name),
     ).toEqual(['Service']);
     await expect(
-      services.apiKeys.listApiKeys({ ...actor, role: 'SERVICE' }, { name: { eq: 'Service' } }),
+      services.apiKeys.listApiKeys(
+        { ...actor, role: 'SERVICE' },
+        { limit: 10, where: { name: { eq: 'Service' } } },
+      ),
     ).rejects.toThrow('Admin');
   });
 });
