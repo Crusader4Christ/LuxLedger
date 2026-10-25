@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CREDIT_LOT_MOVEMENT_KINDS } from '@luxledger/core/application';
+import Ajv from 'ajv';
 import {
   accountResponseSchema,
   accountStatementResponseSchema,
@@ -23,7 +24,7 @@ import {
   transactionResponseSchema,
 } from '../index';
 import type { FilterFields } from '../query/list-filter';
-import { whereFieldsToJsonSchema } from '../query/list-filter';
+import { parseWhere, whereFieldsToJsonSchema } from '../query/list-filter';
 import {
   accountFilterFields,
   apiKeyFilterFields,
@@ -47,7 +48,12 @@ type OpenApiSchema = {
 };
 
 type OpenApiContent = {
-  content?: { 'application/json'?: { schema?: { $ref?: string } } };
+  content?: {
+    'application/json'?: {
+      schema?: { $ref?: string };
+      example?: unknown;
+    };
+  };
 };
 
 type OpenApiOperation = {
@@ -401,6 +407,7 @@ describe('framework-agnostic contract suite', () => {
 
   it('documents typed where parameters on every scoped list operation', () => {
     const document = Bun.YAML.parse(readFileSync(openapiPath, 'utf8')) as OpenApiDocument;
+    const ajv = new Ajv({ allErrors: true, strict: false, validateFormats: false });
     const routes: Record<string, [string, FilterFields]> = {
       '/v1/accounts': ['AccountsWhere', accountFilterFields],
       '/v1/transactions': ['TransactionsWhere', transactionFilterFields],
@@ -424,6 +431,21 @@ describe('framework-agnostic contract suite', () => {
         content: { 'application/json': { schema: { $ref: `#/components/schemas/${schema}` } } },
       });
       expect(document.components?.schemas?.[schema]).toEqual(whereFieldsToJsonSchema(fields));
+
+      const example =
+        where?.content &&
+        (where.content as { 'application/json'?: { example?: unknown } })['application/json']
+          ?.example;
+      expect(example).toBeDefined();
+      const validator = ajv.compile(document.components?.schemas?.[schema] as OpenApiSchema);
+      expect(validator(example)).toBe(true);
+      expect(parseWhere(JSON.stringify(example), fields)).not.toBeNull();
+    }
+
+    for (const path of ['/v1/ledgers', '/v1/admin/api-keys', '/v1/reconciliation/matching-rules']) {
+      expect(document.paths?.[path]?.get?.responses?.['400']).toEqual({
+        $ref: '#/components/responses/BadRequestError',
+      });
     }
   });
 });

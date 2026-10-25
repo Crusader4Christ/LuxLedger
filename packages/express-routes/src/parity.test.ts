@@ -21,6 +21,11 @@ type RequestResult = {
 };
 
 const tenantId = '11111111-1111-4111-8111-111111111111';
+const listObservations = new Map<string, unknown[]>();
+
+const observeList = (endpoint: string, input: unknown): void => {
+  listObservations.set(endpoint, [...(listObservations.get(endpoint) ?? []), input]);
+};
 
 const adjustmentPayload = {
   ledger_id: '00000000-0000-4000-8000-000000000001',
@@ -49,7 +54,6 @@ type FakeAccount = {
 };
 
 class FakeLedgerService {
-  public lastTransactionListQuery: unknown;
   private txByReference = new Map<string, string>();
   private txMetadataByReference = new Map<string, TransactionMetadata | undefined>();
   private lastAccount: FakeAccount | null = null;
@@ -85,7 +89,7 @@ class FakeLedgerService {
   }
 
   public async list(_query: unknown) {
-    this.lastTransactionListQuery = _query;
+    observeList('transactions', _query);
     return {
       data: [this.transactionResponse({ provider: { payment_id: 'read-1' } })],
       nextCursor: null,
@@ -125,11 +129,28 @@ class FakeLedgerService {
     return this.lastAccount;
   }
 
-  public async listAccounts(): Promise<{ data: FakeAccount[]; nextCursor: null }> {
+  public async listAccounts(query: unknown): Promise<{ data: FakeAccount[]; nextCursor: null }> {
+    observeList('accounts', query);
     return { data: this.lastAccount ? [this.lastAccount] : [], nextCursor: null };
   }
 
-  public async listLedgers(_tenantId: string): Promise<unknown[]> {
+  public async listLedgers(_tenantId: string, where?: unknown): Promise<unknown[]> {
+    observeList('ledgers', { tenantId: _tenantId, where });
+    return [];
+  }
+
+  public async listEntries(query: unknown) {
+    observeList('entries', query);
+    return { data: [], nextCursor: null };
+  }
+
+  public async listHistory(query: unknown) {
+    observeList('balance-history', query);
+    return { data: [], nextCursor: null };
+  }
+
+  public async listRules(tenantId: string, where: unknown) {
+    observeList('reconciliation-rules', { tenantId, where });
     return [];
   }
 
@@ -224,7 +245,8 @@ class FakeLedgerService {
 }
 
 class FakeApiKeyService {
-  public async listApiKeys(): Promise<unknown[]> {
+  public async listApiKeys(auth: unknown, where: unknown): Promise<unknown[]> {
+    observeList('api-keys', { auth, where });
     return [];
   }
 }
@@ -243,7 +265,7 @@ describe('express adapter parity with fastify adapter', () => {
         create: (input: Parameters<FakeLedgerService['create']>[0]) =>
           fakeLedgerService.create(input),
         getById: () => fakeLedgerService.getAccountById(),
-        list: () => fakeLedgerService.listAccounts(),
+        list: (query: unknown) => fakeLedgerService.listAccounts(query),
       },
       creditGrants: {
         create: async (input: {
@@ -291,25 +313,31 @@ describe('express adapter parity with fastify adapter', () => {
           ledgerBalanceMinor: 100n,
           remainingMinor: 100n,
         }),
-        list: async () => ({ data: lastGrant ? [lastGrant] : [], nextCursor: 'next-cursor' }),
-        listLots: async () => ({
-          data: [
-            {
-              grantId: '00000000-0000-4000-8000-000000000901',
-              reference: 'parity-grant',
-              externalReference: null,
-              createdAt: new Date('2026-01-01T00:00:00.000Z'),
-              expiresAt: null,
-              grantedMinor: 100n,
-              reversedMinor: 0n,
-              consumedMinor: 0n,
-              compensatedMinor: 0n,
-              expiredMinor: 0n,
-              remainingMinor: 100n,
-            },
-          ],
-          nextCursor: null,
-        }),
+        list: async (query: unknown) => {
+          observeList('credit-grants', query);
+          return { data: lastGrant ? [lastGrant] : [], nextCursor: 'next-cursor' };
+        },
+        listLots: async (query: unknown) => {
+          observeList('credit-lots', query);
+          return {
+            data: [
+              {
+                grantId: '00000000-0000-4000-8000-000000000901',
+                reference: 'parity-grant',
+                externalReference: null,
+                createdAt: new Date('2026-01-01T00:00:00.000Z'),
+                expiresAt: null,
+                grantedMinor: 100n,
+                reversedMinor: 0n,
+                consumedMinor: 0n,
+                compensatedMinor: 0n,
+                expiredMinor: 0n,
+                remainingMinor: 100n,
+              },
+            ],
+            nextCursor: null,
+          };
+        },
         refund: async (input: { grantId: string; amountMinor: bigint; reference: string }) => {
           if (input.reference.startsWith('conflict-')) {
             throw Object.assign(new Error('Refund exceeds unspent grant capacity'), {
@@ -324,8 +352,14 @@ describe('express adapter parity with fastify adapter', () => {
             created: !input.reference.startsWith('retry-'),
           };
         },
-        listLineageByGrant: async () => ({ data: [], nextCursor: null }),
-        listLineageByTransaction: async () => ({ data: [], nextCursor: null }),
+        listLineageByGrant: async (query: unknown) => {
+          observeList('grant-allocations', query);
+          return { data: [], nextCursor: null };
+        },
+        listLineageByTransaction: async (query: unknown) => {
+          observeList('transaction-allocations', query);
+          return { data: [], nextCursor: null };
+        },
         previewExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
         runExpirations: async (input: { asOf: Date }) => ({ asOf: input.asOf, items: [] }),
       },
@@ -348,7 +382,8 @@ describe('express adapter parity with fastify adapter', () => {
       balances: fakeLedgerService,
       holds: fakeLedgerService,
       ledgers: {
-        list: (currentTenantId: string) => fakeLedgerService.listLedgers(currentTenantId),
+        list: (currentTenantId: string, where: unknown) =>
+          fakeLedgerService.listLedgers(currentTenantId, where),
       },
       reconciliation: fakeLedgerService,
       statements: {
@@ -398,6 +433,7 @@ describe('express adapter parity with fastify adapter', () => {
           fakeLedgerService.getById(currentTenantId, transactionId),
         list: (input: { tenantId: string; limit: number; cursor?: string; ledgerId?: string }) =>
           fakeLedgerService.list(input),
+        listEntries: (input: unknown) => fakeLedgerService.listEntries(input),
         reverse: (input: Parameters<FakeLedgerService['reverseTransaction']>[0]) =>
           fakeLedgerService.reverseTransaction(input),
         correct: (input: Parameters<FakeLedgerService['correctTransaction']>[0]) =>
@@ -1126,39 +1162,199 @@ describe('express adapter parity with fastify adapter', () => {
     }
   });
 
-  it('parses typed list filters consistently and rejects invalid filters before service calls', async () => {
-    const url = `/v1/transactions?where=${encodeURIComponent(JSON.stringify({ reference: { eq: 'invoice-42' } }))}`;
-    const [fastifyResponse, expressResponse] = await Promise.all([
-      requestFastify('GET', url),
-      requestExpress('GET', url),
-    ]);
-    expect(fastifyResponse.status).toBe(200);
-    expect(expressResponse.status).toBe(200);
-    expect(expressResponse.json).toEqual(fastifyResponse.json);
-    expect(fakeLedgerService.lastTransactionListQuery).toMatchObject({
-      where: { reference: { eq: 'invoice-42' } },
-    });
+  it('forwards scoped list filters, pagination, and fixed query values through both adapters', async () => {
+    const id = '00000000-0000-4000-8000-000000000101';
+    const grantId = '00000000-0000-4000-8000-000000000901';
+    const transactionId = '00000000-0000-4000-8000-000000000300';
+    const date = '2026-01-01T00:00:00.1200Z';
+    const where = (field: string, operator: string, value: unknown) =>
+      `where=${encodeURIComponent(JSON.stringify({ [field]: { [operator]: value } }))}`;
+    const cases: Array<{
+      endpoint: string;
+      path: string;
+      expected: Record<string, unknown>;
+    }> = [
+      {
+        endpoint: 'accounts',
+        path: `/v1/accounts?ledger_id=${id}&limit=7&cursor=opaque&${where('balance_minor', 'gte', '25')}`,
+        expected: {
+          tenantId,
+          limit: 7,
+          cursor: 'opaque',
+          ledgerId: id,
+          where: { balanceMinor: { gte: 25n } },
+        },
+      },
+      {
+        endpoint: 'transactions',
+        path: `/v1/transactions?ledger_id=${id}&limit=7&cursor=opaque&${where('created_at', 'gte', date)}`,
+        expected: {
+          tenantId,
+          limit: 7,
+          cursor: 'opaque',
+          ledgerId: id,
+          where: { createdAt: { gte: new Date(date) } },
+        },
+      },
+      {
+        endpoint: 'entries',
+        path: `/v1/entries?limit=7&cursor=opaque&${where('signed_amount_minor', 'gte', '-25')}`,
+        expected: {
+          tenantId,
+          limit: 7,
+          cursor: 'opaque',
+          where: { signedAmountMinor: { gte: -25n } },
+        },
+      },
+      {
+        endpoint: 'ledgers',
+        path: `/v1/ledgers?${where('created_at', 'gte', date)}`,
+        expected: { tenantId, where: { createdAt: { gte: new Date(date) } } },
+      },
+      {
+        endpoint: 'api-keys',
+        path: `/v1/admin/api-keys?${where('role', 'eq', 'ADMIN')}`,
+        expected: {
+          auth: {
+            tenantId,
+            apiKeyId: '00000000-0000-4000-8000-000000000001',
+            role: ApiKeyRole.ADMIN,
+          },
+          where: { role: { eq: 'ADMIN' } },
+        },
+      },
+      {
+        endpoint: 'reconciliation-rules',
+        path: `/v1/reconciliation/matching-rules?${where('created_at', 'gte', date)}`,
+        expected: { tenantId, where: { createdAt: { gte: new Date(date) } } },
+      },
+      {
+        endpoint: 'credit-grants',
+        path: `/v1/credit-grants?account_id=${id}&reference=ref-1&external_reference=ext-1&limit=7&cursor=opaque&${where('created_at', 'gte', date)}`,
+        expected: {
+          tenantId,
+          accountId: id,
+          reference: 'ref-1',
+          externalReference: 'ext-1',
+          limit: 7,
+          cursor: 'opaque',
+          where: { createdAt: { gte: new Date(date) } },
+        },
+      },
+      {
+        endpoint: 'grant-allocations',
+        path: `/v1/credit-grants/${grantId}/allocations?limit=7&cursor=opaque&${where('amount_minor', 'gte', '25')}`,
+        expected: {
+          tenantId,
+          grantId,
+          limit: 7,
+          cursor: 'opaque',
+          where: { amountMinor: { gte: 25n } },
+        },
+      },
+      {
+        endpoint: 'transaction-allocations',
+        path: `/v1/transactions/${transactionId}/credit-allocations?limit=7&cursor=opaque&${where('created_at', 'gte', date)}`,
+        expected: {
+          tenantId,
+          transactionId,
+          limit: 7,
+          cursor: 'opaque',
+          where: { createdAt: { gte: new Date(date) } },
+        },
+      },
+      {
+        endpoint: 'credit-lots',
+        path: `/v1/accounts/${id}/credit-lots?limit=7&cursor=opaque&${where('created_at', 'gte', date)}`,
+        expected: {
+          tenantId,
+          accountId: id,
+          limit: 7,
+          cursor: 'opaque',
+          where: { createdAt: { gte: new Date(date) } },
+        },
+      },
+      {
+        endpoint: 'balance-history',
+        path: `/v1/accounts/${id}/balance-history?from=${encodeURIComponent(date)}&to=${encodeURIComponent(date)}&limit=7&cursor=opaque&${where('posted_minor', 'gte', '25')}`,
+        expected: {
+          tenantId,
+          accountId: id,
+          from: new Date(date),
+          to: new Date(date),
+          limit: 7,
+          cursor: 'opaque',
+          where: { postedMinor: { gte: 25n } },
+        },
+      },
+    ];
 
-    const invalidUrl = `/v1/transactions?where=${encodeURIComponent(JSON.stringify({ tenant_id: { eq: tenantId } }))}`;
-    const [fastifyInvalid, expressInvalid] = await Promise.all([
-      requestFastify('GET', invalidUrl),
-      requestExpress('GET', invalidUrl),
-    ]);
-    expect(fastifyInvalid.status).toBe(400);
-    expect(expressInvalid.status).toBe(400);
-    expect(expressInvalid.json).toEqual(fastifyInvalid.json);
-    expect(fakeLedgerService.lastTransactionListQuery).toMatchObject({
-      where: { reference: { eq: 'invoice-42' } },
-    });
+    for (const { endpoint, path, expected } of cases) {
+      for (const request of [requestFastify, requestExpress]) {
+        listObservations.clear();
+        const response = await request('GET', path);
+        expect(response.status).toBe(200);
+        expect(listObservations.get(endpoint)).toEqual([expected]);
+      }
+    }
 
-    const repeatedUrl = `/v1/transactions?where=${encodeURIComponent('{}')}&where=${encodeURIComponent('{}')}`;
-    const [fastifyRepeated, expressRepeated] = await Promise.all([
-      requestFastify('GET', repeatedUrl),
-      requestExpress('GET', repeatedUrl),
-    ]);
-    expect(fastifyRepeated.status).toBe(400);
-    expect(expressRepeated.status).toBe(400);
-    expect(expressRepeated.json).toEqual(fastifyRepeated.json);
+    for (const { endpoint, path, expected } of cases) {
+      const queryStart = Math.max(path.indexOf('?where='), path.indexOf('&where='));
+      const prefix = path.slice(0, queryStart);
+      const separator = prefix.includes('?') ? '&' : '?';
+      for (const suffix of ['', `${separator}where=${encodeURIComponent('{}')}`]) {
+        for (const request of [requestFastify, requestExpress]) {
+          listObservations.clear();
+          const response = await request('GET', `${prefix}${suffix}`);
+          expect(response.status).toBe(200);
+          expect(listObservations.get(endpoint)).toEqual([{ ...expected, where: undefined }]);
+        }
+      }
+    }
+
+    const privateField = `where=${encodeURIComponent(JSON.stringify({ tenant_id: { eq: tenantId } }))}`;
+    const invalidWhereQueries = [
+      privateField,
+      'where=%7Bbad',
+      'where=%7B%7D&where=%7B%7D',
+      `where=${'x'.repeat(8193)}`,
+    ];
+    for (const { endpoint, path } of cases) {
+      const queryStart = Math.max(path.indexOf('?where='), path.indexOf('&where='));
+      const prefix = path.slice(0, queryStart);
+      const separator = prefix.includes('?') ? '&' : '?';
+      for (const invalidWhere of invalidWhereQueries) {
+        for (const request of [requestFastify, requestExpress]) {
+          listObservations.clear();
+          const response = await request('GET', `${prefix}${separator}${invalidWhere}`);
+          expect(response.status).toBe(400);
+          expect(listObservations.has(endpoint)).toBeFalse();
+        }
+      }
+    }
+
+    for (const path of ['/v1/ledgers', '/v1/admin/api-keys', '/v1/reconciliation/matching-rules']) {
+      for (const request of [requestFastify, requestExpress]) {
+        listObservations.clear();
+        const response = await request('GET', `${path}?unexpected=1`);
+        expect(response.status).toBe(400);
+        expect(listObservations.size).toBe(0);
+      }
+    }
+
+    const mixedPrecisionWhere = `where=${encodeURIComponent(
+      JSON.stringify({
+        created_at: {
+          in: ['2026-01-01T00:00:00.1200Z', '2026-01-01T00:00:00.1234Z'],
+        },
+      }),
+    )}`;
+    for (const request of [requestFastify, requestExpress]) {
+      listObservations.clear();
+      const response = await request('GET', `/v1/transactions?${mixedPrecisionWhere}`);
+      expect(response.status).toBe(400);
+      expect(listObservations.has('transactions')).toBeFalse();
+    }
   });
 
   it('keeps credit grant creation and lot response identical across adapters', async () => {

@@ -3,17 +3,13 @@ import type {
   reconRuleListFilter,
   WhereFor,
 } from '@luxledger/core/application';
-import {
-  invalidWhereError,
-  readWhereParameter,
-  reconRuleFilterFields,
-  whereQueryProperty,
-} from '@luxledger/http';
+import { invalidWhereError, readWhereParameter, reconRuleFilterFields } from '@luxledger/http';
 import {
   type CreateReconRuleRequest,
   createReconRuleRequestSchema,
   type IngestReconRecordsRequest,
   ingestReconRecordsRequestSchema,
+  listReconRulesQuerySchema,
   type ReconRunByIdParams,
   type RunReconRequest,
   reconciliationRunByIdParamsSchema,
@@ -83,11 +79,7 @@ export class ReconRoutes extends BaseRoute {
       {
         errorHandler: handleValidationError,
         schema: {
-          querystring: {
-            type: 'object',
-            additionalProperties: false,
-            properties: { where: whereQueryProperty(reconRuleFilterFields) },
-          },
+          querystring: listReconRulesQuerySchema,
           response: { 200: reconRulesListResponseSchema },
         },
       },

@@ -4,6 +4,7 @@ import {
   type CreateLedgerRequest,
   createLedgerBodySchema,
   type LedgerByIdParams,
+  listLedgersQuerySchema,
   type TrialBalanceParams,
 } from '@luxledger/http/contracts';
 import { toTrialBalanceResponse } from '@luxledger/http/mappers';
@@ -35,6 +36,10 @@ export const registerLedgerRoutes = (app: Application, services: LedgerRouteServ
 
   app.get('/v1/ledgers', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
+      if (validate(listLedgersQuerySchema, req.query) === null) {
+        sendInvalidInput(res, 'Invalid querystring');
+        return;
+      }
       const where = readWhereParameter<WhereFor<typeof ledgerListFilter>>(
         req.originalUrl,
         ledgerFilterFields,

@@ -5,12 +5,7 @@ import type {
   TransactionService,
   WhereFor,
 } from '@luxledger/core/application';
-import {
-  invalidWhereError,
-  ledgerFilterFields,
-  readWhereParameter,
-  whereQueryProperty,
-} from '@luxledger/http';
+import { invalidWhereError, ledgerFilterFields, readWhereParameter } from '@luxledger/http';
 import {
   type BulkCreateTransactionRequest,
   type BulkCreateTransactionResponse,
@@ -26,6 +21,7 @@ import {
   ledgerByIdParamsSchema,
   ledgerResponseSchema,
   ledgersListResponseSchema,
+  listLedgersQuerySchema,
   type TrialBalanceParams,
   trialBalanceParamsSchema,
   trialBalanceResponseSchema,
@@ -200,11 +196,7 @@ export class LedgerRoutes extends BaseRoute {
       {
         errorHandler: handleValidationError,
         schema: {
-          querystring: {
-            type: 'object',
-            additionalProperties: false,
-            properties: { where: whereQueryProperty(ledgerFilterFields) },
-          },
+          querystring: listLedgersQuerySchema,
           response: {
             200: ledgersListResponseSchema,
           },

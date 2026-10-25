@@ -1,17 +1,13 @@
 import type { ApiKeyEntity } from '@luxledger/core';
 import type { ApiKeyService, apiKeyListFilter, WhereFor } from '@luxledger/core/application';
-import {
-  apiKeyFilterFields,
-  invalidWhereError,
-  readWhereParameter,
-  whereQueryProperty,
-} from '@luxledger/http';
+import { apiKeyFilterFields, invalidWhereError, readWhereParameter } from '@luxledger/http';
 import {
   type ApiKeyContract,
   type ApiKeyRole,
   type CreateApiKeyRequest,
   createApiKeyBodySchema,
   createApiKeyResponseSchema,
+  listApiKeysQuerySchema,
   listApiKeysResponseSchema,
   type RevokeApiKeyParams,
   revokeApiKeyParamsSchema,
@@ -78,11 +74,7 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
       {
         errorHandler: handleValidationError,
         schema: {
-          querystring: {
-            type: 'object',
-            additionalProperties: false,
-            properties: { where: whereQueryProperty(apiKeyFilterFields) },
-          },
+          querystring: listApiKeysQuerySchema,
           response: {
             200: listApiKeysResponseSchema,
           },

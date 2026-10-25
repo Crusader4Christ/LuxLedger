@@ -9,6 +9,7 @@ import {
   createReconRuleRequestSchema,
   type IngestReconRecordsRequest,
   ingestReconRecordsRequestSchema,
+  listReconRulesQuerySchema,
   type ReconRuleResponse,
   type ReconRulesListResponse,
   type ReconRunByIdParams,
@@ -64,6 +65,10 @@ export const registerReconciliationRoutes = (
 
   app.get('/v1/reconciliation/matching-rules', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
+      if (validate(listReconRulesQuerySchema, req.query) === null) {
+        sendInvalidInput(res, 'Invalid querystring');
+        return;
+      }
       const where = readWhereParameter<WhereFor<typeof reconRuleListFilter>>(
         req.originalUrl,
         reconRuleFilterFields,

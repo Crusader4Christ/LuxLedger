@@ -26,7 +26,8 @@ const record = (v: unknown): v is Record<string, unknown> =>
   !Array.isArray(v) &&
   (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const dateTime = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-](?:0\d|1\d|2[0-3]):[0-5]\d)$/;
+const dateTime =
+  /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3}0*)?(?:Z|[+-](?:0\d|1\d|2[0-3]):[0-5]\d)$/;
 const validCalendarDate = (value: string): boolean => {
   const [year, month, day] = value.slice(0, 10).split('-').map(Number);
   const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
@@ -176,7 +177,13 @@ const scalarSchema = (field: FilterField): UnknownRecord => ({
         description: 'Signed 64-bit integer encoded as a decimal string.',
       }
     : field.kind === 'date-time'
-      ? { type: 'string', format: 'date-time' }
+      ? {
+          type: 'string',
+          format: 'date-time',
+          pattern: dateTime.source,
+          description:
+            'Timezone date-time exactly representable in milliseconds; submillisecond digits must be zero.',
+        }
       : field.kind === 'uuid'
         ? { type: 'string', format: 'uuid' }
         : field.kind === 'enum'

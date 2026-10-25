@@ -75,6 +75,52 @@ describe('typed list filter parsing', () => {
     });
   });
 
+  it('preserves representable date boundaries and rejects submillisecond precision for every operator', () => {
+    for (const operator of ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in']) {
+      for (const fraction of ['', '.1', '.12', '.123', '.123000', '.000000']) {
+        const value = `2025-01-01T10:20:30${fraction}+02:00`;
+        expect(
+          parseWhere<Record<string, unknown>>(
+            JSON.stringify({ created_at: { [operator]: operator === 'in' ? [value] : value } }),
+            accountFilterFields,
+          ),
+        ).toEqual({
+          createdAt: { [operator]: operator === 'in' ? [new Date(value)] : new Date(value) },
+        });
+      }
+      for (const fraction of ['.123001', '.0001', '.999999']) {
+        const value = `2025-01-01T10:20:30${fraction}Z`;
+        expect(
+          parseWhere(
+            JSON.stringify({ created_at: { [operator]: operator === 'in' ? [value] : value } }),
+            accountFilterFields,
+          ),
+        ).toBeNull();
+      }
+    }
+  });
+
+  it('documents the same precision restriction for nullable and non-nullable dates', () => {
+    const schema = whereFieldsToJsonSchema({
+      created_at: { kind: 'date-time', ordered: true },
+      expires_at: { kind: 'date-time', ordered: true, nullable: true },
+    }) as {
+      properties: Record<
+        string,
+        { properties: Record<string, { pattern?: string; items?: { pattern: string } }> }
+      >;
+    };
+    for (const field of Object.values(schema.properties)) {
+      for (const [operator, scalar] of Object.entries(field.properties)) {
+        const pattern = operator === 'in' ? scalar.items?.pattern : scalar.pattern;
+        expect(pattern).toBeDefined();
+        const expression = new RegExp(pattern as string);
+        expect(expression.test('2025-01-01T00:00:00.123000Z')).toBe(true);
+        expect(expression.test('2025-01-01T00:00:00.123001Z')).toBe(false);
+      }
+    }
+  });
+
   it('enforces enum, UUID, boolean and decimal integer wire types', () => {
     expect(parseWhere('{"side":{"eq":"DEBIT"}}', accountFilterFields)).not.toBeNull();
     expect(parseWhere('{"side":{"eq":"debit"}}', accountFilterFields)).toBeNull();
