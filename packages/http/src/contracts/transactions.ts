@@ -1,3 +1,5 @@
+import { whereQueryProperty } from '../query/list-filter';
+import { transactionFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
 import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
 
@@ -245,6 +247,7 @@ export const transactionByIdParamsSchema = {
 
 export const listTransactionsQuerySchemaExtra = {
   properties: {
+    where: whereQueryProperty(transactionFilterFields),
     ledger_id: {
       type: 'string',
       format: 'uuid',

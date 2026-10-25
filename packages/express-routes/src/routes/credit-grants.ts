@@ -1,4 +1,14 @@
-import type { ApplicationServices } from '@luxledger/core/application';
+import type {
+  ApplicationServices,
+  creditGrantListFilter,
+  creditLineageListFilter,
+  WhereFor,
+} from '@luxledger/core/application';
+import {
+  creditGrantFilterFields,
+  creditLineageFilterFields,
+  readWhereParameter,
+} from '@luxledger/http';
 import {
   type CreateCreditGrantRequest,
   createCreditGrantBodySchema,
@@ -85,11 +95,16 @@ export const registerCreditGrantRoutes = (
   app.get('/v1/credit-grants', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
       const pagination = parsePaginationQuery(req.query);
+      const where = readWhereParameter<WhereFor<typeof creditGrantListFilter>>(
+        req.originalUrl,
+        creditGrantFilterFields,
+      );
       const accountId = parseUuidQuery(req.query.account_id);
       const reference = parseNonEmptyQuery(req.query.reference);
       const externalReference = parseNonEmptyQuery(req.query.external_reference);
       if (
         pagination === null ||
+        where === null ||
         (req.query.account_id !== undefined && accountId === null) ||
         reference === null ||
         externalReference === null
@@ -105,6 +120,7 @@ export const registerCreditGrantRoutes = (
         accountId: accountId ?? undefined,
         reference,
         externalReference,
+        where,
       });
       res.status(200).json(toPaginatedResponse(page, toCreditGrantResponse));
     }),
@@ -161,12 +177,13 @@ export const registerCreditGrantRoutes = (
     }),
   );
 
-  const registerPagedGet = <Item, Dto>(
+  const registerPagedGet = <Item, Dto, Where>(
     path: string,
+    parseWhere: (url: string) => Where | undefined | null,
     load: (
       tenantId: string,
       id: string,
-      page: { limit: number; cursor?: string },
+      page: { limit: number; cursor?: string; where?: Where },
     ) => Promise<{ data: Item[]; nextCursor: string | null }>,
     toDto: (item: Item) => Dto,
   ): void => {
@@ -178,32 +195,41 @@ export const registerCreditGrantRoutes = (
           return;
         }
         const pagination = parsePaginationQuery(req.query);
-        if (pagination === null) {
+        const where = parseWhere(req.originalUrl);
+        if (pagination === null || where === null) {
           sendInvalidInput(res, 'Invalid querystring');
           return;
         }
         const { tenantId } = requireContext(req);
         res
           .status(200)
-          .json(toPaginatedResponse(await load(tenantId, params.id, pagination), toDto));
+          .json(
+            toPaginatedResponse(await load(tenantId, params.id, { ...pagination, where }), toDto),
+          );
       }),
     );
   };
 
   registerPagedGet(
     '/v1/credit-grants/:id/allocations',
+    (url) =>
+      readWhereParameter<WhereFor<typeof creditLineageListFilter>>(url, creditLineageFilterFields),
     (tenantId, grantId, page) =>
       services.creditGrants.listLineageByGrant({ tenantId, grantId, ...page }),
     toCreditGrantLineageItemResponse,
   );
   registerPagedGet(
     '/v1/transactions/:id/credit-allocations',
+    (url) =>
+      readWhereParameter<WhereFor<typeof creditLineageListFilter>>(url, creditLineageFilterFields),
     (tenantId, transactionId, page) =>
       services.creditGrants.listLineageByTransaction({ tenantId, transactionId, ...page }),
     toCreditGrantLineageItemResponse,
   );
   registerPagedGet(
     '/v1/accounts/:id/credit-lots',
+    (url) =>
+      readWhereParameter<WhereFor<typeof creditGrantListFilter>>(url, creditGrantFilterFields),
     (tenantId, accountId, page) => services.creditGrants.listLots({ tenantId, accountId, ...page }),
     toCreditGrantLotResponse,
   );

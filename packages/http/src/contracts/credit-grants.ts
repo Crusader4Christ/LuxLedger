@@ -1,3 +1,5 @@
+import { whereQueryProperty } from '../query/list-filter';
+import { creditGrantFilterFields, creditLineageFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
 import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
@@ -157,6 +159,7 @@ export const creditGrantLotsPageResponseSchema = createPaginatedResponseSchema(
 
 export const listCreditGrantsQuerySchemaExtra = {
   properties: {
+    where: whereQueryProperty(creditGrantFilterFields),
     account_id: uuid,
     reference: NonEmptyTrimmedStringSchema,
     external_reference: NonEmptyTrimmedStringSchema,
@@ -165,6 +168,12 @@ export const listCreditGrantsQuerySchemaExtra = {
 export const listCreditGrantsQuerySchema = mergePaginationQuerySchema(
   listCreditGrantsQuerySchemaExtra,
 );
+export const listCreditLineageQuerySchema = mergePaginationQuerySchema({
+  properties: { where: whereQueryProperty(creditLineageFilterFields) },
+});
+export const listCreditLotsQuerySchema = mergePaginationQuerySchema({
+  properties: { where: whereQueryProperty(creditGrantFilterFields) },
+});
 
 export const processCreditGrantExpirationsBodySchema = {
   type: 'object',

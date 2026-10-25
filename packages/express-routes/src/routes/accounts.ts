@@ -1,5 +1,15 @@
 import { AccountSide } from '@luxledger/core';
-import type { ApplicationServices } from '@luxledger/core/application';
+import type {
+  ApplicationServices,
+  accountListFilter,
+  balanceHistoryListFilter,
+  WhereFor,
+} from '@luxledger/core/application';
+import {
+  accountFilterFields,
+  balanceHistoryFilterFields,
+  readWhereParameter,
+} from '@luxledger/http';
 import {
   type AccountByIdParams,
   type AccountsPageResponse,
@@ -72,8 +82,12 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
   app.get('/v1/accounts', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
       const pagination = parsePaginationQuery(req.query);
+      const where = readWhereParameter<WhereFor<typeof accountListFilter>>(
+        req.originalUrl,
+        accountFilterFields,
+      );
       const ledgerId = parseUuidQuery(req.query.ledger_id);
-      if (pagination === null) {
+      if (pagination === null || where === null) {
         sendInvalidInput(res, 'Invalid querystring');
         return;
       }
@@ -92,6 +106,7 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
         limit: pagination.limit,
         cursor: query.cursor,
         ledgerId: query.ledger_id,
+        where,
       });
       const response: AccountsPageResponse = {
         data: page.data.map(toAccountResponse),
@@ -130,6 +145,10 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
     withDomainErrorHandling(res, async () => {
       const params = parseUuidParam<keyof AccountByIdParams>(req.params.id, 'id');
       const pagination = parsePaginationQuery(req.query);
+      const where = readWhereParameter<WhereFor<typeof balanceHistoryListFilter>>(
+        req.originalUrl,
+        balanceHistoryFilterFields,
+      );
       if (params === null || pagination === null) {
         sendInvalidInput(res, params === null ? 'Invalid path parameter' : 'Invalid querystring');
         return;
@@ -140,7 +159,7 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
         limit: pagination.limit,
         cursor: pagination.cursor,
       });
-      if (query === null) {
+      if (query === null || where === null) {
         sendInvalidInput(res, 'Invalid querystring');
         return;
       }
@@ -152,6 +171,7 @@ export const registerAccountRoutes = (app: Application, services: AccountRouteSe
         to: new Date(query.to),
         limit: pagination.limit,
         cursor: pagination.cursor,
+        where,
       });
       const response: BalanceHistoryResponse = {
         data: page.data.map((item) => ({

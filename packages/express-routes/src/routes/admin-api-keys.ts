@@ -1,9 +1,11 @@
-import type { ApplicationServices } from '@luxledger/core/application';
+import type { ApplicationServices, apiKeyListFilter, WhereFor } from '@luxledger/core/application';
+import { apiKeyFilterFields, readWhereParameter } from '@luxledger/http';
 import {
   type CreateApiKeyRequest,
   type CreateApiKeyResponse,
   createApiKeyBodySchema,
   type ListApiKeysResponse,
+  listApiKeysQuerySchema,
   type RevokeApiKeyParams,
 } from '@luxledger/http/contracts';
 import { toApiKeyContract } from '@luxledger/http/mappers';
@@ -22,13 +24,28 @@ export const registerAdminApiKeyRoutes = (
 ): void => {
   app.get('/v1/admin/api-keys', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
+      if (validate(listApiKeysQuerySchema, req.query) === null) {
+        sendInvalidInput(res, 'Invalid querystring');
+        return;
+      }
+      const where = readWhereParameter<WhereFor<typeof apiKeyListFilter>>(
+        req.originalUrl,
+        apiKeyFilterFields,
+      );
+      if (where === null) {
+        sendInvalidInput(res, 'Invalid querystring');
+        return;
+      }
       const context = requireContext(req);
       assertAdmin(context);
-      const keys = await services.apiKeys.listApiKeys({
-        apiKeyId: context.apiKeyId,
-        tenantId: context.tenantId,
-        role: context.apiKeyRole,
-      });
+      const keys = await services.apiKeys.listApiKeys(
+        {
+          apiKeyId: context.apiKeyId,
+          tenantId: context.tenantId,
+          role: context.apiKeyRole,
+        },
+        where,
+      );
       const response: ListApiKeysResponse = {
         data: keys.map(toApiKeyContract),
       };

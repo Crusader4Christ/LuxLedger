@@ -1,4 +1,16 @@
-import type { CreditGrantService } from '@luxledger/core/application';
+import type {
+  CreditGrantService,
+  creditGrantListFilter,
+  creditLineageListFilter,
+  WhereFor,
+} from '@luxledger/core/application';
+import {
+  creditGrantFilterFields,
+  creditLineageFilterFields,
+  invalidWhereError,
+  readWhereParameter,
+  whereQueryProperty,
+} from '@luxledger/http';
 import {
   type CreateCreditGrantRequest,
   type CreditGrantIdParams,
@@ -100,12 +112,23 @@ export class CreditGrantRoutes extends BaseRoute {
       {
         errorHandler: handleValidationError,
         schema: {
-          querystring: listCreditGrantsQuerySchema,
+          querystring: {
+            ...listCreditGrantsQuerySchema,
+            properties: {
+              ...listCreditGrantsQuerySchema.properties,
+              where: whereQueryProperty(creditGrantFilterFields),
+            },
+          },
           response: { 200: creditGrantsPageResponseSchema },
         },
       },
       async (request, reply) =>
         this.handle(reply, async () => {
+          const where = readWhereParameter<WhereFor<typeof creditGrantListFilter>>(
+            request.raw.url ?? '',
+            creditGrantFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
           const page = await this.grants.list({
             tenantId: request.tenantId as string,
             limit: resolvePaginationLimit(request.query.limit),
@@ -113,6 +136,7 @@ export class CreditGrantRoutes extends BaseRoute {
             accountId: request.query.account_id,
             reference: request.query.reference,
             externalReference: request.query.external_reference,
+            where,
           });
           return reply.status(200).send(toPaginatedResponse(page, toCreditGrantResponse));
         }),
@@ -179,82 +203,106 @@ export class CreditGrantRoutes extends BaseRoute {
         }),
     );
 
-    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
+    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery & { where?: string } }>(
       '/v1/credit-grants/:id/allocations',
       {
         errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
-          querystring: createPaginationQuerySchema({}),
+          querystring: createPaginationQuerySchema({
+            properties: { where: whereQueryProperty(creditLineageFilterFields) },
+          }),
           response: { 200: creditGrantLineageResponseSchema },
         },
       },
       async (request, reply) =>
-        this.handle(reply, async () =>
-          reply.status(200).send(
+        this.handle(reply, async () => {
+          const where = readWhereParameter<WhereFor<typeof creditLineageListFilter>>(
+            request.raw.url ?? '',
+            creditLineageFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
+          return reply.status(200).send(
             toPaginatedResponse(
               await this.grants.listLineageByGrant({
                 tenantId: request.tenantId as string,
                 grantId: request.params.id,
                 limit: resolvePaginationLimit(request.query.limit),
                 cursor: request.query.cursor,
+                where,
               }),
               toCreditGrantLineageItemResponse,
             ),
-          ),
-        ),
+          );
+        }),
     );
 
-    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
+    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery & { where?: string } }>(
       '/v1/transactions/:id/credit-allocations',
       {
         errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
-          querystring: createPaginationQuerySchema({}),
+          querystring: createPaginationQuerySchema({
+            properties: { where: whereQueryProperty(creditLineageFilterFields) },
+          }),
           response: { 200: creditGrantLineageResponseSchema },
         },
       },
       async (request, reply) =>
-        this.handle(reply, async () =>
-          reply.status(200).send(
+        this.handle(reply, async () => {
+          const where = readWhereParameter<WhereFor<typeof creditLineageListFilter>>(
+            request.raw.url ?? '',
+            creditLineageFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
+          return reply.status(200).send(
             toPaginatedResponse(
               await this.grants.listLineageByTransaction({
                 tenantId: request.tenantId as string,
                 transactionId: request.params.id,
                 limit: resolvePaginationLimit(request.query.limit),
                 cursor: request.query.cursor,
+                where,
               }),
               toCreditGrantLineageItemResponse,
             ),
-          ),
-        ),
+          );
+        }),
     );
 
-    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery }>(
+    server.get<{ Params: CreditGrantIdParams; Querystring: PaginationQuery & { where?: string } }>(
       '/v1/accounts/:id/credit-lots',
       {
         errorHandler: handleValidationError,
         schema: {
           params: creditGrantIdParamsSchema,
-          querystring: createPaginationQuerySchema({}),
+          querystring: createPaginationQuerySchema({
+            properties: { where: whereQueryProperty(creditGrantFilterFields) },
+          }),
           response: { 200: creditGrantLotsPageResponseSchema },
         },
       },
       async (request, reply) =>
-        this.handle(reply, async () =>
-          reply.status(200).send(
+        this.handle(reply, async () => {
+          const where = readWhereParameter<WhereFor<typeof creditGrantListFilter>>(
+            request.raw.url ?? '',
+            creditGrantFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
+          return reply.status(200).send(
             toPaginatedResponse(
               await this.grants.listLots({
                 tenantId: request.tenantId as string,
                 accountId: request.params.id,
                 limit: resolvePaginationLimit(request.query.limit),
                 cursor: request.query.cursor,
+                where,
               }),
               toCreditGrantLotResponse,
             ),
-          ),
-        ),
+          );
+        }),
     );
 
     server.get<{ Params: CreditGrantIdParams }>(

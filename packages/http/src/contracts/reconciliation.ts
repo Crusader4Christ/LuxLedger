@@ -1,3 +1,5 @@
+import { whereQueryProperty } from '../query/list-filter';
+import { reconRuleFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
 
@@ -23,6 +25,11 @@ export const reconCriterionRequestSchema = {
       minimum: 0,
     },
   },
+} as const;
+export const listReconRulesQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { where: whereQueryProperty(reconRuleFilterFields) },
 } as const;
 
 export const createReconRuleRequestSchema = {
