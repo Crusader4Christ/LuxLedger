@@ -1,4 +1,9 @@
-import type { ApplicationServices } from '@luxledger/core/application';
+import type {
+  ApplicationServices,
+  reconRuleListFilter,
+  WhereFor,
+} from '@luxledger/core/application';
+import { readWhereParameter, reconRuleFilterFields } from '@luxledger/http';
 import {
   type CreateReconRuleRequest,
   createReconRuleRequestSchema,
@@ -59,8 +64,16 @@ export const registerReconciliationRoutes = (
 
   app.get('/v1/reconciliation/matching-rules', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
+      const where = readWhereParameter<WhereFor<typeof reconRuleListFilter>>(
+        req.originalUrl,
+        reconRuleFilterFields,
+      );
+      if (where === null) {
+        sendInvalidInput(res, 'Invalid querystring');
+        return;
+      }
       const context = requireContext(req);
-      const rules = await services.reconciliation.listRules(context.tenantId);
+      const rules = await services.reconciliation.listRules(context.tenantId, where);
       const response: ReconRulesListResponse = {
         data: rules.map(toReconRuleResponse),
       };

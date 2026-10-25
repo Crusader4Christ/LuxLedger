@@ -1,4 +1,14 @@
-import type { ReconciliationService } from '@luxledger/core/application';
+import type {
+  ReconciliationService,
+  reconRuleListFilter,
+  WhereFor,
+} from '@luxledger/core/application';
+import {
+  invalidWhereError,
+  readWhereParameter,
+  reconRuleFilterFields,
+  whereQueryProperty,
+} from '@luxledger/http';
 import {
   type CreateReconRuleRequest,
   createReconRuleRequestSchema,
@@ -68,15 +78,27 @@ export class ReconRoutes extends BaseRoute {
   }
 
   private registerListMatchingRules(server: FastifyInstance): void {
-    server.get(
+    server.get<{ Querystring: { where?: string } }>(
       '/v1/reconciliation/matching-rules',
       {
         errorHandler: handleValidationError,
-        schema: { response: { 200: reconRulesListResponseSchema } },
+        schema: {
+          querystring: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { where: whereQueryProperty(reconRuleFilterFields) },
+          },
+          response: { 200: reconRulesListResponseSchema },
+        },
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const rules = await this.reconciliation.listRules(request.tenantId as string);
+          const where = readWhereParameter<WhereFor<typeof reconRuleListFilter>>(
+            request.raw.url ?? '',
+            reconRuleFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
+          const rules = await this.reconciliation.listRules(request.tenantId as string, where);
           return reply.status(200).send({
             data: rules.map(toReconRuleResponse),
           });

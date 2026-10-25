@@ -1,5 +1,11 @@
 import type { ApiKeyEntity } from '@luxledger/core';
-import type { ApiKeyService } from '@luxledger/core/application';
+import type { ApiKeyService, apiKeyListFilter, WhereFor } from '@luxledger/core/application';
+import {
+  apiKeyFilterFields,
+  invalidWhereError,
+  readWhereParameter,
+  whereQueryProperty,
+} from '@luxledger/http';
 import {
   type ApiKeyContract,
   type ApiKeyRole,
@@ -67,11 +73,16 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
   }
 
   private registerListApiKeys(server: FastifyInstance): void {
-    server.get(
+    server.get<{ Querystring: { where?: string } }>(
       '/v1/admin/api-keys',
       {
         errorHandler: handleValidationError,
         schema: {
+          querystring: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { where: whereQueryProperty(apiKeyFilterFields) },
+          },
           response: {
             200: listApiKeysResponseSchema,
           },
@@ -79,11 +90,19 @@ export class AdminApiKeyRoutes extends BaseEntityRoute<ApiKeyEntity, ApiKeyContr
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const keys = await this.apiKeyService.listApiKeys({
-            apiKeyId: request.apiKeyId as string,
-            tenantId: request.tenantId as string,
-            role: request.apiKeyRole as ApiKeyRole,
-          });
+          const where = readWhereParameter<WhereFor<typeof apiKeyListFilter>>(
+            request.raw.url ?? '',
+            apiKeyFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
+          const keys = await this.apiKeyService.listApiKeys(
+            {
+              apiKeyId: request.apiKeyId as string,
+              tenantId: request.tenantId as string,
+              role: request.apiKeyRole as ApiKeyRole,
+            },
+            where,
+          );
 
           return reply.status(200).send({
             data: this.dtoList(keys),

@@ -1,3 +1,5 @@
+import { whereQueryProperty } from '../query/list-filter';
+import { accountFilterFields, balanceHistoryFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
 import { createPaginatedResponseSchema, mergePaginationQuerySchema } from './pagination';
@@ -126,6 +128,7 @@ export const balanceAsOfResponseSchema = {
 const balanceHistoryQuerySchemaExtra = {
   required: ['from', 'to'],
   properties: {
+    where: whereQueryProperty(balanceHistoryFilterFields),
     from: { type: 'string', format: 'date-time' },
     to: { type: 'string', format: 'date-time' },
   },
@@ -171,6 +174,7 @@ export const balanceHistoryResponseSchema = createPaginatedResponseSchema(
 
 export const listAccountsQuerySchemaExtra = {
   properties: {
+    where: whereQueryProperty(accountFilterFields),
     ledger_id: {
       type: 'string',
       format: 'uuid',

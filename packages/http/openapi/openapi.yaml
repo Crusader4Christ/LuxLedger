@@ -109,6 +109,16 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
     get:
+      parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgersWhere'
+              example: '{"name":{"eq":"Operating"}}'
       summary: List tenant ledgers
       responses:
         '200':
@@ -173,6 +183,15 @@ paths:
     get:
       summary: List transactions
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionsWhere'
+              example: '{"reference":{"eq":"invoice-42"}}'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/LedgerIdQuery'
@@ -369,6 +388,15 @@ paths:
     get:
       summary: List accounts
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountsWhere'
+              example: '{"balance_minor":{"gte":"0"}}'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/LedgerIdQuery'
@@ -439,6 +467,15 @@ paths:
     get:
       summary: List account balance history
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceHistoryWhere'
+              example: '{"event_type":{"eq":"TX_APPLIED"}}'
         - in: path
           name: id
           required: true
@@ -653,6 +690,15 @@ paths:
     get:
       summary: List entries
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntriesWhere'
+              example: '{"currency":{"eq":"USD"}}'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -691,6 +737,16 @@ paths:
           $ref: '#/components/responses/NotFoundError'
   /v1/admin/api-keys:
     get:
+      parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeysWhere'
+              example: '{"role":{"eq":"ADMIN"}}'
       summary: List API keys (admin only)
       responses:
         '200':
@@ -759,6 +815,16 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
     get:
+      parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationRulesWhere'
+              example: '{"name":{"eq":"invoice-match"}}'
       summary: List reconciliation matching rules
       responses:
         '200':
@@ -878,6 +944,15 @@ paths:
     get:
       summary: List credit grants with bounded cursor pagination and exact reference lookup
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantsWhere'
+              example: '{"reference":{"eq":"grant-42"}}'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - name: account_id
@@ -1102,6 +1177,15 @@ paths:
     get:
       summary: Traverse consumption and compensation lineage for a grant
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditLineageWhere'
+              example: '{"kind":{"eq":"CONSUMPTION"}}'
         - name: id
           in: path
           required: true
@@ -1123,6 +1207,15 @@ paths:
     get:
       summary: Traverse source grants for a consumption or compensation transaction
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditLineageWhere'
+              example: '{"kind":{"eq":"CONSUMPTION"}}'
         - name: id
           in: path
           required: true
@@ -1167,6 +1260,15 @@ paths:
     get:
       summary: List credit grant lots for an account with bounded cursor pagination
       parameters:
+        - name: where
+          in: query
+          required: false
+          description: URL-encoded JSON filters (maximum 8192 decoded bytes). Fields and operators are specific to this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditGrantsWhere'
+              example: '{"reference":{"eq":"grant-42"}}'
         - name: id
           in: path
           required: true
@@ -1265,6 +1367,24 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    AccountsWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"ledger_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"code":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","nullable":true},"ne":{"type":"string","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"name":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"side":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","enum":["DEBIT","CREDIT"]},"ne":{"type":"string","enum":["DEBIT","CREDIT"]},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","enum":["DEBIT","CREDIT"]}}}},"overdraft_policy":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","enum":["ALLOW","DISALLOW"]},"ne":{"type":"string","enum":["ALLOW","DISALLOW"]},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","enum":["ALLOW","DISALLOW"]}}}},"grant_enabled":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"boolean"},"ne":{"type":"boolean"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"boolean"}}}},"currency":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"balance_minor":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"ne":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}},"gt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"gte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    TransactionsWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"ledger_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"reference":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"currency":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"description":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","nullable":true},"ne":{"type":"string","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"related_transaction_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid","nullable":true},"ne":{"type":"string","format":"uuid","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"relation_type":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","enum":["REVERSAL","CORRECTION"],"nullable":true},"ne":{"type":"string","enum":["REVERSAL","CORRECTION"],"nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","enum":["REVERSAL","CORRECTION"]}}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}},"effective_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time","nullable":true},"ne":{"type":"string","format":"date-time","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    EntriesWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"transaction_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"account_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"signed_amount_minor":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"ne":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}},"gt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"gte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}}},"currency":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time","nullable":true},"ne":{"type":"string","format":"date-time","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    LedgersWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"name":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}},"updated_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    ApiKeysWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"name":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"role":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","enum":["ADMIN","SERVICE"]},"ne":{"type":"string","enum":["ADMIN","SERVICE"]},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","enum":["ADMIN","SERVICE"]}}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}},"revoked_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time","nullable":true},"ne":{"type":"string","format":"date-time","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    CreditGrantsWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"ledger_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"account_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"funding_account_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"reference":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"external_reference":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","nullable":true},"ne":{"type":"string","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"transaction_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}},"expires_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time","nullable":true},"ne":{"type":"string","format":"date-time","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    CreditLineageWhere:
+      {"type":"object","additionalProperties":false,"properties":{"grant_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"entry_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"transaction_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"kind":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","enum":["CONSUMPTION","COMPENSATION","EXPIRATION","REFUND"]},"ne":{"type":"string","enum":["CONSUMPTION","COMPENSATION","EXPIRATION","REFUND"]},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","enum":["CONSUMPTION","COMPENSATION","EXPIRATION","REFUND"]}}}},"amount_minor":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"ne":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}},"gt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"gte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    BalanceHistoryWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"ledger_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"account_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"event_type":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","enum":["TX_APPLIED","HOLD_CREATED","HOLD_COMMITTED","HOLD_VOIDED","ADJUSTMENT"]},"ne":{"type":"string","enum":["TX_APPLIED","HOLD_CREATED","HOLD_COMMITTED","HOLD_VOIDED","ADJUSTMENT"]},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","enum":["TX_APPLIED","HOLD_CREATED","HOLD_COMMITTED","HOLD_VOIDED","ADJUSTMENT"]}}}},"source_id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"posted_minor":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"ne":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}},"gt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"gte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}}},"reserved_delta_minor":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"ne":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}},"gt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"gte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lt":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."},"lte":{"type":"string","pattern":"^-?(0|[1-9][0-9]*)$","description":"Signed 64-bit integer encoded as a decimal string."}}},"effective_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
+    ReconciliationRulesWhere:
+      {"type":"object","additionalProperties":false,"properties":{"id":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"uuid"},"ne":{"type":"string","format":"uuid"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"uuid"}}}},"name":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string"},"ne":{"type":"string"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"description":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","nullable":true},"ne":{"type":"string","nullable":true},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"}}}},"created_at":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"eq":{"type":"string","format":"date-time"},"ne":{"type":"string","format":"date-time"},"in":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","format":"date-time"}},"gt":{"type":"string","format":"date-time"},"gte":{"type":"string","format":"date-time"},"lt":{"type":"string","format":"date-time"},"lte":{"type":"string","format":"date-time"}}}}}
     CreateCreditGrantRequest:
       type: object
       additionalProperties: false

@@ -1,3 +1,5 @@
+import { whereQueryProperty } from '../query/list-filter';
+import { ledgerFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
 import { NonEmptyTrimmedStringSchema } from './common';
 
@@ -8,6 +10,12 @@ export const createLedgerBodySchema = {
   properties: {
     name: NonEmptyTrimmedStringSchema,
   },
+} as const;
+
+export const listLedgersQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { where: whereQueryProperty(ledgerFilterFields) },
 } as const;
 
 export const ledgerByIdParamsSchema = {

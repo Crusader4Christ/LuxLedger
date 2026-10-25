@@ -49,6 +49,7 @@ type FakeAccount = {
 };
 
 class FakeLedgerService {
+  public lastTransactionListQuery: unknown;
   private txByReference = new Map<string, string>();
   private txMetadataByReference = new Map<string, TransactionMetadata | undefined>();
   private lastAccount: FakeAccount | null = null;
@@ -84,6 +85,7 @@ class FakeLedgerService {
   }
 
   public async list(_query: unknown) {
+    this.lastTransactionListQuery = _query;
     return {
       data: [this.transactionResponse({ provider: { payment_id: 'read-1' } })],
       nextCursor: null,
@@ -1122,6 +1124,41 @@ describe('express adapter parity with fastify adapter', () => {
     for (const check of checks) {
       await check.run();
     }
+  });
+
+  it('parses typed list filters consistently and rejects invalid filters before service calls', async () => {
+    const url = `/v1/transactions?where=${encodeURIComponent(JSON.stringify({ reference: { eq: 'invoice-42' } }))}`;
+    const [fastifyResponse, expressResponse] = await Promise.all([
+      requestFastify('GET', url),
+      requestExpress('GET', url),
+    ]);
+    expect(fastifyResponse.status).toBe(200);
+    expect(expressResponse.status).toBe(200);
+    expect(expressResponse.json).toEqual(fastifyResponse.json);
+    expect(fakeLedgerService.lastTransactionListQuery).toMatchObject({
+      where: { reference: { eq: 'invoice-42' } },
+    });
+
+    const invalidUrl = `/v1/transactions?where=${encodeURIComponent(JSON.stringify({ tenant_id: { eq: tenantId } }))}`;
+    const [fastifyInvalid, expressInvalid] = await Promise.all([
+      requestFastify('GET', invalidUrl),
+      requestExpress('GET', invalidUrl),
+    ]);
+    expect(fastifyInvalid.status).toBe(400);
+    expect(expressInvalid.status).toBe(400);
+    expect(expressInvalid.json).toEqual(fastifyInvalid.json);
+    expect(fakeLedgerService.lastTransactionListQuery).toMatchObject({
+      where: { reference: { eq: 'invoice-42' } },
+    });
+
+    const repeatedUrl = `/v1/transactions?where=${encodeURIComponent('{}')}&where=${encodeURIComponent('{}')}`;
+    const [fastifyRepeated, expressRepeated] = await Promise.all([
+      requestFastify('GET', repeatedUrl),
+      requestExpress('GET', repeatedUrl),
+    ]);
+    expect(fastifyRepeated.status).toBe(400);
+    expect(expressRepeated.status).toBe(400);
+    expect(expressRepeated.json).toEqual(fastifyRepeated.json);
   });
 
   it('keeps credit grant creation and lot response identical across adapters', async () => {

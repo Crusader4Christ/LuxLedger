@@ -1,5 +1,11 @@
 import type { EntryEntity } from '@luxledger/core';
-import type { TransactionService } from '@luxledger/core/application';
+import type { entryListFilter, TransactionService, WhereFor } from '@luxledger/core/application';
+import {
+  entryFilterFields,
+  invalidWhereError,
+  readWhereParameter,
+  whereQueryProperty,
+} from '@luxledger/http';
 import {
   type EntryResponse,
   entriesPageResponseSchema,
@@ -15,15 +21,27 @@ export class EntriesListRoute extends BasePaginatedRoute<
 > {
   protected readonly path = '/v1/entries';
 
+  protected querystringSchema() {
+    return super.querystringSchema({
+      properties: { where: whereQueryProperty(entryFilterFields) },
+    });
+  }
+
   public constructor(private readonly transactions: TransactionService) {
     super();
   }
 
   protected list(request: PaginatedRequest<ListEntriesQuery>) {
+    const where = readWhereParameter<WhereFor<typeof entryListFilter>>(
+      request.raw.url ?? '',
+      entryFilterFields,
+    );
+    if (where === null) throw invalidWhereError();
     return this.transactions.listEntries({
       tenantId: request.tenantId as string,
       limit: this.resolveLimit(request.query.limit),
       cursor: request.query.cursor,
+      where,
     });
   }
 

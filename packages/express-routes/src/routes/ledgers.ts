@@ -1,4 +1,5 @@
-import type { ApplicationServices } from '@luxledger/core/application';
+import type { ApplicationServices, ledgerListFilter, WhereFor } from '@luxledger/core/application';
+import { ledgerFilterFields, readWhereParameter } from '@luxledger/http';
 import {
   type CreateLedgerRequest,
   createLedgerBodySchema,
@@ -34,8 +35,16 @@ export const registerLedgerRoutes = (app: Application, services: LedgerRouteServ
 
   app.get('/v1/ledgers', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
+      const where = readWhereParameter<WhereFor<typeof ledgerListFilter>>(
+        req.originalUrl,
+        ledgerFilterFields,
+      );
+      if (where === null) {
+        sendInvalidInput(res, 'Invalid querystring');
+        return;
+      }
       const context = requireContext(req);
-      const ledgers = await services.ledgers.list(context.tenantId);
+      const ledgers = await services.ledgers.list(context.tenantId, where);
       res.status(200).json(ledgers);
     }),
   );

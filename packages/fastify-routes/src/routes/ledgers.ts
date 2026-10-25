@@ -1,8 +1,16 @@
 import type {
   BalanceService,
   LedgerService,
+  ledgerListFilter,
   TransactionService,
+  WhereFor,
 } from '@luxledger/core/application';
+import {
+  invalidWhereError,
+  ledgerFilterFields,
+  readWhereParameter,
+  whereQueryProperty,
+} from '@luxledger/http';
 import {
   type BulkCreateTransactionRequest,
   type BulkCreateTransactionResponse,
@@ -187,11 +195,16 @@ export class LedgerRoutes extends BaseRoute {
   }
 
   private registerGetLedgers(server: FastifyInstance): void {
-    server.get(
+    server.get<{ Querystring: { where?: string } }>(
       '/v1/ledgers',
       {
         errorHandler: handleValidationError,
         schema: {
+          querystring: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { where: whereQueryProperty(ledgerFilterFields) },
+          },
           response: {
             200: ledgersListResponseSchema,
           },
@@ -199,7 +212,12 @@ export class LedgerRoutes extends BaseRoute {
       },
       async (request, reply) =>
         this.handle(reply, async () => {
-          const ledgers = await this.ledgers.list(request.tenantId as string);
+          const where = readWhereParameter<WhereFor<typeof ledgerListFilter>>(
+            request.raw.url ?? '',
+            ledgerFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
+          const ledgers = await this.ledgers.list(request.tenantId as string, where);
           return reply.status(200).send(ledgers);
         }),
     );

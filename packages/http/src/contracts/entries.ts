@@ -1,5 +1,7 @@
+import { whereQueryProperty } from '../query/list-filter';
+import { entryFilterFields } from '../query/list-filter-fields';
 import type { InferSchema } from '../schema-types';
-import { createPaginatedResponseSchema, type paginationQuerySchema } from './pagination';
+import { createPaginatedResponseSchema, paginationQuerySchema } from './pagination';
 
 export const entryResponseSchema = {
   type: 'object',
@@ -17,6 +19,13 @@ export const entryResponseSchema = {
 
 export const entriesPageResponseSchema = createPaginatedResponseSchema(entryResponseSchema);
 
-export type ListEntriesQuery = InferSchema<typeof paginationQuerySchema>;
+export const listEntriesQuerySchema = {
+  ...paginationQuerySchema,
+  properties: {
+    ...paginationQuerySchema.properties,
+    where: whereQueryProperty(entryFilterFields),
+  },
+} as const;
+export type ListEntriesQuery = InferSchema<typeof listEntriesQuerySchema>;
 export type EntryResponse = InferSchema<typeof entryResponseSchema>;
 export type EntriesPageResponse = InferSchema<typeof entriesPageResponseSchema>;

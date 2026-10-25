@@ -1,4 +1,14 @@
-import type { ApplicationServices } from '@luxledger/core/application';
+import type {
+  ApplicationServices,
+  creditGrantListFilter,
+  creditLineageListFilter,
+  WhereFor,
+} from '@luxledger/core/application';
+import {
+  creditGrantFilterFields,
+  creditLineageFilterFields,
+  readWhereParameter,
+} from '@luxledger/http';
 import {
   type CreateCreditGrantRequest,
   createCreditGrantBodySchema,
@@ -85,11 +95,16 @@ export const registerCreditGrantRoutes = (
   app.get('/v1/credit-grants', async (req: RequestWithContext, res: Response) =>
     withDomainErrorHandling(res, async () => {
       const pagination = parsePaginationQuery(req.query);
+      const where = readWhereParameter<WhereFor<typeof creditGrantListFilter>>(
+        req.originalUrl,
+        creditGrantFilterFields,
+      );
       const accountId = parseUuidQuery(req.query.account_id);
       const reference = parseNonEmptyQuery(req.query.reference);
       const externalReference = parseNonEmptyQuery(req.query.external_reference);
       if (
         pagination === null ||
+        where === null ||
         (req.query.account_id !== undefined && accountId === null) ||
         reference === null ||
         externalReference === null
@@ -105,6 +120,7 @@ export const registerCreditGrantRoutes = (
         accountId: accountId ?? undefined,
         reference,
         externalReference,
+        where,
       });
       res.status(200).json(toPaginatedResponse(page, toCreditGrantResponse));
     }),
@@ -178,14 +194,25 @@ export const registerCreditGrantRoutes = (
           return;
         }
         const pagination = parsePaginationQuery(req.query);
-        if (pagination === null) {
+        const fields = path.endsWith('/credit-lots')
+          ? creditGrantFilterFields
+          : creditLineageFilterFields;
+        const where = path.endsWith('/credit-lots')
+          ? readWhereParameter<WhereFor<typeof creditGrantListFilter>>(req.originalUrl, fields)
+          : readWhereParameter<WhereFor<typeof creditLineageListFilter>>(req.originalUrl, fields);
+        if (pagination === null || where === null) {
           sendInvalidInput(res, 'Invalid querystring');
           return;
         }
         const { tenantId } = requireContext(req);
         res
           .status(200)
-          .json(toPaginatedResponse(await load(tenantId, params.id, pagination), toDto));
+          .json(
+            toPaginatedResponse(
+              await load(tenantId, params.id, { ...pagination, where } as never),
+              toDto,
+            ),
+          );
       }),
     );
   };

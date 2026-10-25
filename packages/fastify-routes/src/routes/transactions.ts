@@ -1,5 +1,15 @@
 import type { TransactionEntity } from '@luxledger/core';
-import type { TransactionService } from '@luxledger/core/application';
+import type {
+  TransactionService,
+  transactionListFilter,
+  WhereFor,
+} from '@luxledger/core/application';
+import {
+  invalidWhereError,
+  readWhereParameter,
+  transactionFilterFields,
+  whereQueryProperty,
+} from '@luxledger/http';
 import {
   type CorrectTransactionRequest,
   correctTransactionRequestSchema,
@@ -39,15 +49,27 @@ export class TransactionsRoutes extends BasePaginatedRoute<
   }
 
   protected querystringSchema() {
-    return super.querystringSchema(listTransactionsQuerySchemaExtra);
+    return super.querystringSchema({
+      ...listTransactionsQuerySchemaExtra,
+      properties: {
+        ...listTransactionsQuerySchemaExtra.properties,
+        where: whereQueryProperty(transactionFilterFields),
+      },
+    });
   }
 
   protected list(request: PaginatedRequest<ListTransactionsQuery>) {
+    const where = readWhereParameter<WhereFor<typeof transactionListFilter>>(
+      request.raw.url ?? '',
+      transactionFilterFields,
+    );
+    if (where === null) throw invalidWhereError();
     return this.transactions.list({
       tenantId: request.tenantId as string,
       limit: this.resolveLimit(request.query.limit),
       cursor: request.query.cursor,
       ledgerId: request.query.ledger_id,
+      where,
     });
   }
 

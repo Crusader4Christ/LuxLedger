@@ -44,7 +44,13 @@ type OpenApiOperation = {
 
 type OpenApiDocument = {
   components?: { schemas?: Record<string, OpenApiSchema> };
-  paths?: Record<string, { post?: OpenApiOperation }>;
+  paths?: Record<
+    string,
+    {
+      post?: OpenApiOperation;
+      get?: OpenApiOperation & { parameters?: Array<Record<string, unknown>> };
+    }
+  >;
 };
 
 describe('framework-agnostic contract suite', () => {
@@ -378,5 +384,33 @@ describe('framework-agnostic contract suite', () => {
     );
     assertPostContract('/v1/adjustments/credit', 'CreateAdjustmentRequest', 'Adjustment');
     assertPostContract('/v1/adjustments/debit', 'CreateAdjustmentRequest', 'Adjustment');
+  });
+
+  it('documents typed where parameters on every scoped list operation', () => {
+    const document = Bun.YAML.parse(readFileSync(openapiPath, 'utf8')) as OpenApiDocument;
+    const routes = {
+      '/v1/accounts': 'AccountsWhere',
+      '/v1/transactions': 'TransactionsWhere',
+      '/v1/entries': 'EntriesWhere',
+      '/v1/ledgers': 'LedgersWhere',
+      '/v1/admin/api-keys': 'ApiKeysWhere',
+      '/v1/reconciliation/matching-rules': 'ReconciliationRulesWhere',
+      '/v1/credit-grants': 'CreditGrantsWhere',
+      '/v1/credit-grants/{id}/allocations': 'CreditLineageWhere',
+      '/v1/transactions/{id}/credit-allocations': 'CreditLineageWhere',
+      '/v1/accounts/{id}/credit-lots': 'CreditGrantsWhere',
+      '/v1/accounts/{id}/balance-history': 'BalanceHistoryWhere',
+    };
+    for (const [path, schema] of Object.entries(routes)) {
+      const parameters = document.paths?.[path]?.get?.parameters ?? [];
+      const where = parameters.find((parameter) => parameter.name === 'where');
+      expect(where).toBeDefined();
+      expect(where).toMatchObject({
+        in: 'query',
+        required: false,
+        content: { 'application/json': { schema: { $ref: `#/components/schemas/${schema}` } } },
+      });
+      expect(document.components?.schemas?.[schema]?.additionalProperties).toBe(false);
+    }
   });
 });

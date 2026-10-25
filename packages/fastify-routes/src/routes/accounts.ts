@@ -1,5 +1,19 @@
 import type { AccountEntity, AccountSide } from '@luxledger/core';
-import type { AccountService, BalanceService, StatementService } from '@luxledger/core/application';
+import type {
+  AccountService,
+  accountListFilter,
+  BalanceService,
+  balanceHistoryListFilter,
+  StatementService,
+  WhereFor,
+} from '@luxledger/core/application';
+import {
+  accountFilterFields,
+  balanceHistoryFilterFields,
+  invalidWhereError,
+  readWhereParameter,
+  whereQueryProperty,
+} from '@luxledger/http';
 import {
   type AccountByIdParams,
   type AccountResponse,
@@ -23,6 +37,7 @@ import {
   type StatementQuery,
   statementQuerySchema,
 } from '@luxledger/http/contracts';
+import { invalidInputPayload } from '@luxledger/http/errors';
 import {
   toAccountResponse,
   toAccountStatementResponse,
@@ -116,7 +131,13 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       {
         errorHandler: handleValidationError,
         schema: {
-          querystring: createPaginationQuerySchema(listAccountsQuerySchemaExtra),
+          querystring: createPaginationQuerySchema({
+            ...listAccountsQuerySchemaExtra,
+            properties: {
+              ...listAccountsQuerySchemaExtra.properties,
+              where: whereQueryProperty(accountFilterFields),
+            },
+          }),
           response: {
             200: accountsPageResponseSchema,
           },
@@ -124,11 +145,18 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
       },
       async (request, reply) => {
         return this.handle(reply, async () => {
+          const where = readWhereParameter<WhereFor<typeof accountListFilter>>(
+            request.raw.url ?? '',
+            accountFilterFields,
+          );
+          if (where === null)
+            return reply.status(400).send(invalidInputPayload('Invalid querystring'));
           const page = await this.accounts.list({
             tenantId: request.tenantId as string,
             limit: resolvePaginationLimit(request.query.limit),
             cursor: request.query.cursor,
             ledgerId: request.query.ledger_id,
+            where,
           });
 
           return reply.status(200).send({
@@ -170,18 +198,32 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
   }
 
   private registerGetBalanceHistory(server: FastifyInstance): void {
-    server.get<{ Params: AccountByIdParams; Querystring: BalanceHistoryQuery }>(
+    server.get<{
+      Params: AccountByIdParams;
+      Querystring: BalanceHistoryQuery & { where?: string };
+    }>(
       '/v1/accounts/:id/balance-history',
       {
         errorHandler: handleValidationError,
         schema: {
           params: accountByIdParamsSchema,
-          querystring: balanceHistoryQuerySchema,
+          querystring: {
+            ...balanceHistoryQuerySchema,
+            properties: {
+              ...balanceHistoryQuerySchema.properties,
+              where: whereQueryProperty(balanceHistoryFilterFields),
+            },
+          },
           response: { 200: balanceHistoryResponseSchema },
         },
       },
       async (request, reply) =>
         this.handle(reply, async () => {
+          const where = readWhereParameter<WhereFor<typeof balanceHistoryListFilter>>(
+            request.raw.url ?? '',
+            balanceHistoryFilterFields,
+          );
+          if (where === null) throw invalidWhereError();
           const page = await this.balances.listHistory({
             tenantId: request.tenantId as string,
             accountId: request.params.id,
@@ -189,6 +231,7 @@ export class AccountsRoutes extends BaseEntityRoute<AccountEntity, AccountRespon
             to: new Date(request.query.to),
             limit: resolvePaginationLimit(request.query.limit),
             cursor: request.query.cursor,
+            where,
           });
           return reply.status(200).send({
             data: page.data.map((item) => ({
