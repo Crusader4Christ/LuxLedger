@@ -155,7 +155,7 @@ export const whereQueryProperty = (fields: FilterFields): UnknownRecord => ({
 });
 
 export const readWhereParameter = <T>(url: string, fields: FilterFields): T | undefined | null => {
-  const params = new URL(url, 'http://luxledger.local').searchParams;
+  const params = new URL(url, 'http://localhost').searchParams;
   const values = params.getAll('where');
   if ([...params.keys()].some((key) => key.startsWith('where[') || key.startsWith('where.')))
     return null;
